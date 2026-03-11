@@ -6,9 +6,10 @@ AI4M 设备驱动
 import json
 import time
 import traceback
-from typing import Optional
+from typing import Optional, List
 import os
 import threading
+import requests
 
 from unilabos.resources.resource_tracker import ResourceTreeSet, SampleUUIDsType, LabSample
 from unilabos.utils.log import logger
@@ -36,6 +37,8 @@ class AI4M002Device(OpcUaClientWithSubscription):
         use_subscription: bool = True,
         cache_timeout: float = 5.0,
         subscription_interval: int = 500,
+        bts_base_url: str = "http://localhost:8089",
+        bts_validate_code: str = "bts-validate-code-2024",
         *args,
         **kwargs,
     ):
@@ -86,6 +89,12 @@ class AI4M002Device(OpcUaClientWithSubscription):
         # 如果提供了 CSV 路径，则直接加载节点
         if csv_path:
             self.load_nodes_from_csv(csv_path)
+
+        # BTS HTTP API 配置
+        self._bts_base_url = bts_base_url
+        self._bts_validate_code = bts_validate_code
+        self._bts_session = requests.Session()
+        self._bts_validated = False
 
     @not_action
     def post_init(self, ros_node):
@@ -1282,9 +1291,276 @@ class AI4M002Device(OpcUaClientWithSubscription):
             "unilabos_samples": [LabSample(sample_uuid=sample_uuid, oss_path="", extra={"station_id": station_id, "stir_speed": stir_speed, "heat_temp": heat_temp, "time_set": time_set} if isinstance(content, str) else content.serialize()) for sample_uuid, content in (sample_uuids.items() if sample_uuids else {})]
         }
 
+    def trigger_electrolytic_cell_bts_reaction(
+        self,
+        electrolytic_cell_id: int,
+        sample_uuids: SampleUUIDsType = None,
+    ) -> dict:
+        """
+        触发电解池BTS反应
+
+        对应电解池有请求加工信号时，触发BTS反应，并通过OPC UA信号与PLC同步加工流程。
+
+        流程：
+        1. 检查电解池是否有请求加工信号
+        2. 触发BTS反应（调用 bts_start_cp_test）
+        3. 将开始加工信号和加工完成信号置0
+        4. Sleep 1s 后将开始加工信号置1
+        5. 等待加工完成信号为1时，将开始加工信号置0
+
+        Args:
+            electrolytic_cell_id: 电解池编号（1或2）
+            sample_uuids: 样品UUID，可为空
+
+        Returns:
+            dict: 包含 electrolytic_cell_id 和 message
+        """
+        if electrolytic_cell_id not in (1, 2):
+            error_msg = f"电解池编号必须为1或2，当前值: {electrolytic_cell_id}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        request_node = f"Electrolytic_Cell_{electrolytic_cell_id}_Request"
+        start_node = f"Electrolytic_Cell_{electrolytic_cell_id}_Start"
+        done_node = f"Electrolytic_Cell_{electrolytic_cell_id}_Done"
+        cell_name = f"电解池{electrolytic_cell_id}"
+
+        logger.info(f"开始触发{cell_name} BTS反应...")
+
+        # 检查是否有请求加工信号
+        request_signal = self.get_node_value(request_node)
+        if not request_signal:
+            error_msg = f"{cell_name}无请求加工信号，无法触发BTS反应"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        logger.info(f"{cell_name}有请求加工信号，触发BTS反应...")
+
+        # 触发BTS反应，同时将开始加工信号和加工完成信号置0
+        bts_thread = threading.Thread(
+            target=self.bts_start_cp_test,
+            kwargs={"chl_list": [electrolytic_cell_id]},
+            daemon=True,
+        )
+        bts_thread.start()
+        self.set_node_value(start_node, False)
+        self.set_node_value(done_node, False)
+        logger.info(f"{cell_name}开始加工信号和加工完成信号已置0")
+
+        # sleep 1s 后将开始加工信号置1
+        time.sleep(1.0)
+        logger.info(f"设置{cell_name}开始加工信号为True...")
+        self.set_node_value(start_node, True)
+
+        # 等待加工完成信号为1
+        logger.info(f"等待{cell_name}加工完成...")
+        done = self.get_node_value(done_node)
+        while not done:
+            logger.info(f"{cell_name}加工中...")
+            time.sleep(1.0)
+            done = self.get_node_value(done_node)
+
+        # 将开始加工信号置0
+        logger.info(f"{cell_name}加工完成，复位开始加工信号...")
+        self.set_node_value(start_node, False)
+
+        logger.info(f"{cell_name} BTS反应流程完成")
+
+        return {
+            "electrolytic_cell_id": electrolytic_cell_id,
+            "message": f"{cell_name} BTS反应完成",
+            "unilabos_samples": [
+                LabSample(
+                    sample_uuid=sample_uuid,
+                    oss_path="",
+                    extra={"electrolytic_cell_id": electrolytic_cell_id},
+                )
+                for sample_uuid, content in (sample_uuids.items() if sample_uuids else {})
+            ],
+        }
+
+    # ==================== BTS HTTP API 驱动（CP计时电位法） ====================
+
+    def bts_start_cp_test(
+            self,
+            chl_list: List[int],
+            duration_sec: int = 20,  # 秒，内部转为 ms 传给 API
+            current: float = 50.0,  # mA
+            dev_uuid: Optional[str] = None,
+        ) -> dict:
+            """BTS 启动 CP 计时电位法测试（内部自动执行校验、获取设备信息、获取通道状态）"""
+            # 1. 校验
+            url = f"{self._bts_base_url}/api/bts/validate"
+            payload = {"cmd-type": 1, "request-id": f"validate-{int(time.time())}", "data": {"check-id": self._bts_validate_code}}
+            response = self._bts_session.post(url, json=payload)
+            self._bts_validated = response.status_code == 200
+            logger.info(f"BTS 校验: 状态码={response.status_code}, 响应={response.text}")
+            if not self._bts_validated:
+                return {"success": False, "message": "BTS校验失败", "test_id": None, "response": response.text}
+            # 2. 获取设备信息
+            url = f"{self._bts_base_url}/api/bts/device/info"
+            payload = {"cmd-type": 2, "request-id": f"device-info-{int(time.time())}"}
+            response = self._bts_session.get(url, json=payload)
+            if response.status_code != 200:
+                return {"success": False, "message": f"获取设备信息失败: {response.text}", "test_id": None}
+            devices = response.json().get("data", {}).get("dev-list", [])
+            logger.info(f"BTS 设备信息: 发现 {len(devices)} 个设备")
+            if not devices:
+                return {"success": False, "message": "未发现可用设备", "test_id": None}
+            # 单设备时自动使用，多设备时需传入 dev_uuid
+            if dev_uuid is None:
+                if len(devices) > 1:
+                    return {"success": False, "message": "多设备时需指定 dev_uuid", "test_id": None}
+                dev_uuid = devices[0]["dev-uuid"]
+            # 3. 获取通道状态
+            url = f"{self._bts_base_url}/api/bts/test/state"
+            payload = {"cmd-type": 5, "request-id": f"channel-state-{int(time.time())}", "data": [{"dev-uuid": dev_uuid, "chl-list": chl_list}]}
+            response = self._bts_session.post(url, json=payload)
+            logger.info(f"BTS 通道状态: 状态码={response.status_code}, 响应={response.text}")
+            url = f"{self._bts_base_url}/api/bts/test/start"
+            test_id = f"test-cp-{int(time.time())}"
+            payload = {
+                "cmd-type": 3,
+                "request-id": f"start-test-{int(time.time())}",
+                "data": {
+                    "test-id": test_id,
+                    "dev-ip": dev_uuid,
+                    "chl-list": chl_list,
+                    "globalProtect": {
+                        "voltageProtect": {
+                            "underVoltage": 0,
+                            "overVoltage": 5,
+                            "enableUnderVoltage": True,
+                            "enableOverVoltage": True,
+                            "enableRangeProtect": False,
+                            "delayTime": 0,
+                            "enableDelay": False
+                        },
+                        "currentProtect": {
+                            "charge": 5000,
+                            "discharge": 5000,
+                            "enableCharge": True,
+                            "enableDischarge": True,
+                            "enableRangeProtect": False
+                        }
+                    },
+                    "globalRecordCondi": {
+                        "electricCurrent": 0,
+                        "enable_electricCurrent": False,
+                        "enable_time": True,
+                        "enable_voltage": False,
+                        "time": 1000,
+                        "voltage": 0
+                    },
+                    "batteryInfo": {
+                        "creator": "test-user",
+                        "weight": 100,
+                        "batteryBatchNum": "",
+                        "currentUpperLimit": 5000,
+                        "voltageUpperLimit": 5,
+                        "voltageLowerLimit": 0
+                    },
+                    "stepList": [
+                        {
+                            "type": 21,
+                            "pType": 0,
+                            "mode": 1,
+                            "mPara": current,
+                            "rateMode": False,
+                            "rateValue": 0,
+                            "recordCondi": {
+                                "enable_time": True,
+                                "time": 1000,
+                                "enable_voltage": False,
+                                "voltage": 0
+                            },
+                            "endCondi": [
+                                {
+                                    "also": True,
+                                    "rateMode": False,
+                                    "rateModeType": 0,
+                                    "rateValue": 0,
+                                    "relation": 1,
+                                    "type": 3,
+                                    "userCustomVariable-arithmetic": 0,
+                                    "userCustomVariable-isVariable": False,
+                                    "userCustomVariable-value": 0,
+                                    "userCustomVariable-value2": 0,
+                                    "userCustomVariable-variableParam": 0,
+                                    "userCustomVariable-variableParam2": 0,
+                                    "value": duration_sec * 1000
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+            response = self._bts_session.post(url, json=payload)
+            success = response.status_code == 200
+            logger.info(f"BTS 启动 CP 测试: 状态码={response.status_code}, 响应={response.text}")
+            if success:
+                timeout_sec = duration_sec + 10
+                state_url = f"{self._bts_base_url}/api/bts/test/state"
+                start = time.time()
+                time.sleep(5)  # 先等测试真正启动，避免拿到启动前的 state=0 误判
+                while True:
+                    if time.time() - start > timeout_sec:
+                        return {"success": False, "message": "BTS故障", "test_id": test_id, "response": "超时未检测到通道状态为0"}
+                    state_payload = {"cmd-type": 5, "request-id": f"channel-state-{int(time.time())}", "data": [{"dev-uuid": dev_uuid, "chl-list": chl_list}]}
+                    r = self._bts_session.post(state_url, json=state_payload)
+                    if r.status_code == 200:
+                        dev_info = r.json().get("data", {}).get("dev-info", [])
+                        ch_states = {cs["chl"]: cs.get("state") for dev in dev_info for cs in dev.get("chl-state", []) if cs.get("chl") in chl_list}
+                        logger.info(f"轮询通道状态: {ch_states}")
+                        all_zero = all(ch_states.get(ch) == 0 for ch in chl_list)
+                        if all_zero:
+                            logger.info("通道状态已为0，测试完成，调用停止")
+                            self.bts_stop_test(dev_uuid, chl_list)
+                            break
+                    time.sleep(5)
+            return {"success": success, "test_id": test_id if success else None, "message": "启动CP测试成功" if success else "启动测试失败", "response": response.text}
+
+    def bts_get_channel_state(self, chl_list: List[int], dev_uuid: Optional[str] = None) -> dict:
+        """BTS 查询通道状态（单设备时 dev_uuid 可省略）"""
+        if not self._bts_validated:
+            url = f"{self._bts_base_url}/api/bts/validate"
+            r = self._bts_session.post(url, json={"cmd-type": 1, "request-id": f"validate-{int(time.time())}", "data": {"check-id": self._bts_validate_code}})
+            self._bts_validated = r.status_code == 200
+            if not self._bts_validated:
+                return {"success": False, "message": "BTS校验失败", "response": r.text}
+        if dev_uuid is None:
+            url = f"{self._bts_base_url}/api/bts/device/info"
+            response = self._bts_session.get(url, json={"cmd-type": 2, "request-id": f"device-info-{int(time.time())}"})
+            if response.status_code != 200:
+                return {"success": False, "message": f"获取设备信息失败: {response.text}"}
+            devices = response.json().get("data", {}).get("dev-list", [])
+            if len(devices) != 1:
+                return {"success": False, "message": "多设备时需指定 dev_uuid"}
+            dev_uuid = devices[0]["dev-uuid"]
+        url = f"{self._bts_base_url}/api/bts/test/state"
+        payload = {"cmd-type": 5, "request-id": f"channel-state-{int(time.time())}", "data": [{"dev-uuid": dev_uuid, "chl-list": chl_list}]}
+        response = self._bts_session.post(url, json=payload)
+        logger.info(f"BTS 通道状态: 状态码={response.status_code}, 响应={response.text}")
+        return {"success": response.status_code == 200, "response": response.text}
+
+    def bts_stop_test(self, dev_uuid: str, chl_list: List[int]) -> dict:
+        """BTS 停止测试"""
+        if not self._bts_validated:
+            return {"success": False, "message": "请先通过 bts_validate 校验"}
+        url = f"{self._bts_base_url}/api/bts/test/stop"
+        payload = {
+            "cmd-type": 4,
+            "request-id": f"stop-test-{int(time.time())}",
+            "data": {"dev-ip": dev_uuid, "chl-list": chl_list}
+        }
+        response = self._bts_session.post(url, json=payload)
+        success = response.status_code == 200
+        logger.info(f"BTS 停止测试: 状态码={response.status_code}, 响应={response.text}")
+        return {"success": success, "message": "停止测试成功" if success else "停止测试失败", "response": response.text}
 
 
 if __name__ == '__main__':
+    
     # 调试用法
     A4 = AI4M002Device(
         url="opc.tcp://127.0.0.1:49320",
@@ -1292,27 +1568,32 @@ if __name__ == '__main__':
     )
     
     
-    A4.trigger_init()
-    print("初始化完成")
+    # A4.trigger_init()
+    # print("初始化完成")
+    # A4.bts_start_cp_test(chl_list=[2], duration_sec=10, current=50.0)
+    # print("CP测试完成")
+
+    result = A4.trigger_electrolytic_cell_bts_reaction(electrolytic_cell_id=1)
+    print(f"电解池BTS反应完成: {result}")
+
+    # # 给水凝胶堆栈A1位置添加clean物料
+    # rack_warehouse = A4.deck.warehouses["水凝胶烧杯堆栈"]
+    # clean_carrier = Hydrogel_Clean_1BottleCarrier("烧杯")
     
-    # 给水凝胶堆栈A1位置添加clean物料
-    rack_warehouse = A4.deck.warehouses["水凝胶烧杯堆栈"]
-    clean_carrier = Hydrogel_Clean_1BottleCarrier("烧杯")
+    # # 获取A1位置的索引和位置信息
+    # rack_site_key = "A1"
+    # rack_site_idx = list(rack_warehouse._ordering.keys()).index(rack_site_key)
+    # rack_location = rack_warehouse.child_locations[rack_site_key]
     
-    # 获取A1位置的索引和位置信息
-    rack_site_key = "A1"
-    rack_site_idx = list(rack_warehouse._ordering.keys()).index(rack_site_key)
-    rack_location = rack_warehouse.child_locations[rack_site_key]
+    # # 将载具分配到A1位置
+    # rack_warehouse.assign_child_resource(clean_carrier, location=rack_location, spot=rack_site_idx)
+    # print(f"✓ 已添加clean物料到A1位置: {clean_carrier.name}")
     
-    # 将载具分配到A1位置
-    rack_warehouse.assign_child_resource(clean_carrier, location=rack_location, spot=rack_site_idx)
-    print(f"✓ 已添加clean物料到A1位置: {clean_carrier.name}")
+    # pick_result = A4.trigger_robot_pick_beaker(1, 1)
+    # print("取烧杯完成")
     
-    pick_result = A4.trigger_robot_pick_beaker(1, 1)
-    print("取烧杯完成")
-    
-    A4.trigger_robot_place_beaker(pick_result['pick_beaker_id'], pick_result['place_station_id'])
-    print("放烧杯完成")
+    # A4.trigger_robot_place_beaker(pick_result['pick_beaker_id'], pick_result['place_station_id'])
+    # print("放烧杯完成")
     
     # while True:
     #     time.sleep(1)
