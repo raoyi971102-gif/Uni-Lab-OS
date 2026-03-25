@@ -68,9 +68,9 @@
             },
             "pose": {
                 "size": {
-                    "width": 1217,
-                    "height": 1460,
-                    "depth": 1580
+                    "width": 1460,
+                    "height": 1580,
+                    "depth": 2670
                 }
             },
             "config": {
