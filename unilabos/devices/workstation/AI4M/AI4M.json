@@ -10,7 +10,7 @@
             "type": "device",
             "class": "AI4M_station",
             "position": {
-                "x": 1550,
+                "x": 250,
                 "y": 0,
                 "z": 0
             },
@@ -43,7 +43,7 @@
             "type": "deck",
             "class": "AI4M_deck",
             "position": {
-                "x": 1550,
+                "x": 250,
                 "y": 0,
                 "z": 0
             },
@@ -62,15 +62,15 @@
             "type": "device",
             "class": "AI4M002_station",
             "position": {
-                "x": 250,
+                "x": 1550,
                 "y": 0,
                 "z": 0
             },
             "pose": {
                 "size": {
                     "width": 1217,
-                    "height": 1320,
-                    "depth": 2670
+                    "height": 1460,
+                    "depth": 1580
                 }
             },
             "config": {
@@ -95,7 +95,7 @@
             "type": "deck",
             "class": "AI4M002_deck",
             "position": {
-                "x": 250,
+                "x": 1550,
                 "y": 0,
                 "z": 0
             },
