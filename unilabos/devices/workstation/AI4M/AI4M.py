@@ -114,7 +114,13 @@ class AI4MDevice(OpcUaClientWithSubscription):
             logger.info("Deck 已上传到云端")
         except Exception as e:
             logger.error(f"上传失败: {e}")
-   
+
+    def _reset_station_process_flags(self, station_id: int) -> None:
+        """复位检测站工艺完成、开始、参数已执行（与 trigger_station_process 入口处写入一致）。"""
+        self.set_node_value(f"station_{station_id}_process_complete", False)
+        self.set_node_value(f"station_{station_id}_start", False)
+        self.set_node_value(f"station_{station_id}_params_received", False)
+
     # ==================== 设备动作函数 ====================
     
     def start_manual_mode(self) -> dict:
@@ -322,8 +328,9 @@ class AI4MDevice(OpcUaClientWithSubscription):
                     except Exception as e:
                         logger.warning(f"从堆栈解绑载具失败（不影响硬件操作）: {e}")
 
-                    # 阶段2：取完成后再下发放检测编号并等待完成
+                    # 阶段2：取完成后再下发放检测编号并等待完成（先复位该检测站 OPC 标志，再下发编号）
                     logger.info("取完成，开始下发放检测编号...")
+                    self._reset_station_process_flags(place_station_id)
                     self.set_node_value("robot_place_station_id", place_station_id)
 
                     # 等待放检测完成
@@ -560,10 +567,8 @@ class AI4MDevice(OpcUaClientWithSubscription):
         params_received_node = f"station_{station_id}_params_received"
         start_node = f"station_{station_id}_start"
         complete_node = f"station_{station_id}_process_complete"
-        
-        self.set_node_value(complete_node, False)
-        self.set_node_value(start_node, False)
-        self.set_node_value(params_received_node, False)
+
+        self._reset_station_process_flags(station_id)
 
         # 阶段1：等待检测站请求参数
         logger.info(f"等待检测{station_id}请求参数...")
@@ -617,6 +622,7 @@ class AI4MDevice(OpcUaClientWithSubscription):
     def trigger_init(self) -> dict:
         """
         初始化函数：
+        - 报警复位：alarm_reset 置 true，延时 1 秒后置 false
         - 将手自动切换写false
         - 等待自动模式为false
         - 将初始化PC写true
@@ -628,7 +634,11 @@ class AI4MDevice(OpcUaClientWithSubscription):
             dict: 包含 success 和 message
         """
         logger.info("开始初始化...")
-        
+        logger.info("报警复位...")
+        self.set_node_value("alarm_reset", True)
+        time.sleep(1.0)
+        self.set_node_value("alarm_reset", False)
+
         # 将手自动切换写false
         logger.info("设置手自动切换为false...")
         self.set_node_value("manual_auto_switch", False)
@@ -788,15 +798,22 @@ class AI4MDevice(OpcUaClientWithSubscription):
 
 if __name__ == '__main__':
     # 调试用法
+    # A4 = AI4MDevice(
+    #     url="opc.tcp://127.0.0.1:49320",
+    #     csv_path="opcua_nodes_AI4M_sim.csv"
+    # )
     A4 = AI4MDevice(
-        url="opc.tcp://127.0.0.1:49320",
-        csv_path="opcua_nodes_AI4M_sim.csv"
+        url="opc.tcp://192.168.1.10:4840",
+        csv_path="opcua_nodes_AI4M.csv"
     )
-    
     
     A4.trigger_init()
     print("初始化完成")
     
+
+    while True:
+        time.sleep(1)
+
     # 给水凝胶堆栈A1位置添加clean物料
     rack_warehouse = A4.deck.warehouses["水凝胶烧杯堆栈"]
     clean_carrier = Hydrogel_Clean_1BottleCarrier("烧杯")

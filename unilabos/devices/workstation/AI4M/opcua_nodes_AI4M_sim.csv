@@ -1,4 +1,4 @@
-﻿Name,EnglishName,NodeType,DataType,NodeLanguage,NodeId
+Name,EnglishName,NodeType,DataType,NodeLanguage,NodeId
 磁力搅拌参数设置_C[0].搅拌速度,mag_stirrer_c0_stir_speed,VARIABLE,INT16,Chinese,ns=2;s=AI4M.设备 1.磁力搅拌参数设置_C[0].搅拌速度
 磁力搅拌参数设置_C[0].加热温度,mag_stirrer_c0_heat_temp,VARIABLE,INT16,Chinese,ns=2;s=AI4M.设备 1.磁力搅拌参数设置_C[0].加热温度
 磁力搅拌参数设置_C[0].时间设置,mag_stirrer_c0_time_set,VARIABLE,INT16,Chinese,ns=2;s=AI4M.设备 1.磁力搅拌参数设置_C[0].时间设置
@@ -125,6 +125,7 @@
 模式切换,mode_switch,VARIABLE,BOOLEAN,Chinese,ns=2;s=AI4M.设备 1.模式切换
 初始化PC,initialize,VARIABLE,BOOLEAN,Chinese,ns=2;s=AI4M.设备 1.初始化PC
 初始化完成PC,init finished,VARIABLE,BOOLEAN,Chinese,ns=2;s=AI4M.设备 1.初始化完成PC
+报警复位,alarm_reset,VARIABLE,BOOLEAN,Chinese,ns=2;s=AI4M.设备 1.报警复位
 手自动切换,manual_auto_switch,VARIABLE,BOOLEAN,Chinese,ns=2;s=AI4M.设备 1.手自动切换
 自动模式PC,auto_mode,VARIABLE,BOOLEAN,Chinese,ns=2;s=AI4M.设备 1.自动模式PC
 自动作业参数已下发,auto_param_downloaded,VARIABLE,BOOLEAN,Chinese,ns=2;s=AI4M.设备 1.自动作业参数已下发
