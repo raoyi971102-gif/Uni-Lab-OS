@@ -22,7 +22,7 @@
                 }
             },
             "config": {
-                "url": "opc.tcp://127.0.0.1:49320",
+                "url": "opc.tcp://10.20.30.102:49320",
                 "csv_path": "opcua_nodes_AI4M_sim.csv",
                 "deck": {
                     "data": {
@@ -74,7 +74,7 @@
                 }
             },
             "config": {
-                "url": "opc.tcp://127.0.0.1:49320",
+                "url": "opc.tcp://10.20.30.102:49320",
                 "csv_path": "opcua_nodes_AI4M_sim.csv",
                 "deck": {
                     "data": {
