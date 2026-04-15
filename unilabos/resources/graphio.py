@@ -76,7 +76,7 @@ def canonicalize_nodes_data(
             if sample_id:
                 logger.error(f"{node}的sample_id参数已弃用，sample_id: {sample_id}")
         for k in list(node.keys()):
-            if k not in ["id", "uuid", "name", "description", "schema", "model", "icon", "parent_uuid", "parent", "type", "class", "position", "config", "data", "children", "pose"]:
+            if k not in ["id", "uuid", "name", "description", "schema", "model", "icon", "parent_uuid", "parent", "type", "class", "position", "config", "data", "children", "pose", "extra", "machine_name"]:
                 v = node.pop(k)
                 node["config"][k] = v
     if outer_host_node_id is not None:
@@ -288,6 +288,15 @@ def read_node_link_json(
     physical_setup_graph = nx.node_link_graph(graph_data, edges="links", multigraph=False)
     handle_communications(physical_setup_graph)
 
+    # Stamp machine_name on device trees only (resources are cloud-managed)
+    local_machine = BasicConfig.machine_name or "本地"
+    for tree in resource_tree_set.trees:
+        if tree.root_node.res_content.type != "device":
+            continue
+        for node in tree.get_all_nodes():
+            if not node.res_content.machine_name:
+                node.res_content.machine_name = local_machine
+
     return physical_setup_graph, resource_tree_set, standardized_links
 
 
@@ -371,6 +380,15 @@ def read_graphml(graphml_file: str) -> tuple[nx.Graph, ResourceTreeSet, List[Dic
         print_status(f"GraphML converted to JSON and saved to {dump_json_path}", "info")
     physical_setup_graph = nx.node_link_graph(graph_data, link="links", multigraph=False)
     handle_communications(physical_setup_graph)
+
+    # Stamp machine_name on device trees only (resources are cloud-managed)
+    local_machine = BasicConfig.machine_name or "本地"
+    for tree in resource_tree_set.trees:
+        if tree.root_node.res_content.type != "device":
+            continue
+        for node in tree.get_all_nodes():
+            if not node.res_content.machine_name:
+                node.res_content.machine_name = local_machine
 
     return physical_setup_graph, resource_tree_set, standardized_links
 
@@ -1015,7 +1033,7 @@ def resource_plr_to_bioyond(plr_resources: list[ResourcePLR], type_mapping: dict
                     logger.debug(f"🔍 [PLR→Bioyond] detail转换: {bottle.name} → PLR(x={site['x']},y={site['y']},id={site.get('identifier','?')}) → Bioyond(x={bioyond_x},y={bioyond_y})")
 
                     # 🔥 提取物料名称：从 tracker.liquids 中获取第一个液体的名称（去除PLR系统添加的后缀）
-                    # tracker.liquids 格式: [(物料名称, 数量), ...]
+                    # tracker.liquids 格式: [(物料名称, 数量, 单位), ...]
                     material_name = bottle_type_info[0]  # 默认使用类型名称（如"样品瓶"）
                     if hasattr(bottle, "tracker") and bottle.tracker.liquids:
                         # 如果有液体，使用液体的名称
@@ -1033,7 +1051,7 @@ def resource_plr_to_bioyond(plr_resources: list[ResourcePLR], type_mapping: dict
                         "typeId": bottle_type_info[1],
                         "code": bottle.code if hasattr(bottle, "code") else "",
                         "name": material_name,  # 使用物料名称（如"9090"），而不是类型名称（"样品瓶"）
-                        "quantity": sum(qty for _, qty in bottle.tracker.liquids) if hasattr(bottle, "tracker") else 0,
+                        "quantity": sum(qty for _, qty, *_ in bottle.tracker.liquids) if hasattr(bottle, "tracker") else 0,
                         "x": bioyond_x,
                         "y": bioyond_y,
                         "z": 1,
@@ -1106,7 +1124,7 @@ def resource_plr_to_bioyond(plr_resources: list[ResourcePLR], type_mapping: dict
                 "barCode": "",
                 "name": material_name,  # 使用物料名称而不是资源名称
                 "unit": default_unit,  # 使用配置的单位或默认单位
-                "quantity": sum(qty for _, qty in bottle.tracker.liquids) if hasattr(bottle, "tracker") else 0,
+                "quantity": sum(qty for _, qty, *_ in bottle.tracker.liquids) if hasattr(bottle, "tracker") else 0,
                 "Parameters": parameters_json  # API 实际要求的字段（必需）
             }
 

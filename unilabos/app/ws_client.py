@@ -26,6 +26,7 @@ from enum import Enum
 from typing_extensions import TypedDict
 
 from unilabos.app.model import JobAddReq
+from unilabos.resources.resource_tracker import ResourceDictType
 from unilabos.ros.nodes.presets.host_node import HostNode
 from unilabos.utils.type_check import serialize_result_info
 from unilabos.app.communication import BaseCommunicationClient
@@ -408,6 +409,7 @@ class MessageProcessor:
         # 线程控制
         self.is_running = False
         self.thread = None
+        self._loop = None  # asyncio event loop引用，用于外部关闭websocket
         self.reconnect_count = 0
 
         logger.info(f"[MessageProcessor] Initialized for URL: {websocket_url}")
@@ -434,22 +436,31 @@ class MessageProcessor:
     def stop(self) -> None:
         """停止消息处理线程"""
         self.is_running = False
+        # 主动关闭websocket以快速中断消息接收循环
+        ws = self.websocket
+        loop = self._loop
+        if ws and loop and loop.is_running():
+            try:
+                asyncio.run_coroutine_threadsafe(ws.close(), loop)
+            except Exception:
+                pass
         if self.thread and self.thread.is_alive():
             self.thread.join(timeout=2)
         logger.info("[MessageProcessor] Stopped")
 
     def _run(self):
         """运行消息处理主循环"""
-        loop = asyncio.new_event_loop()
+        self._loop = asyncio.new_event_loop()
         try:
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(self._connection_handler())
+            asyncio.set_event_loop(self._loop)
+            self._loop.run_until_complete(self._connection_handler())
         except Exception as e:
             logger.error(f"[MessageProcessor] Thread error: {str(e)}")
             logger.error(traceback.format_exc())
         finally:
-            if loop:
-                loop.close()
+            if self._loop:
+                self._loop.close()
+            self._loop = None
 
     async def _connection_handler(self):
         """处理WebSocket连接和重连逻辑"""
@@ -466,8 +477,10 @@ class MessageProcessor:
                 async with websockets.connect(
                     self.websocket_url,
                     ssl=ssl_context,
+                    open_timeout=20,
                     ping_interval=WSConfig.ping_interval,
                     ping_timeout=10,
+                    close_timeout=5,
                     additional_headers={
                         "Authorization": f"Lab {BasicConfig.auth_secret()}",
                         "EdgeSession": f"{self.session_id}",
@@ -478,81 +491,94 @@ class MessageProcessor:
                     self.connected = True
                     self.reconnect_count = 0
 
-                    logger.trace(f"[MessageProcessor] Connected to {self.websocket_url}")
+                    logger.info(f"[MessageProcessor] 已连接到 {self.websocket_url}")
 
                     # 启动发送协程
-                    send_task = asyncio.create_task(self._send_handler())
+                    send_task = asyncio.create_task(self._send_handler(), name="websocket-send_task")
+
+                    # 每次连接（含重连）后重新向服务端注册，
+                    # 否则服务端不知道客户端已上线，不会推送消息。
+                    if self.websocket_client:
+                        self.websocket_client.publish_host_ready()
 
                     try:
                         # 接收消息循环
                         await self._message_handler()
                     finally:
+                        # 必须在 async with __aexit__ 之前停止 send_task，
+                        # 否则 send_task 会在关闭握手期间继续发送数据，
+                        # 干扰 websockets 库的内部清理，导致 task 泄漏。
+                        self.connected = False
                         send_task.cancel()
                         try:
                             await send_task
                         except asyncio.CancelledError:
                             pass
-                        self.connected = False
 
             except websockets.exceptions.ConnectionClosed:
-                logger.warning("[MessageProcessor] Connection closed")
-                self.connected = False
+                logger.warning("[MessageProcessor] 与服务端连接中断")
+            except TimeoutError:
+                logger.warning(
+                    f"[MessageProcessor] 与服务端连接通信超时 (已尝试 {self.reconnect_count + 1} 次)，请检查您的网络状况"
+                )
+            except websockets.exceptions.InvalidStatus as e:
+                logger.warning(
+                    f"[MessageProcessor] 收到服务端注册码 {e.response.status_code}, 上一进程可能还未退出"
+                )
             except Exception as e:
-                logger.error(f"[MessageProcessor] Connection error: {str(e)}")
                 logger.error(traceback.format_exc())
-                self.connected = False
+                logger.error(f"[MessageProcessor] 尝试重连时出错 {str(e)}")
             finally:
+                self.connected = False
                 self.websocket = None
 
             # 重连逻辑
-            if self.is_running and self.reconnect_count < WSConfig.max_reconnect_attempts:
+            if not self.is_running:
+                break
+            if self.reconnect_count < WSConfig.max_reconnect_attempts:
                 self.reconnect_count += 1
+                backoff = WSConfig.reconnect_interval
                 logger.info(
-                    f"[MessageProcessor] Reconnecting in {WSConfig.reconnect_interval}s "
-                    f"(attempt {self.reconnect_count}/{WSConfig.max_reconnect_attempts})"
+                    f"[MessageProcessor] 即将在 {backoff} 秒后重连 (已尝试 {self.reconnect_count}/{WSConfig.max_reconnect_attempts})"
                 )
-                await asyncio.sleep(WSConfig.reconnect_interval)
-            elif self.reconnect_count >= WSConfig.max_reconnect_attempts:
+                await asyncio.sleep(backoff)
+            else:
                 logger.error("[MessageProcessor] Max reconnection attempts reached")
                 break
-            else:
-                self.reconnect_count -= 1
 
     async def _message_handler(self):
-        """处理接收到的消息"""
+        """处理接收到的消息。
+
+        ConnectionClosed 不在此处捕获，让其向上传播到 _connection_handler，
+        以便 async with websockets.connect() 的 __aexit__ 能感知连接已断，
+        正确清理内部 task，避免 task 泄漏。
+        """
         if not self.websocket:
             logger.error("[MessageProcessor] WebSocket connection is None")
             return
 
-        try:
-            async for message in self.websocket:
-                try:
-                    data = json.loads(message)
-                    message_type = data.get("action", "")
-                    message_data = data.get("data")
-                    if self.session_id and self.session_id == data.get("edge_session"):
-                        await self._process_message(message_type, message_data)
+        async for message in self.websocket:
+            try:
+                data = json.loads(message)
+                message_type = data.get("action", "")
+                message_data = data.get("data")
+                if self.session_id and self.session_id == data.get("edge_session"):
+                    await self._process_message(message_type, message_data)
+                else:
+                    if message_type.endswith("_material"):
+                        logger.trace(
+                            f"[MessageProcessor] 收到一条归属 {data.get('edge_session')} 的旧消息：{data}"
+                        )
+                        logger.debug(
+                            f"[MessageProcessor] 跳过了一条归属 {data.get('edge_session')} 的旧消息: {data.get('action')}"
+                        )
                     else:
-                        if message_type.endswith("_material"):
-                            logger.trace(
-                                f"[MessageProcessor] 收到一条归属 {data.get('edge_session')} 的旧消息：{data}"
-                            )
-                            logger.debug(
-                                f"[MessageProcessor] 跳过了一条归属 {data.get('edge_session')} 的旧消息: {data.get('action')}"
-                            )
-                        else:
-                            await self._process_message(message_type, message_data)
-                except json.JSONDecodeError:
-                    logger.error(f"[MessageProcessor] Invalid JSON received: {message}")
-                except Exception as e:
-                    logger.error(f"[MessageProcessor] Error processing message: {str(e)}")
-                    logger.error(traceback.format_exc())
-
-        except websockets.exceptions.ConnectionClosed:
-            logger.info("[MessageProcessor] Message handler stopped - connection closed")
-        except Exception as e:
-            logger.error(f"[MessageProcessor] Message handler error: {str(e)}")
-            logger.error(traceback.format_exc())
+                        await self._process_message(message_type, message_data)
+            except json.JSONDecodeError:
+                logger.error(f"[MessageProcessor] Invalid JSON received: {message}")
+            except Exception as e:
+                logger.error(f"[MessageProcessor] Error processing message: {str(e)}")
+                logger.error(traceback.format_exc())
 
     async def _send_handler(self):
         """处理发送队列中的消息"""
@@ -601,6 +627,7 @@ class MessageProcessor:
 
         except asyncio.CancelledError:
             logger.debug("[MessageProcessor] Send handler cancelled")
+            raise
         except Exception as e:
             logger.error(f"[MessageProcessor] Fatal error in send handler: {str(e)}")
             logger.error(traceback.format_exc())
@@ -632,6 +659,10 @@ class MessageProcessor:
             # elif message_type == "session_id":
             #     self.session_id = message_data.get("session_id")
             #     logger.info(f"[MessageProcessor] Session ID: {self.session_id}")
+            elif message_type == "add_device":
+                await self._handle_device_manage(message_data, "add")
+            elif message_type == "remove_device":
+                await self._handle_device_manage(message_data, "remove")
             elif message_type == "request_restart":
                 await self._handle_request_restart(message_data)
             else:
@@ -723,6 +754,32 @@ class MessageProcessor:
             req = JobAddReq(**data)
 
             job_log = format_job_log(req.job_id, req.task_id, req.device_id, req.action)
+
+            # 服务端对always_free动作可能跳过query_action_state直接发job_start，
+            # 此时job尚未注册，需要自动补注册
+            existing_job = self.device_manager.get_job_info(req.job_id)
+            if not existing_job:
+                action_name = req.action
+                device_action_key = f"/devices/{req.device_id}/{action_name}"
+                action_always_free = self._check_action_always_free(req.device_id, action_name)
+
+                if action_always_free:
+                    job_info = JobInfo(
+                        job_id=req.job_id,
+                        task_id=req.task_id,
+                        device_id=req.device_id,
+                        action_name=action_name,
+                        device_action_key=device_action_key,
+                        status=JobStatus.QUEUE,
+                        start_time=time.time(),
+                        always_free=True,
+                    )
+                    self.device_manager.add_queue_request(job_info)
+                    logger.info(f"[MessageProcessor] Job {job_log} always_free, auto-registered from direct job_start")
+                else:
+                    logger.error(f"[MessageProcessor] Job {job_log} not registered (missing query_action_state)")
+                    return
+
             success = self.device_manager.start_job(req.job_id)
             if not success:
                 logger.error(f"[MessageProcessor] Failed to start job {job_log}")
@@ -968,6 +1025,37 @@ class MessageProcessor:
             )
             thread.start()
 
+    async def _handle_device_manage(self, device_list: list[ResourceDictType], action: str):
+        """Handle add_device / remove_device from LabGo server."""
+        if not device_list:
+            return
+
+        for item in device_list:
+            target_node_id = item.get("target_node_id", "host_node")
+
+            def _notify(target_id: str, act: str, cfg: ResourceDictType):
+                try:
+                    host_node = HostNode.get_instance(timeout=5)
+                    if not host_node:
+                        logger.error(f"[DeviceManage] HostNode not available for {act}_device")
+                        return
+                    success = host_node.notify_device_manage(target_id, act, cfg)
+                    if success:
+                        logger.info(f"[DeviceManage] {act}_device completed on {target_id}")
+                    else:
+                        logger.warning(f"[DeviceManage] {act}_device failed on {target_id}")
+                except Exception as e:
+                    logger.error(f"[DeviceManage] Error in {act}_device: {e}")
+                    logger.error(traceback.format_exc())
+
+            thread = threading.Thread(
+                target=_notify,
+                args=(target_node_id, action, item),
+                daemon=True,
+                name=f"DeviceManage-{action}-{item.get('id', '')}",
+            )
+            thread.start()
+
     async def _handle_request_restart(self, data: Dict[str, Any]):
         """
         处理重启请求
@@ -979,10 +1067,9 @@ class MessageProcessor:
         logger.info(f"[MessageProcessor] Received restart request, reason: {reason}, delay: {delay}s")
 
         # 发送确认消息
-        if self.websocket_client:
-            await self.websocket_client.send_message(
-                {"action": "restart_acknowledged", "data": {"reason": reason, "delay": delay}}
-            )
+        self.send_message(
+            {"action": "restart_acknowledged", "data": {"reason": reason, "delay": delay}}
+        )
 
         # 设置全局重启标志
         import unilabos.app.main as main_module
@@ -1026,7 +1113,7 @@ class MessageProcessor:
                 "task_id": task_id,
                 "job_id": job_id,
                 "free": free,
-                "need_more": need_more,
+                "need_more": need_more + 1,
             },
         }
 
@@ -1084,6 +1171,7 @@ class QueueProcessor:
     def stop(self) -> None:
         """停止队列处理线程"""
         self.is_running = False
+        self.queue_update_event.set()  # 立即唤醒等待中的线程
         if self.thread and self.thread.is_alive():
             self.thread.join(timeout=2)
         logger.info("[QueueProcessor] Stopped")
@@ -1165,7 +1253,7 @@ class QueueProcessor:
                     "task_id": job_info.task_id,
                     "job_id": job_info.job_id,
                     "free": False,
-                    "need_more": 10,
+                    "need_more": 10 + 1,
                 },
             }
             self.message_processor.send_message(message)
@@ -1181,9 +1269,20 @@ class QueueProcessor:
         if not queued_jobs:
             return
 
-        logger.debug(f"[QueueProcessor] Sending busy status for {len(queued_jobs)} queued jobs")
+        queue_summary = {}
+        for j in queued_jobs:
+            key = f"{j.device_id}/{j.action_name}"
+            queue_summary[key] = queue_summary.get(key, 0) + 1
+        logger.debug(
+            f"[QueueProcessor] Sending busy status for {len(queued_jobs)} queued jobs: {queue_summary}"
+        )
 
         for job_info in queued_jobs:
+            # 快照可能已过期：在遍历过程中 end_job() 可能已将此 job 移至 READY，
+            # 此时不应再发送 busy/need_more，否则会覆盖已发出的 free=True 通知
+            if job_info.status != JobStatus.QUEUE:
+                continue
+
             message = {
                 "action": "report_action_state",
                 "data": {
@@ -1193,7 +1292,7 @@ class QueueProcessor:
                     "task_id": job_info.task_id,
                     "job_id": job_info.job_id,
                     "free": False,
-                    "need_more": 10,
+                    "need_more": 10 + 1,
                 },
             }
             success = self.message_processor.send_message(message)
@@ -1276,6 +1375,10 @@ class WebSocketClient(BaseCommunicationClient):
         self.message_processor = MessageProcessor(self.websocket_url, self.send_queue, self.device_manager)
         self.queue_processor = QueueProcessor(self.device_manager, self.message_processor)
 
+        # running状态debounce缓存: {job_id: (last_send_timestamp, last_feedback_data)}
+        self._job_running_last_sent: Dict[str, tuple] = {}
+        self._job_running_debounce_interval: float = 10.0  # 秒
+
         # 设置相互引用
         self.message_processor.set_queue_processor(self.queue_processor)
         self.message_processor.set_websocket_client(self)
@@ -1332,8 +1435,8 @@ class WebSocketClient(BaseCommunicationClient):
                 message = {"action": "normal_exit", "data": {"session_id": session_id}}
                 self.message_processor.send_message(message)
                 logger.info(f"[WebSocketClient] Sent normal_exit message with session_id: {session_id}")
-                # 给一点时间让消息发送出去
-                time.sleep(1)
+                # send_handler 每100ms检查一次队列，等300ms足以让消息发出
+                time.sleep(0.3)
             except Exception as e:
                 logger.warning(f"[WebSocketClient] Failed to send normal_exit message: {str(e)}")
 
@@ -1375,22 +1478,32 @@ class WebSocketClient(BaseCommunicationClient):
             logger.debug(f"[WebSocketClient] Not connected, cannot publish job status for job_id: {item.job_id}")
             return
 
+        job_log = format_job_log(item.job_id, item.task_id, item.device_id, item.action_name)
+
         # 拦截最终结果状态，与原版本逻辑一致
         if status in ["success", "failed"]:
+            self._job_running_last_sent.pop(item.job_id, None)
+
             host_node = HostNode.get_instance(0)
             if host_node:
-                # 从HostNode的device_action_status中移除job_id
                 try:
                     host_node._device_action_status[item.device_action_key].job_ids.pop(item.job_id, None)
                 except (KeyError, AttributeError):
                     logger.warning(f"[WebSocketClient] Failed to remove job {item.job_id} from HostNode status")
 
-            # logger.debug(f"[WebSocketClient] Intercepting final status for job_id: {item.job_id} - {status}")
-
-            # 通知队列处理器job完成（包括timeout的job）
             self.queue_processor.handle_job_completed(item.job_id, status)
 
-        # 发送job状态消息
+        # running状态按job_id做debounce，内容变化时仍然上报
+        if status == "running":
+            now = time.time()
+            cached = self._job_running_last_sent.get(item.job_id)
+            if cached is not None:
+                last_ts, last_data = cached
+                if now - last_ts < self._job_running_debounce_interval and last_data == feedback_data:
+                    logger.trace(f"[WebSocketClient] Job status debounced (skip): {job_log} - {status}")
+                    return
+            self._job_running_last_sent[item.job_id] = (now, feedback_data)
+
         message = {
             "action": "job_status",
             "data": {
@@ -1406,7 +1519,6 @@ class WebSocketClient(BaseCommunicationClient):
         }
         self.message_processor.send_message(message)
 
-        job_log = format_job_log(item.job_id, item.task_id, item.device_id, item.action_name)
         logger.trace(f"[WebSocketClient] Job status published: {job_log} - {status}")
 
     def send_ping(self, ping_id: str, timestamp: float) -> None:
