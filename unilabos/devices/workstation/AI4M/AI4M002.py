@@ -13,7 +13,14 @@ import requests
 
 from unilabos.resources.resource_tracker import ResourceTreeSet, SampleUUIDsType, LabSample
 from unilabos.utils.log import logger
-from unilabos.utils.decorator import not_action
+from unilabos.registry.decorators import (
+    device,
+    action,
+    ActionInputHandle,
+    ActionOutputHandle,
+    DataSource,
+    not_action,
+)
 from unilabos.devices.workstation.AI4M.decks import AI4M002_deck
 from unilabos.devices.workstation.AI4M.bottle_carriers import Hydrogel_Clean_1BottleCarrier
 
@@ -21,6 +28,12 @@ from unilabos.devices.workstation.AI4M.bottle_carriers import Hydrogel_Clean_1Bo
 from unilabos.devices.workstation.AI4M.base_opcua_client import OpcUaClientWithSubscription
 
 
+@device(
+    id="AI4M002_station",
+    category=["AI4M002_station"],
+    description="AI4M002 电极加工工作站，包含 3 轴机器人、电解池、原始/完成电极堆栈，支持 OPC UA 协同与 BTS 反应",
+    icon="Electrode_Module.jpg",
+)
 class AI4M002Device(OpcUaClientWithSubscription):
     """
     AI4M 设备类
@@ -175,6 +188,26 @@ class AI4M002Device(OpcUaClientWithSubscription):
             "message": "S02工站初始化完成",
         }
     
+    @action(
+        auto_prefix=True,
+        description="从原始电极取料并放到电解池",
+        handles=[
+            ActionInputHandle(
+                key="raw_electrode_input",
+                data_type="ai4m002_raw_electrode",
+                label="原始电极堆栈位置",
+                data_key="pick_code",
+                data_source=DataSource.HANDLE,
+            ),
+            ActionOutputHandle(
+                key="electrolytic_cell_output",
+                data_type="ai4m002_electrolytic_cell",
+                label="电解池编号",
+                data_key="electrolytic_cell_id",
+                data_source=DataSource.EXECUTOR,
+            ),
+        ],
+    )
     def trigger_3axis_pick_from_raw_and_place_to_electrolytic_cell(
         self,
         pick_code: int,
@@ -445,6 +478,26 @@ class AI4M002Device(OpcUaClientWithSubscription):
             "unilabos_samples": [LabSample(sample_uuid=sample_uuid, oss_path="", extra={"electrolytic_cell_id": target_cell_id, "pick_code": pick_code} if isinstance(content, str) else content.serialize()) for sample_uuid, content in (sample_uuids.items() if sample_uuids else {})]
         }
     
+    @action(
+        auto_prefix=True,
+        description="从电解池取料，夹住到水洗池，放到完成电极",
+        handles=[
+            ActionInputHandle(
+                key="electrolytic_cell_input",
+                data_type="ai4m002_electrolytic_cell",
+                label="电解池编号",
+                data_key="electrolytic_cell_id",
+                data_source=DataSource.HANDLE,
+            ),
+            ActionOutputHandle(
+                key="finished_electrode_output",
+                data_type="ai4m002_finished_electrode",
+                label="完成电极堆栈位置",
+                data_key="place_code",
+                data_source=DataSource.EXECUTOR,
+            ),
+        ],
+    )
     def trigger_3axis_pick_from_electrolytic_cell_and_place_to_finished(
         self,
         electrolytic_cell_id: int,
@@ -798,6 +851,26 @@ class AI4M002Device(OpcUaClientWithSubscription):
             "unilabos_samples": [LabSample(sample_uuid=sample_uuid, oss_path="", extra={"electrolytic_cell_id": electrolytic_cell_id, "cleaning_time": cleaning_time, "nitrogen_time": nitrogen_time, "place_code": place_code} if isinstance(content, str) else content.serialize()) for sample_uuid, content in (sample_uuids.items() if sample_uuids else {})]
         }
     
+    @action(
+        auto_prefix=True,
+        description="从原始电极取料，经酸洗池、水洗池，放到完成电极",
+        handles=[
+            ActionInputHandle(
+                key="raw_electrode_input",
+                data_type="ai4m002_raw_electrode",
+                label="原始电极堆栈位置",
+                data_key="pick_code",
+                data_source=DataSource.HANDLE,
+            ),
+            ActionOutputHandle(
+                key="finished_electrode_output",
+                data_type="ai4m002_finished_electrode",
+                label="完成电极堆栈位置",
+                data_key="place_code",
+                data_source=DataSource.EXECUTOR,
+            ),
+        ],
+    )
     def trigger_3axis_pick_from_raw_and_process_to_finished(
         self,
         pick_code: int,
@@ -1291,6 +1364,26 @@ class AI4M002Device(OpcUaClientWithSubscription):
             "unilabos_samples": [LabSample(sample_uuid=sample_uuid, oss_path="", extra={"station_id": station_id, "stir_speed": stir_speed, "heat_temp": heat_temp, "time_set": time_set} if isinstance(content, str) else content.serialize()) for sample_uuid, content in (sample_uuids.items() if sample_uuids else {})]
         }
 
+    @action(
+        auto_prefix=True,
+        description="触发电解池BTS反应，通过OPC UA信号与PLC同步加工流程",
+        handles=[
+            ActionInputHandle(
+                key="electrolytic_cell_input",
+                data_type="ai4m002_electrolytic_cell",
+                label="电解池编号",
+                data_key="electrolytic_cell_id",
+                data_source=DataSource.HANDLE,
+            ),
+            ActionOutputHandle(
+                key="electrolytic_cell_output",
+                data_type="ai4m002_electrolytic_cell",
+                label="电解池编号",
+                data_key="electrolytic_cell_id",
+                data_source=DataSource.EXECUTOR,
+            ),
+        ],
+    )
     def trigger_electrolytic_cell_bts_reaction(
         self,
         electrolytic_cell_id: int,

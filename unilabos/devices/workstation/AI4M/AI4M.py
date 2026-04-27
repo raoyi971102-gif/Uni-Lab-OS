@@ -12,7 +12,14 @@ import threading
 
 from unilabos.resources.resource_tracker import ResourceTreeSet, SampleUUIDsType, LabSample
 from unilabos.utils.log import logger
-from unilabos.utils.decorator import not_action
+from unilabos.registry.decorators import (
+    device,
+    action,
+    ActionInputHandle,
+    ActionOutputHandle,
+    DataSource,
+    not_action,
+)
 from unilabos.devices.workstation.AI4M.decks import AI4M_deck
 from unilabos.devices.workstation.AI4M.bottle_carriers import Hydrogel_Clean_1BottleCarrier
 
@@ -20,6 +27,12 @@ from unilabos.devices.workstation.AI4M.bottle_carriers import Hydrogel_Clean_1Bo
 from unilabos.devices.workstation.AI4M.base_opcua_client import OpcUaClientWithSubscription
 
 
+@device(
+    id="AI4M_station",
+    category=["AI4M_station"],
+    description="AI4M 水凝胶检测工作站，包含机器人、3个检测站、磁力搅拌仪和注射泵，支持手动指令模式和自动作业模式",
+    icon="Hydrogel module.webp",
+)
 class AI4MDevice(OpcUaClientWithSubscription):
     """
     AI4M 设备类
@@ -153,6 +166,26 @@ class AI4MDevice(OpcUaClientWithSubscription):
             "message": "指令作业模式启动成功",
         }
 
+    @action(
+        auto_prefix=True,
+        description="机器人取烧杯并放到检测位，先写入取烧杯编号等待完成，再写入放检测编号等待完成",
+        handles=[
+            ActionInputHandle(
+                key="beaker_input",
+                data_type="ai4m_beaker",
+                label="取烧杯编号",
+                data_key="pick_beaker_id",
+                data_source=DataSource.HANDLE,
+            ),
+            ActionOutputHandle(
+                key="station_output",
+                data_type="ai4m_station",
+                label="放置检测站编号",
+                data_key="place_station_id",
+                data_source=DataSource.EXECUTOR,
+            ),
+        ],
+    )
     def trigger_robot_pick_beaker(
         self,
         pick_beaker_id: int,
@@ -391,6 +424,26 @@ class AI4MDevice(OpcUaClientWithSubscription):
             "unilabos_samples": [LabSample(sample_uuid=sample_uuid, oss_path="", extra={"carrier_info": carrier_info, "pick_beaker_id": pick_beaker_id, "place_station_id": place_station_id} if isinstance(content, str) else content.serialize()) for sample_uuid, content in (sample_uuids.items() if sample_uuids else {})]
         }
 
+    @action(
+        auto_prefix=True,
+        description="机器人从检测位取烧杯并放回：先写入取检测编号，等待取检测完成；取完成后再写入放烧杯编号，等待对应的放烧杯完成信号",
+        handles=[
+            ActionInputHandle(
+                key="station_input",
+                data_type="ai4m_station",
+                label="取检测站编号",
+                data_key="pick_station_id",
+                data_source=DataSource.HANDLE,
+            ),
+            ActionOutputHandle(
+                key="beaker_output",
+                data_type="ai4m_beaker",
+                label="放烧杯编号",
+                data_key="place_beaker_id",
+                data_source=DataSource.EXECUTOR,
+            ),
+        ],
+    )
     def trigger_robot_place_beaker(
         self,
         place_beaker_id: int,
@@ -526,6 +579,27 @@ class AI4MDevice(OpcUaClientWithSubscription):
             "unilabos_samples": [LabSample(sample_uuid=sample_uuid, oss_path="", extra={"carrier_info": carrier_info, "place_beaker_id": place_beaker_id, "pick_station_id": pick_station_id} if isinstance(content, str) else content.serialize()) for sample_uuid, content in (sample_uuids.items() if sample_uuids else {})]
         }
 
+    @action(
+        auto_prefix=True,
+        always_free=True,
+        description="执行检测工艺流程，等待检测站请求参数，下发搅拌仪和注射泵参数，等待工艺完成",
+        handles=[
+            ActionInputHandle(
+                key="process_station_input",
+                data_type="ai4m_station",
+                label="检测站编号",
+                data_key="station_id",
+                data_source=DataSource.HANDLE,
+            ),
+            ActionOutputHandle(
+                key="process_station_output",
+                data_type="ai4m_station",
+                label="完成的检测站编号",
+                data_key="station_id",
+                data_source=DataSource.EXECUTOR,
+            ),
+        ],
+    )
     def trigger_station_process(
         self,
         station_id: int,
