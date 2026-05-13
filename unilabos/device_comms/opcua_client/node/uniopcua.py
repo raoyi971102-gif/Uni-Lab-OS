@@ -191,10 +191,12 @@ class Variable(Base):
                 # 未声明数据类型，让 OPC UA 自动推断
                 variant = ua.Variant(coerced)
             
-            # 创建 DataValue（只包含值，不包含时间戳）
+            # DataValue 默认带 Good 的 StatusCode，编码时会随 Value 一起写入；
+            # 部分 OPC 服务器 WriteMask 仅允许写 Value，否则会 BadWriteNotSupported
             dv = ua.DataValue(variant)
-            
-            # 使用 set_value 方法写入
+            dv.StatusCode = None
+            dv.SourceTimestamp = None
+            dv.ServerTimestamp = None
             self._get_node().set_value(dv)
             
             return False
