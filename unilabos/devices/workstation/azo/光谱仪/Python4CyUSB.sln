@@ -1,0 +1,23 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36127.28 d17.14
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "Python4CyUSB", "Python4CyUSB\Python4CyUSB.pyproj", "{A6AF0081-5923-4707-ABC8-F98F38B8E26D}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A6AF0081-5923-4707-ABC8-F98F38B8E26D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A6AF0081-5923-4707-ABC8-F98F38B8E26D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {5199F606-4D7A-4792-9CF3-98552923CCBF}
+	EndGlobalSection
+EndGlobal

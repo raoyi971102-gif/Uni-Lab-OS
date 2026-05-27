@@ -1,0 +1,30 @@
+# 偶氮反应工作站 Registry 配置
+
+azo_workstation:
+  class_path: unilabos.devices.workstation.azo.azo_workstation.AzoWorkstation
+  protocol_type:
+    - azo_reaction  # 偶氮反应工作流
+  status_types:
+    workflow_status: str
+    current_experiment_id: str
+    pump_a_flow_rate: float
+    pump_b_flow_rate: float
+    temperature_setpoint: float
+    temperature_actual: float
+    spectra_collected: int
+  action_value_mappings:
+    start_workflow:
+      workflow_name: str
+      parameters: dict
+    stop_workflow:
+      emergency: bool
+    set_pump_flow_rates:
+      flow_rate_a: float
+      flow_rate_b: float
+    set_temperature:
+      temperature: float
+    acquire_spectrum: {}
+  hardware_interface:
+    name: hardware_interface
+    write: null  # 通过子设备代理
+    read: null

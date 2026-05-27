@@ -1,0 +1,253 @@
+# 电化学合成工作站 设备注册表
+# 集成来宇移液站 + GreenLab电反应仪
+
+electrochem_workstation:
+  category:
+    - electrochem_workstation
+
+  class:
+    module: unilabos.devices.workstation.electrochem.electrochem_workstation:ElectrochemWorkstation
+    type: python
+
+    status_types:
+      workflow_status: str
+
+    action_value_mappings:
+      auto-transfer_liquid:
+        feedback: {}
+        goal:
+          source: source
+          target: target
+          volume: volume
+        goal_default:
+          source: null
+          target: null
+          volume: 0.0
+        handles: {}
+        placeholder_keys:
+          source: unilabos_resources
+          target: unilabos_resources
+        result:
+          success: success
+        schema:
+          description: "液体转移"
+          properties:
+            feedback: {}
+            goal:
+              properties:
+                source:
+                  type: string
+                  description: "源位置"
+                target:
+                  type: string
+                  description: "目标位置"
+                volume:
+                  type: number
+                  description: "转移体积(μL)"
+              required:
+                - source
+                - target
+                - volume
+              type: object
+            result:
+              type: object
+          required:
+            - goal
+          title: transfer_liquid参数
+          type: object
+        type: UniLabJsonCommand
+
+      auto-start_reaction:
+        feedback: {}
+        goal:
+          channel: channel
+          mode: mode
+          voltage: voltage
+          current: current
+          stirrer_speed: stirrer_speed
+        goal_default:
+          channel: 1
+          mode: 0
+          voltage: 0.0
+          current: 0.0
+          stirrer_speed: 500
+        handles: {}
+        placeholder_keys: {}
+        result:
+          success: success
+        schema:
+          description: "启动电化学反应"
+          properties:
+            feedback: {}
+            goal:
+              properties:
+                channel:
+                  type: integer
+                  description: "通道号(1-6)"
+                  minimum: 1
+                  maximum: 6
+                mode:
+                  type: integer
+                  description: "输出模式(0=恒压,1=恒流)"
+                  enum: [0, 1]
+                voltage:
+                  type: number
+                  description: "电压(V)"
+                  default: 0.0
+                current:
+                  type: number
+                  description: "电流(mA)"
+                  default: 0.0
+                stirrer_speed:
+                  type: integer
+                  description: "搅拌转速(rpm)"
+                  default: 500
+              required:
+                - channel
+              type: object
+            result:
+              type: object
+          required:
+            - goal
+          title: start_reaction参数
+          type: object
+        type: UniLabJsonCommand
+
+      auto-stop_reaction:
+        feedback: {}
+        goal:
+          channel: channel
+          stop_stirrer: stop_stirrer
+        goal_default:
+          channel: 1
+          stop_stirrer: true
+        handles: {}
+        placeholder_keys: {}
+        result:
+          success: success
+        schema:
+          description: "停止电化学反应"
+          properties:
+            feedback: {}
+            goal:
+              properties:
+                channel:
+                  type: integer
+                  description: "通道号(1-6)"
+                  minimum: 1
+                  maximum: 6
+                stop_stirrer:
+                  type: boolean
+                  description: "是否停止搅拌"
+                  default: true
+              required:
+                - channel
+              type: object
+            result:
+              type: object
+          required:
+            - goal
+          title: stop_reaction参数
+          type: object
+        type: UniLabJsonCommand
+
+      auto-get_channel_status:
+        feedback: {}
+        goal:
+          channel: channel
+        goal_default:
+          channel: 1
+        handles: {}
+        placeholder_keys: {}
+        result: {}
+        schema:
+          description: "获取通道状态"
+          properties:
+            feedback: {}
+            goal:
+              properties:
+                channel:
+                  type: integer
+                  description: "通道号(1-6)"
+                  minimum: 1
+                  maximum: 6
+              required:
+                - channel
+              type: object
+            result:
+              type: object
+          required:
+            - goal
+          title: get_channel_status参数
+          type: object
+        type: UniLabJsonCommand
+
+      auto-get_all_channels_status:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        result: {}
+        schema:
+          description: "获取所有通道状态"
+          properties:
+            feedback: {}
+            goal:
+              properties: {}
+              required: []
+              type: object
+            result:
+              type: array
+          required:
+            - goal
+          title: get_all_channels_status参数
+          type: object
+        type: UniLabJsonCommand
+
+      auto-emergency_stop:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        result: {}
+        schema:
+          description: "紧急停止所有通道"
+          properties:
+            feedback: {}
+            goal:
+              properties: {}
+              required: []
+              type: object
+            result:
+              type: boolean
+          required:
+            - goal
+          title: emergency_stop参数
+          type: object
+        type: UniLabJsonCommand
+
+  description: "电化学合成工作站，集成来宇移液站和GreenLab电反应仪"
+
+  handles: []
+
+  icon: "⚗️"
+
+  init_param_schema:
+    config:
+      properties:
+        deck:
+          type: string
+          description: "Deck类型名称"
+      required: []
+      type: object
+    data:
+      properties:
+        workflow_status:
+          type: string
+      required:
+        - workflow_status
+      type: object
+
+  version: 1.0.0
