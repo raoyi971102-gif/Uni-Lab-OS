@@ -1,4 +1,4 @@
-﻿Name,EnglishName,NodeType,DataType,NodeLanguage,NodeId
+Name,EnglishName,NodeType,DataType,NodeLanguage,NodeId
 磁力搅拌参数设置_C[0].搅拌速度,mag_stirrer_c0_stir_speed,VARIABLE,INT16,Chinese,ns=4;s=上位通讯变量|磁力搅拌参数设置_C[0].搅拌速度
 磁力搅拌参数设置_C[0].加热温度,mag_stirrer_c0_heat_temp,VARIABLE,INT16,Chinese,ns=4;s=上位通讯变量|磁力搅拌参数设置_C[0].加热温度
 磁力搅拌参数设置_C[0].时间设置,mag_stirrer_c0_time_set,VARIABLE,INT16,Chinese,ns=4;s=上位通讯变量|磁力搅拌参数设置_C[0].时间设置
@@ -204,3 +204,4 @@ S02工站初始化完成,S02_Station_Initialization_Done,VARIABLE,BOOLEAN,Chines
 电解池2请求加工,Electrolytic_Cell_2_Request,VARIABLE,BOOLEAN,Chinese,ns=4;s=S02上位通讯|电解池2请求加工
 电解池1开始加工,Electrolytic_Cell_1_Start,VARIABLE,BOOLEAN,Chinese,ns=4;s=S02上位通讯|电解池1开始加工
 电解池2开始加工,Electrolytic_Cell_2_Start,VARIABLE,BOOLEAN,Chinese,ns=4;s=S02上位通讯|电解池2开始加工
+报警复位,alarm_reset,VARIABLE,BOOLEAN,Chinese,ns=4;s=上位通讯变量|报警复位
