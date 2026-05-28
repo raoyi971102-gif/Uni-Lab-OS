@@ -2,8 +2,16 @@
   "nodes": [
     {
       "id": "azo_workstation_1",
+      "name": "偶氮反应工作站",
+      "parent": null,
       "type": "device",
-      "registry_name": "azo_workstation",
+      "class": "azo_workstation",
+      "children": ["serial_485", "serial_usb"],
+      "position": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
       "config": {
         "pump_a_address": 5,
         "pump_b_address": 6,
@@ -14,34 +22,9 @@
         "spectrometer_average_count": 3,
         "data_save_dir": "./azo_experiment_data"
       },
-      "children": [
-        {
-          "id": "serial_485",
-          "type": "device",
-          "registry_name": "serial_device",
-          "config": {
-            "port": "COM3",
-            "baudrate": 38400,
-            "bytesize": 8,
-            "parity": "N",
-            "stopbits": 1,
-            "timeout": 1.0
-          }
-        },
-        {
-          "id": "serial_usb",
-          "type": "device",
-          "registry_name": "serial_device",
-          "config": {
-            "port": "COM4",
-            "baudrate": 115200,
-            "bytesize": 8,
-            "parity": "N",
-            "stopbits": 1,
-            "timeout": 1.0
-          }
-        }
-      ],
+      "data": {
+        "workflow_status": "idle"
+      },
       "resources": [
         {
           "id": "liquid_a",
@@ -64,6 +47,50 @@
           }
         }
       ]
+    },
+    {
+      "id": "serial_485",
+      "name": "RS485串口",
+      "parent": "azo_workstation_1",
+      "type": "device",
+      "class": "serial",
+      "children": [],
+      "position": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "config": {
+        "port": "COM3",
+        "baudrate": 38400,
+        "bytesize": 8,
+        "parity": "N",
+        "stopbits": 1,
+        "timeout": 1.0
+      },
+      "data": {}
+    },
+    {
+      "id": "serial_usb",
+      "name": "光谱仪USB串口",
+      "parent": "azo_workstation_1",
+      "type": "device",
+      "class": "serial",
+      "children": [],
+      "position": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "config": {
+        "port": "COM4",
+        "baudrate": 115200,
+        "bytesize": 8,
+        "parity": "N",
+        "stopbits": 1,
+        "timeout": 1.0
+      },
+      "data": {}
     }
   ],
   "links": [],
