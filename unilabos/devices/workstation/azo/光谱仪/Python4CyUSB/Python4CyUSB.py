@@ -9,6 +9,8 @@ import sys
 import os
 import time
 from typing import List, Optional, Tuple, Dict, Union
+clr.AddReference("System")
+clr.AddReference("System.Collections")
 from System import Double
 from System.Collections.Generic import List as NetList
 import matplotlib.pyplot as plt

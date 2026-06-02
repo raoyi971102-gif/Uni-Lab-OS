@@ -1,0 +1,37 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "E:\\dev\\works\\Uni-Lab-OS-xyf1\\unilabos\\devices\\workstation\\azo\\\u5149\u8C31\u4EEA\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{A6AF0081-5923-4707-ABC8-F98F38B8E26D}|Python4CyUSB\\Python4CyUSB.pyproj|E:\\dev\\works\\Uni-Lab-OS-xyf1\\unilabos\\devices\\workstation\\azo\\\u5149\u8C31\u4EEA\\Python4CyUSB\\Python4CyUSB.py||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{A6AF0081-5923-4707-ABC8-F98F38B8E26D}|Python4CyUSB\\Python4CyUSB.pyproj|solutionrelative:Python4CyUSB\\Python4CyUSB.py||{8B382828-6202-11D1-8870-0000F87579D2}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 0,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "Python4CyUSB.py",
+              "DocumentMoniker": "E:\\dev\\works\\Uni-Lab-OS-xyf1\\unilabos\\devices\\workstation\\azo\\\u5149\u8C31\u4EEA\\Python4CyUSB\\Python4CyUSB.py",
+              "RelativeDocumentMoniker": "Python4CyUSB\\Python4CyUSB.py",
+              "ToolTip": "E:\\dev\\works\\Uni-Lab-OS-xyf1\\unilabos\\devices\\workstation\\azo\\\u5149\u8C31\u4EEA\\Python4CyUSB\\Python4CyUSB.py",
+              "RelativeToolTip": "Python4CyUSB\\Python4CyUSB.py",
+              "ViewState": "AQIAAAAAAAAAAAAAAAAAAA8AAAAfAAAA",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.002457|",
+              "WhenOpened": "2026-05-30T03:07:39.072Z",
+              "EditorCaption": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
