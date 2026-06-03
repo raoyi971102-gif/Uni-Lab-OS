@@ -1617,18 +1617,35 @@ XUSE_station:
           type: object
         type: UniLabJsonCommand
       trigger_init:
+        always_free: true
         feedback: {}
+        feedback_interval: 300
         goal: {}
-        goal_default: {}
+        goal_default:
+          assignee_user_ids: []
+          timeout_seconds: 3600
         handles: {}
-        node_type: MANUAL_CONFIRM
+        node_type: manual_confirm
+        placeholder_keys:
+          assignee_user_ids: unilabos_manual_confirm
         result: {}
         schema:
-          description: 工站初始化（停止机械臂触发，触发工站初始化，等待初始化完成）
+          description: 工站初始化（人工确认节点：确认通过后停止机械臂触发，触发工站初始化，等待初始化完成）
           properties:
             feedback: {}
             goal:
-              properties: {}
+              properties:
+                assignee_user_ids:
+                  description: 确认人 ID 列表（由云端 UI 选择）
+                  items:
+                    type: string
+                  title: 确认人
+                  type: array
+                timeout_seconds:
+                  default: 3600
+                  description: 人工确认超时时间，单位秒
+                  title: 超时时间
+                  type: integer
               required: []
               type: object
             result:

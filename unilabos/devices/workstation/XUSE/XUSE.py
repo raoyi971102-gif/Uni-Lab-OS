@@ -73,10 +73,16 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.load_nodes_from_csv(csv_path)
 
     # 初始化工站
-    def trigger_init(self) -> dict:
+    def trigger_init(self, **kwargs) -> dict:
         """
-        初始化函数：
-        - 返回成功
+        初始化函数（人工确认节点：云端确认通过后才会执行）：
+        - 停止 3 个机械臂触发
+        - 触发工站初始化
+        - 等待初始化完成
+
+        参数:
+            **kwargs: 用于接收云端人工确认透传过来的 timeout_seconds、assignee_user_ids 等
+                     字段（仅 UI / 后端使用，PLC 初始化逻辑本身用不到）
 
         Returns:
             dict: 包含 success 和 message
