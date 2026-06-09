@@ -209,6 +209,19 @@ class AzoWorkstation(WorkstationBase):
         logger.info(f"设置反应温度: {temperature}°C")
         return self.temperature_controller.set_target_temperature(temperature)
 
+    def start_heating(self, temperature: Optional[float] = None) -> bool:
+        """启动加热，可选地同时设置目标温度。"""
+        if temperature is None:
+            logger.info("启动温控加热")
+        else:
+            logger.info(f"启动温控加热，目标温度: {temperature}°C")
+        return self.temperature_controller.start_heating(temperature)
+
+    def stop_heating(self, temperature: float = 25.0) -> bool:
+        """停止加热，并将目标温度降到安全温度。"""
+        logger.info(f"停止温控加热，安全目标温度: {temperature}°C")
+        return self.temperature_controller.stop_heating(temperature)
+
     def read_temperature(self) -> Optional[float]:
         """读取当前温度
 

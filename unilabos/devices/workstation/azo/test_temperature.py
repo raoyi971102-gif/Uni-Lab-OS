@@ -40,6 +40,9 @@ class TemperatureDebugger:
         self.modbus_address = 1  # 温控器站号
         self.target_temp_register = 4096  # 0x1000 - 目标温度，Modbus地址=40001+4096=44097
         self.actual_temp_register = 4098  # 0x1002 - 实际温度，Modbus地址=40001+4098=44099
+        self.temperature_scale = 100000
+        self.read_response_length = 9
+        self.write_response_length = 8
 
         # 当前状态
         self.target_temperature = 25.0
@@ -83,11 +86,11 @@ class TemperatureDebugger:
 
     def _temperature_to_raw(self, temp: float) -> int:
         """将温度值转换为寄存器原始值"""
-        return int(temp * 10000)
+        return int(temp * self.temperature_scale)
 
     def _raw_to_temperature(self, raw: int) -> float:
         """将寄存器原始值转换为温度值"""
-        return raw / 10000.0
+        return raw / float(self.temperature_scale)
 
     def _build_write_command(self, register: int, value: int) -> bytes:
         """构建Modbus写入命令 (功能码 0x10 - 写多个寄存器)"""
@@ -128,22 +131,42 @@ class TemperatureDebugger:
 
         return bytes(cmd)
 
+    def _read_exact_response(self, expected_length: int, timeout: float = 1.0) -> bytes:
+        """在超时时间内尽量读取指定长度响应。"""
+        response = bytearray()
+        deadline = time.time() + timeout
+        while time.time() < deadline and len(response) < expected_length:
+            if self.ser.in_waiting > 0:
+                response.extend(self.ser.read(self.ser.in_waiting))
+                if len(response) >= expected_length:
+                    break
+            else:
+                time.sleep(0.02)
+        return bytes(response)
+
+    def _extract_read_frame(self, response: bytes) -> bytes:
+        """从串口缓存中提取合法读温响应帧。"""
+        if len(response) < self.read_response_length:
+            raise ValueError(f"响应长度不足，实际 {len(response)} 字节")
+
+        for start in range(0, len(response) - self.read_response_length + 1):
+            frame = response[start:start + self.read_response_length]
+            if frame[0] != self.modbus_address or frame[1] != 0x03 or frame[2] != 4:
+                continue
+
+            expected_crc = frame[-2] | (frame[-1] << 8)
+            actual_crc = self._calculate_crc16(frame[:-2])
+            if expected_crc == actual_crc:
+                return frame
+
+        raise ValueError(f"未找到合法读温响应帧: {response.hex().upper()}")
+
     def _parse_read_response(self, response: bytes) -> int:
         """解析Modbus读取响应"""
-        if len(response) < 7:
-            raise ValueError("响应长度不足")
-
-        # 检查功能码
-        if response[1] != 0x03:
-            raise ValueError("功能码错误")
-
-        # 提取数据字节数
-        byte_count = response[2]
-        if byte_count != 4:
-            raise ValueError("数据字节数错误")
+        frame = self._extract_read_frame(response)
 
         # 提取int32数据 (大端序)
-        data_bytes = response[3:7]
+        data_bytes = frame[3:7]
         value = struct.unpack('>i', data_bytes)[0]
 
         return value
@@ -172,10 +195,9 @@ class TemperatureDebugger:
             self.ser.write(cmd)
             print(f"→ 设置目标温度: {temperature}°C | 命令: {cmd.hex().upper()}")
 
-            # 等待响应
-            time.sleep(0.1)
-            if self.ser.in_waiting > 0:
-                response = self.ser.read(self.ser.in_waiting)
+            # 读取写寄存器应答，避免残留应答污染下一次读温
+            response = self._read_exact_response(self.write_response_length, timeout=0.3)
+            if response:
                 print(f"← 响应: {response.hex().upper()}")
 
             # 更新状态
@@ -207,10 +229,9 @@ class TemperatureDebugger:
             self.ser.write(cmd)
             print(f"→ 读取实际温度 | 命令: {cmd.hex().upper()}")
 
-            # 等待并读取响应
-            time.sleep(0.1)
-            if self.ser.in_waiting > 0:
-                response = self.ser.read(self.ser.in_waiting)
+            # 等待并读取响应。2个寄存器的RTU响应固定为9字节。
+            response = self._read_exact_response(self.read_response_length, timeout=1.0)
+            if response:
                 print(f"← 响应: {response.hex().upper()}")
 
                 # 解析响应
@@ -231,8 +252,27 @@ class TemperatureDebugger:
     def stop_heating(self) -> bool:
         """停止加热（设置目标温度为室温）"""
         print("\n停止加热...")
-        self.is_heating = False
-        return self.set_temperature(25.0)
+        if not self.ser or not self.ser.is_open:
+            print("✗ 串口未连接")
+            return False
+
+        try:
+            raw_value = self._temperature_to_raw(25.0)
+            cmd = self._build_write_command(self.target_temp_register, raw_value)
+            self.ser.write(cmd)
+            print(f"→ 停止加热，目标温度降至 25.0°C | 命令: {cmd.hex().upper()}")
+
+            response = self._read_exact_response(self.write_response_length, timeout=0.3)
+            if response:
+                print(f"← 响应: {response.hex().upper()}")
+
+            self.target_temperature = 25.0
+            self.is_heating = False
+            print("✓ 加热已停止")
+            return True
+        except Exception as e:
+            print(f"✗ 停止加热失败: {e}")
+            return False
 
     def show_status(self):
         """显示当前状态"""
@@ -322,7 +362,7 @@ class TemperatureDebugger:
 def main():
     """主函数"""
     # 检查命令行参数
-    port = "COM11"
+    port = "COM6"
     baudrate = 38400
 
     if len(sys.argv) > 1:
