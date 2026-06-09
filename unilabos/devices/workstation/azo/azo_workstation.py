@@ -152,24 +152,63 @@ class AzoWorkstation(WorkstationBase):
         """
         super().post_init(ros_node)
 
-        # TODO: 根据实际的子设备配置，注入串口通信函数
         # 光谱仪不是COM串口设备，由 SpectrometerDriver 通过 IdeaOptics USB SDK 直接枚举连接。
-
-        # 示例：如果子设备中有 serial_485，则注入通信函数
-        # if "serial_485" in self._children:
-        #     serial_485 = self._children["serial_485"]
-        #     self.pump_a.serial_write = serial_485.write
-        #     self.pump_a.serial_read = serial_485.read
-        #     self.pump_b.serial_write = serial_485.write
-        #     self.pump_b.serial_read = serial_485.read
-        #     self.temperature_controller.serial_write = serial_485.write
-        #     self.temperature_controller.serial_read = serial_485.read
+        serial_485 = self._get_communication_device("serial_485")
+        if serial_485 is None:
+            logger.warning("未找到 serial_485 子设备，泵和温控器将无法进行RS485通信")
+        else:
+            serial_write, serial_read = self._get_binary_serial_io(serial_485)
+            if serial_write is None or serial_read is None:
+                logger.warning("serial_485 子设备缺少可用的二进制 write/read 接口")
+            else:
+                self.pump_a.serial_write = serial_write
+                self.pump_a.serial_read = serial_read
+                self.pump_b.serial_write = serial_write
+                self.pump_b.serial_read = serial_read
+                self.temperature_controller.serial_write = serial_write
+                self.temperature_controller.serial_read = serial_read
+                logger.info("已将 serial_485 二进制串口接口注入到泵和温控器")
 
         # 连接光谱仪
         if not self.spectrometer.connect():
             logger.warning("光谱仪连接失败，将使用模拟模式")
 
         logger.info("偶氮反应工站 post_init 完成")
+
+    def _get_communication_device(self, device_id: str):
+        """从工作站节点中获取通信子设备实例。"""
+        if hasattr(self._ros_node, "communication_node_id_to_instance"):
+            device = self._ros_node.communication_node_id_to_instance.get(device_id)
+            if device is not None:
+                return device
+
+        if hasattr(self._ros_node, "sub_devices"):
+            device = self._ros_node.sub_devices.get(device_id)
+            if device is not None:
+                return device
+
+        return None
+
+    def _get_binary_serial_io(self, serial_device):
+        """获取适合 Modbus RTU 的原始二进制串口读写接口。"""
+        candidates = [
+            getattr(serial_device, "driver_instance", None),
+            getattr(serial_device, "ros_node_instance", None),
+            serial_device,
+        ]
+
+        for candidate in candidates:
+            if candidate is None:
+                continue
+
+            hardware_interface = getattr(candidate, "hardware_interface", None)
+            if hardware_interface is not None and hasattr(hardware_interface, "write") and hasattr(hardware_interface, "read"):
+                return hardware_interface.write, hardware_interface.read
+
+            if hasattr(candidate, "write") and hasattr(candidate, "read"):
+                return candidate.write, candidate.read
+
+        return None, None
 
     # ============ 设备控制方法 ============
 
@@ -210,12 +249,20 @@ class AzoWorkstation(WorkstationBase):
         return self.temperature_controller.set_target_temperature(temperature)
 
     def start_heating(self, temperature: Optional[float] = None) -> bool:
-        """启动加热，可选地同时设置目标温度。"""
+        """开始控温的兼容别名，可选地同时设置目标温度。"""
         if temperature is None:
             logger.info("启动温控加热")
         else:
             logger.info(f"启动温控加热，目标温度: {temperature}°C")
         return self.temperature_controller.start_heating(temperature)
+
+    def start_temperature_control(self, temperature: Optional[float] = None) -> bool:
+        """开始控温，可选地同时设置目标温度。"""
+        if temperature is None:
+            logger.info("开始温控")
+        else:
+            logger.info(f"开始温控，目标温度: {temperature}°C")
+        return self.temperature_controller.start_temperature_control(temperature)
 
     def stop_heating(self, temperature: float = 25.0) -> bool:
         """停止加热，并将目标温度降到安全温度。"""
@@ -331,9 +378,9 @@ class AzoWorkstation(WorkstationBase):
         )
 
         try:
-            # 1. 设置温度
-            if not self.set_temperature(temperature):
-                logger.error("设置温度失败")
+            # 1. 设置温度并打开输出使能
+            if not self.start_temperature_control(temperature):
+                logger.error("开始控温失败")
                 return False
 
             # 等待温度稳定（简化版，实际可能需要PID控制）

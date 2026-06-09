@@ -51,6 +51,7 @@ class TemperatureController:
         # 寄存器地址
         self.target_temp_register = 4096  # 0x1000 - 目标温度
         self.actual_temp_register = 4098  # 0x1002 - 实际温度
+        self.output_enable_register = 0x1100  # 输出使能，uint16，0=关闭，1=打开
         self.temperature_scale = 100000
         self.read_response_length = 9
         self.write_response_length = 8
@@ -116,6 +117,25 @@ class TemperatureController:
         crc = self._calculate_crc16(cmd)
         cmd.append(crc & 0xFF)  # CRC低字节
         cmd.append((crc >> 8) & 0xFF)  # CRC高字节
+
+        return bytes(cmd)
+
+    def _build_modbus_write_uint16_command(self, register: int, value: int) -> bytes:
+        """构建Modbus写单个uint16寄存器命令 (功能码 0x06)。"""
+        if not 0 <= value <= 0xFFFF:
+            raise ValueError(f"uint16寄存器值超出范围: {value}")
+
+        cmd = bytearray()
+        cmd.append(self.modbus_address)
+        cmd.append(0x06)
+        cmd.append((register >> 8) & 0xFF)
+        cmd.append(register & 0xFF)
+        cmd.append((value >> 8) & 0xFF)
+        cmd.append(value & 0xFF)
+
+        crc = self._calculate_crc16(cmd)
+        cmd.append(crc & 0xFF)
+        cmd.append((crc >> 8) & 0xFF)
 
         return bytes(cmd)
 
@@ -257,6 +277,19 @@ class TemperatureController:
         self._read_write_ack()
         return True
 
+    def _write_output_enable(self, enabled: bool) -> bool:
+        """写入输出使能寄存器。"""
+        if self.serial_write is None:
+            logger.error(f"温控器 {self.controller_id}: 串口写入函数未设置")
+            return False
+
+        value = 1 if enabled else 0
+        cmd = self._build_modbus_write_uint16_command(self.output_enable_register, value)
+        logger.debug(f"温控器 {self.controller_id}: 设置输出使能 {value}, 命令: {cmd.hex()}")
+        self.serial_write(cmd)
+        self._read_write_ack()
+        return True
+
     def set_target_temperature(self, temperature: float) -> bool:
         """设置目标温度
 
@@ -272,7 +305,6 @@ class TemperatureController:
 
             # 更新状态
             self.target_temperature = temperature
-            self.is_heating = True
 
             logger.info(f"温控器 {self.controller_id}: 目标温度设置为 {temperature}°C")
             return True
@@ -282,10 +314,29 @@ class TemperatureController:
             return False
 
     def start_heating(self, temperature: Optional[float] = None) -> bool:
-        """启动加热，可选地同时设置目标温度。"""
-        if temperature is None:
-            temperature = self.target_temperature
-        return self.set_target_temperature(temperature)
+        """开始控温的兼容别名，可选地同时设置目标温度。"""
+        return self.start_temperature_control(temperature)
+
+    def start_temperature_control(self, temperature: Optional[float] = None) -> bool:
+        """开始控温，可选地同时设置目标温度。"""
+        logger.info(f"温控器 {self.controller_id}: 开始控温")
+        try:
+            if temperature is None:
+                temperature = self.target_temperature
+
+            if not self.set_target_temperature(temperature):
+                return False
+
+            if not self._write_output_enable(True):
+                return False
+
+            self.is_heating = True
+            logger.info(f"温控器 {self.controller_id}: 输出已使能，开始控温")
+            return True
+
+        except Exception as e:
+            logger.error(f"温控器 {self.controller_id}: 开始控温失败 - {e}")
+            return False
 
     def read_actual_temperature(self) -> Optional[float]:
         """读取实际温度
@@ -325,19 +376,21 @@ class TemperatureController:
             return None
 
     def stop_heating(self, temperature: float = 25.0) -> bool:
-        """停止加热（将目标温度降到安全温度，并保持停止状态）。"""
-        logger.info(f"温控器 {self.controller_id}: 停止加热")
+        """停止控温（关闭输出使能，并将目标温度降到安全温度）。"""
+        logger.info(f"温控器 {self.controller_id}: 停止控温")
         try:
-            if not self._write_target_temperature(temperature):
+            if not self._write_output_enable(False):
                 return False
 
-            self.target_temperature = temperature
+            if self._write_target_temperature(temperature):
+                self.target_temperature = temperature
+
             self.is_heating = False
-            logger.info(f"温控器 {self.controller_id}: 加热已停止，目标温度设置为 {temperature}°C")
+            logger.info(f"温控器 {self.controller_id}: 输出已关闭，目标温度设置为 {temperature}°C")
             return True
 
         except Exception as e:
-            logger.error(f"温控器 {self.controller_id}: 停止加热失败 - {e}")
+            logger.error(f"温控器 {self.controller_id}: 停止控温失败 - {e}")
             return False
 
     def get_status(self) -> Dict[str, Any]:

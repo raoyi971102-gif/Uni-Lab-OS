@@ -10,6 +10,7 @@
     例如：25.5    # 设置目标温度为25.5°C
     例如：60      # 设置目标温度为60°C
 
+    输入 'start' 开始控温（使用当前目标温度）
     输入 'read' 读取当前温度
     输入 'stop' 停止加热
     输入 'status' 查看状态
@@ -40,6 +41,7 @@ class TemperatureDebugger:
         self.modbus_address = 1  # 温控器站号
         self.target_temp_register = 4096  # 0x1000 - 目标温度，Modbus地址=40001+4096=44097
         self.actual_temp_register = 4098  # 0x1002 - 实际温度，Modbus地址=40001+4098=44099
+        self.output_enable_register = 0x1100  # 输出使能，uint16，0=关闭，1=打开
         self.temperature_scale = 100000
         self.read_response_length = 9
         self.write_response_length = 8
@@ -111,6 +113,25 @@ class TemperatureDebugger:
         crc = self._calculate_crc16(cmd)
         cmd.append(crc & 0xFF)  # CRC低字节
         cmd.append((crc >> 8) & 0xFF)  # CRC高字节
+
+        return bytes(cmd)
+
+    def _build_write_uint16_command(self, register: int, value: int) -> bytes:
+        """构建Modbus写单个uint16寄存器命令 (功能码 0x06)"""
+        if not 0 <= value <= 0xFFFF:
+            raise ValueError(f"uint16寄存器值超出范围: {value}")
+
+        cmd = bytearray()
+        cmd.append(self.modbus_address)
+        cmd.append(0x06)
+        cmd.append((register >> 8) & 0xFF)
+        cmd.append(register & 0xFF)
+        cmd.append((value >> 8) & 0xFF)
+        cmd.append(value & 0xFF)
+
+        crc = self._calculate_crc16(cmd)
+        cmd.append(crc & 0xFF)
+        cmd.append((crc >> 8) & 0xFF)
 
         return bytes(cmd)
 
@@ -202,7 +223,6 @@ class TemperatureDebugger:
 
             # 更新状态
             self.target_temperature = temperature
-            self.is_heating = True
 
             print(f"✓ 目标温度已设置为 {temperature}°C")
             return True
@@ -249,9 +269,33 @@ class TemperatureDebugger:
             print(f"✗ 读取失败: {e}")
             return None
 
+    def set_output_enable(self, enabled: bool) -> bool:
+        """设置输出使能。"""
+        if not self.ser or not self.ser.is_open:
+            print("✗ 串口未连接")
+            return False
+
+        try:
+            value = 1 if enabled else 0
+            cmd = self._build_write_uint16_command(self.output_enable_register, value)
+            self.ser.write(cmd)
+            print(f"→ {'打开' if enabled else '关闭'}输出使能: {value} | 命令: {cmd.hex().upper()}")
+
+            response = self._read_exact_response(self.write_response_length, timeout=0.3)
+            if response:
+                print(f"← 响应: {response.hex().upper()}")
+
+            return True
+        except Exception as e:
+            print(f"✗ 设置输出使能失败: {e}")
+            return False
+
     def stop_heating(self) -> bool:
-        """停止加热（设置目标温度为室温）"""
-        print("\n停止加热...")
+        """停止控温（关闭输出使能，并设置目标温度为室温）"""
+        print("\n停止控温...")
+        if not self.set_output_enable(False):
+            return False
+
         if not self.ser or not self.ser.is_open:
             print("✗ 串口未连接")
             return False
@@ -260,19 +304,31 @@ class TemperatureDebugger:
             raw_value = self._temperature_to_raw(25.0)
             cmd = self._build_write_command(self.target_temp_register, raw_value)
             self.ser.write(cmd)
-            print(f"→ 停止加热，目标温度降至 25.0°C | 命令: {cmd.hex().upper()}")
+            print(f"→ 目标温度降至 25.0°C | 命令: {cmd.hex().upper()}")
 
             response = self._read_exact_response(self.write_response_length, timeout=0.3)
             if response:
                 print(f"← 响应: {response.hex().upper()}")
 
             self.target_temperature = 25.0
-            self.is_heating = False
-            print("✓ 加热已停止")
-            return True
         except Exception as e:
-            print(f"✗ 停止加热失败: {e}")
+            print(f"⚠ 目标温度降至室温失败，但输出已关闭: {e}")
+
+        self.is_heating = False
+        print("✓ 控温已停止，输出已关闭")
+        return True
+
+    def start_temperature_control(self) -> bool:
+        """开始控温（使用当前目标温度）"""
+        print(f"\n开始控温，目标温度: {self.target_temperature}°C")
+        if not self.set_temperature(self.target_temperature):
             return False
+        if not self.set_output_enable(True):
+            return False
+
+        self.is_heating = True
+        print("✓ 控温已开始，输出已使能")
+        return True
 
     def show_status(self):
         """显示当前状态"""
@@ -300,6 +356,7 @@ class TemperatureDebugger:
         print("    例如: 60    # 设置为60°C")
         print("\n特殊命令:")
         print("  read    - 读取当前温度")
+        print("  start   - 开始控温（使用当前目标温度）")
         print("  stop    - 停止加热")
         print("  status  - 查看当前状态")
         print("  q/quit  - 退出程序")
@@ -325,6 +382,10 @@ class TemperatureDebugger:
 
                 if user_input.lower() == 'stop':
                     self.stop_heating()
+                    continue
+
+                if user_input.lower() == 'start':
+                    self.start_temperature_control()
                     continue
 
                 if user_input.lower() == 'read':

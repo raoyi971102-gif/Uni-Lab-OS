@@ -23,7 +23,7 @@ azo_workstation:
       flow_rate_b: float
     set_temperature:
       temperature: float
-    start_heating:
+    start_temperature_control:
       temperature: float
     stop_heating:
       temperature: float
