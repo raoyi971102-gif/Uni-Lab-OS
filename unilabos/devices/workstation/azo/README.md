@@ -24,7 +24,7 @@
    - Ideaoptics光谱仪（基于CyUSB）
    - 支持积分时间、平均次数设置
    - 支持CSV/JSON格式数据导出
-   - 通信：USB串口（独享）
+   - 通信：IdeaOptics USB Device 驱动 + `Ideaoptics.USB.SDK.dll`
 
 ### 通信架构
 
@@ -51,12 +51,8 @@
 │                                         │
 │       ┌─────────────┐                   │
 │       │  光谱仪     │                   │
-│       │  (USB)      │                   │
-│       └──────┬──────┘                   │
-│              │                          │
-│       ┌──────┴──────┐                   │
-│       │ USB串口     │                   │
-│       │  (COM4)     │                   │
+│       │IdeaOptics USB│                  │
+│       │ Device + SDK│                   │
 │       └─────────────┘                   │
 └─────────────────────────────────────────┘
 ```
@@ -88,7 +84,7 @@ unilabos/test/experiments/
 
 ### 1. 配置设备拓扑
 
-编辑 `azo_workstation.json`，配置串口和设备参数：
+编辑 `azo_workstation.json`，配置RS485串口和设备参数；光谱仪不配置COM口，由SDK自动枚举USB设备：
 
 ```json
 {

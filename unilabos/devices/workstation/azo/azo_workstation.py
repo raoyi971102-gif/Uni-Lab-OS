@@ -40,7 +40,7 @@ class AzoWorkstation(WorkstationBase):
 
     通信架构：
     - 485串口（共享）: pump_a, pump_b, temperature_controller
-    - USB串口（独享）: spectrometer
+    - IdeaOptics USB SDK: spectrometer
     """
 
     def __init__(
@@ -153,7 +153,7 @@ class AzoWorkstation(WorkstationBase):
         super().post_init(ros_node)
 
         # TODO: 根据实际的子设备配置，注入串口通信函数
-        # 假设有两个串口设备：serial_485 (共享) 和 serial_usb (光谱仪)
+        # 光谱仪不是COM串口设备，由 SpectrometerDriver 通过 IdeaOptics USB SDK 直接枚举连接。
 
         # 示例：如果子设备中有 serial_485，则注入通信函数
         # if "serial_485" in self._children:

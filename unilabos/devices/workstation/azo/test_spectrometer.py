@@ -25,12 +25,14 @@ from typing import Optional, Dict, Any
 try:
     import clr
     import os
+    clr.AddReference("System")
+    clr.AddReference("System.Collections")
     from System import Double
     from System.Collections.Generic import List as NetList
 
     PYTHONNET_AVAILABLE = True
-except ImportError:
-    print("警告: pythonnet未安装，将使用模拟模式")
+except Exception as e:
+    print(f"警告: pythonnet或.NET运行环境不可用，将使用模拟模式: {e}")
     print("安装方法: pip install pythonnet")
     PYTHONNET_AVAILABLE = False
 
@@ -73,11 +75,13 @@ class SpectrometerDebugger:
                 )
 
             # 加载DLL
+            clr.AddReference("System")
+            clr.AddReference("System.Collections")
             clr.AddReference(self.dll_path)
-            from Ideaoptics.SDK import Spectrometers, ISpectrometer
+            from Ideaoptics.SDK import Spectrometers
 
             self.manager = Spectrometers()
-            print(f"✓ SDK加载成功: {self.dll_path}")
+            print(f"✓ IdeaOptics USB SDK加载成功: {self.dll_path}")
             return True
 
         except Exception as e:
@@ -158,7 +162,14 @@ class SpectrometerDebugger:
                 print("光谱仪已断开连接")
             except:
                 pass
+        if self.manager:
+            try:
+                self.manager.Dispose()
+            except:
+                pass
         self.is_connected = False
+        self.active_device = None
+        self.manager = None
 
     def set_integration_time(self, time_ms: float) -> bool:
         """设置积分时间"""
@@ -227,9 +238,12 @@ class SpectrometerDebugger:
                 intensities = [random.randint(500, 2000) for _ in self.wavelengths]
                 print("✓ 光谱采集成功 (模拟)")
             else:
-                # 实际采集
-                spectrum = self.active_device.GetSpectrum()
-                intensities = list(spectrum)
+                # 实际采集：IdeaOptics USB SDK 需要传入 .NET List[Double] 接收数据
+                spectrum = NetList[Double]()
+                if not self.active_device.GetSpectrum(spectrum):
+                    print("✗ SDK返回采集失败")
+                    return None
+                intensities = [value for value in spectrum]
                 print(f"✓ 光谱采集成功 ({len(intensities)} 个数据点)")
 
             # 构建数据

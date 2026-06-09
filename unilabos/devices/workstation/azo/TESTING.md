@@ -286,9 +286,11 @@ python test_spectrometer.py <dll_path> <device_index>
 
 2. **DLL路径**：默认路径为 `./光谱仪/Python4CyUSB/dlls/Ideaoptics.USB.SDK.dll`
 
-3. **模拟模式**：如果SDK加载失败，会自动进入模拟模式，生成随机光谱数据
+3. **设备连接方式**：光谱仪在设备管理器中显示为 `IdeaOptics USB Device`，不是COM串口
 
-4. **数据格式**：
+4. **模拟模式**：如果SDK加载失败，会自动进入模拟模式，生成随机光谱数据
+
+5. **数据格式**：
    - CSV：包含元数据和波长-强度数据
    - JSON：完整的数据结构
 
@@ -296,7 +298,7 @@ python test_spectrometer.py <dll_path> <device_index>
 
 ## 常见问题
 
-### 1. 串口连接失败
+### 1. 泵或温控器串口连接失败
 
 **问题**：`✗ 串口连接失败: [WinError 2] 系统找不到指定的文件。`
 
@@ -304,7 +306,7 @@ python test_spectrometer.py <dll_path> <device_index>
 - 检查串口号是否正确
 - 在设备管理器中查看实际的COM口号
 - 确保串口没有被其他程序占用
-- 检查USB转串口驱动是否已安装
+- 检查RS485/USB转串口驱动是否已安装
 
 ### 2. 光谱仪SDK加载失败
 
@@ -313,6 +315,8 @@ python test_spectrometer.py <dll_path> <device_index>
 **解决方法**：
 - 确认pythonnet已安装：`pip install pythonnet`
 - 检查DLL文件路径是否正确
+- 确认设备管理器中能看到 `IdeaOptics USB Device`
+- 确认 IdeaOptics USB 驱动已安装，而不是把光谱仪当COM口连接
 - 确认.NET Framework已安装（Windows）
 - 使用模拟模式进行测试
 
@@ -365,7 +369,7 @@ python test_spectrometer.py <dll_path> <device_index>
 
 ### 第三步：测试光谱仪
 
-1. 连接USB串口
+1. 连接光谱仪USB线，并确认设备管理器中显示 `IdeaOptics USB Device`
 2. 运行 `python test_spectrometer.py`
 3. 测试命令：
    ```

@@ -17,8 +17,8 @@ from unilabos.utils.log import logger
 # 尝试导入.NET库（如果环境支持）
 try:
     import clr
-    import sys
-    import os
+    clr.AddReference("System")
+    clr.AddReference("System.Collections")
     from System import Double
     from System.Collections.Generic import List as NetList
 
@@ -26,16 +26,18 @@ try:
     def load_spectrometer_assemblies(dll_path: str):
         """加载光谱仪所需的.NET程序集"""
         try:
+            clr.AddReference("System")
+            clr.AddReference("System.Collections")
             clr.AddReference(dll_path)
-            from Ideaoptics.SDK import Spectrometers, ISpectrometer
-            return Spectrometers, ISpectrometer
+            from Ideaoptics.SDK import Spectrometers
+            return Spectrometers
         except Exception as e:
             logger.error(f"加载光谱仪SDK失败: {e}")
-            return None, None
+            return None
 
     SPECTROMETER_AVAILABLE = True
-except ImportError:
-    logger.warning("pythonnet未安装，光谱仪功能将使用模拟模式")
+except Exception as e:
+    logger.warning(f"pythonnet或.NET运行环境不可用，光谱仪功能将使用模拟模式: {e}")
     SPECTROMETER_AVAILABLE = False
 
 
@@ -80,10 +82,13 @@ class SpectrometerDriver:
         self.wavelengths = []
         self.serial_number = None
         self.type_name = None
+        self.pixel_count = 0
+        self.dll_path = dll_path
 
         # 如果未指定DLL路径，使用默认路径
         if dll_path is None:
             dll_path = str(Path(__file__).parent / "光谱仪" / "Python4CyUSB" / "dlls" / "Ideaoptics.USB.SDK.dll")
+            self.dll_path = dll_path
 
         # 初始化SDK
         if SPECTROMETER_AVAILABLE:
@@ -96,14 +101,33 @@ class SpectrometerDriver:
     def _init_sdk(self, dll_path: str):
         """初始化光谱仪SDK"""
         try:
-            Spectrometers, ISpectrometer = load_spectrometer_assemblies(dll_path)
+            Spectrometers = load_spectrometer_assemblies(dll_path)
             if Spectrometers:
                 self.manager = Spectrometers()
-                logger.info(f"光谱仪 {self.spectrometer_id}: SDK加载成功")
+                logger.info(f"光谱仪 {self.spectrometer_id}: IdeaOptics USB SDK加载成功")
             else:
                 logger.error(f"光谱仪 {self.spectrometer_id}: SDK加载失败")
         except Exception as e:
             logger.error(f"光谱仪 {self.spectrometer_id}: SDK初始化失败 - {e}")
+
+    def list_devices(self) -> List[Dict[str, Any]]:
+        """列出通过 IdeaOptics USB 驱动枚举到的光谱仪。"""
+        devices = []
+        if not SPECTROMETER_AVAILABLE or self.manager is None:
+            return devices
+
+        spectrometer_list = self.manager.LoadAllSpectrometers()
+        for index in range(spectrometer_list.Count):
+            device = spectrometer_list[index]
+            devices.append(
+                {
+                    "index": index,
+                    "serial_number": device.GetSerialNumber(),
+                    "type_name": device.GetTypeName(),
+                    "device": device,
+                }
+            )
+        return devices
 
     def connect(self) -> bool:
         """连接光谱仪
@@ -112,6 +136,10 @@ class SpectrometerDriver:
             是否连接成功
         """
         if not SPECTROMETER_AVAILABLE or self.manager is None:
+            if SPECTROMETER_AVAILABLE and self.dll_path:
+                self._init_sdk(self.dll_path)
+
+        if not SPECTROMETER_AVAILABLE or self.manager is None:
             logger.warning(f"光谱仪 {self.spectrometer_id}: 模拟连接成功")
             self.is_connected = True
             self.wavelengths = list(range(200, 1100))  # 模拟波长范围
@@ -119,22 +147,23 @@ class SpectrometerDriver:
 
         try:
             # 获取设备列表
-            spectrometer_list = self.manager.LoadAllSpectrometers()
-            if spectrometer_list.Count == 0:
-                logger.error(f"光谱仪 {self.spectrometer_id}: 未找到设备")
+            devices = self.list_devices()
+            if not devices:
+                logger.error(f"光谱仪 {self.spectrometer_id}: 未找到 IdeaOptics USB 设备")
                 return False
 
-            if self.device_index >= spectrometer_list.Count:
+            if self.device_index >= len(devices):
                 logger.error(f"光谱仪 {self.spectrometer_id}: 设备索引超出范围")
                 return False
 
             # 连接指定设备
-            self.active_device = spectrometer_list[self.device_index]
+            self.active_device = devices[self.device_index]["device"]
             if self.active_device.Open():
                 self.is_connected = True
                 self.wavelengths = list(self.active_device.GetWavelength())
                 self.serial_number = self.active_device.GetSerialNumber()
                 self.type_name = self.active_device.GetTypeName()
+                self.pixel_count = self.active_device.GetPixelNumber()
 
                 # 设置参数
                 self.active_device.SetIntegrationTime(self.integration_time)
@@ -144,7 +173,7 @@ class SpectrometerDriver:
                 logger.info(
                     f"光谱仪 {self.spectrometer_id}: 连接成功 "
                     f"(型号={self.type_name}, 序列号={self.serial_number}, "
-                    f"像素数={len(self.wavelengths)})"
+                    f"像素数={self.pixel_count})"
                 )
                 return True
             else:
@@ -163,7 +192,14 @@ class SpectrometerDriver:
                 logger.info(f"光谱仪 {self.spectrometer_id}: 已断开连接")
             except:
                 pass
+        if self.manager:
+            try:
+                self.manager.Dispose()
+            except:
+                pass
         self.is_connected = False
+        self.active_device = None
+        self.manager = None
 
     def set_integration_time(self, time_ms: float) -> bool:
         """设置积分时间
@@ -248,9 +284,12 @@ class SpectrometerDriver:
                 intensities = [random.randint(500, 2000) for _ in self.wavelengths]
                 logger.info(f"光谱仪 {self.spectrometer_id}: 模拟采集光谱数据")
             else:
-                # 实际采集
-                spectrum = self.active_device.GetSpectrum()
-                intensities = list(spectrum)
+                # 实际采集：IdeaOptics USB SDK 需要传入 .NET List[Double] 接收数据
+                spectrum = NetList[Double]()
+                if not self.active_device.GetSpectrum(spectrum):
+                    logger.error(f"光谱仪 {self.spectrometer_id}: SDK返回采集失败")
+                    return None
+                intensities = [value for value in spectrum]
                 logger.info(f"光谱仪 {self.spectrometer_id}: 采集光谱数据成功 ({len(intensities)} 个数据点)")
 
             # 构建返回数据
@@ -336,7 +375,9 @@ class SpectrometerDriver:
             "type_name": self.type_name,
             "integration_time": self.integration_time,
             "average_count": self.average_count,
-            "pixel_count": len(self.wavelengths),
+            "pixel_count": self.pixel_count or len(self.wavelengths),
+            "connection": "IdeaOptics USB SDK" if self.active_device is not None else "simulated",
+            "dll_path": self.dll_path,
         }
 
     def __del__(self):

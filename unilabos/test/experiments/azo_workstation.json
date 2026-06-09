@@ -6,7 +6,7 @@
       "parent": null,
       "type": "device",
       "class": "azo_workstation",
-      "children": ["serial_485", "serial_usb"],
+      "children": ["serial_485"],
       "position": {
         "x": 0,
         "y": 0,
@@ -61,30 +61,8 @@
         "z": 0
       },
       "config": {
-        "port": "COM3",
+        "port": "COM6",
         "baudrate": 38400,
-        "bytesize": 8,
-        "parity": "N",
-        "stopbits": 1,
-        "timeout": 1.0
-      },
-      "data": {}
-    },
-    {
-      "id": "serial_usb",
-      "name": "光谱仪USB串口",
-      "parent": "azo_workstation_1",
-      "type": "device",
-      "class": "serial",
-      "children": [],
-      "position": {
-        "x": 0,
-        "y": 0,
-        "z": 0
-      },
-      "config": {
-        "port": "COM4",
-        "baudrate": 115200,
         "bytesize": 8,
         "parity": "N",
         "stopbits": 1,
