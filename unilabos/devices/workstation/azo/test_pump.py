@@ -251,7 +251,7 @@ class PumpDebugger:
 def main():
     """主函数"""
     # 检查命令行参数
-    port = "COM3"
+    port = "COM6"
     baudrate = 38400
 
     if len(sys.argv) > 1:
