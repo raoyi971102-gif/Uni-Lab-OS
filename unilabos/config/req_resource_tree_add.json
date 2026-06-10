@@ -1,0 +1,100 @@
+{
+  "nodes": [
+    {
+      "id": "PRCXI_BioER_96_wellplate_slot_3_well_G12",
+      "uuid": "781c1145-8a6d-4efe-ad1c-c648f1deaf8d",
+      "name": "PRCXI_BioER_96_wellplate_slot_3_well_G12",
+      "description": "",
+      "schema": {},
+      "model": {},
+      "icon": "",
+      "parent_uuid": "f285e1ac-444f-4798-8e98-e4f7b40f3bc1",
+      "type": "well",
+      "class": "",
+      "pose": {
+        "size": {
+          "depth": 39.3,
+          "width": 8.25,
+          "height": 8.25
+        },
+        "scale": {
+          "x": 1.0,
+          "y": 1.0,
+          "z": 1.0
+        },
+        "layout": "x-y",
+        "position": {
+          "x": 108.5,
+          "y": 16.5,
+          "z": 6.0
+        },
+        "position3d": {
+          "x": 108.5,
+          "y": 16.5,
+          "z": 6.0
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "cross_section_type": "circle",
+        "extra": null
+      },
+      "config": {
+        "type": "Well",
+        "category": "well",
+        "model": null,
+        "barcode": null,
+        "preferred_pickup_location": null,
+        "max_volume": 2200.0,
+        "material_z_thickness": 0.8,
+        "compute_volume_from_height": null,
+        "compute_height_from_volume": null,
+        "height_volume_data": null
+      },
+      "data": {
+        "thing": "well_11_6_volume_tracker",
+        "max_volume": 2200.0,
+        "volume": 20.0,
+        "liquids": [
+          [
+            "water",
+            13.46,
+            "ul"
+          ],
+          [
+            "sample",
+            6.54,
+            "ul"
+          ]
+        ],
+        "liquid_history": [
+          [
+            "water",
+            13.46,
+            "ul"
+          ],
+          [
+            "sample",
+            5.0,
+            "ul"
+          ],
+          [
+            "sample",
+            1.54,
+            "ul"
+          ]
+        ],
+        "unknown_counter": 3
+      },
+      "extra": {
+        "unilabos_frontend_pose_extra": null,
+        "unilabos_resource_class": "",
+        "sample_uuid": null
+      },
+      "machine_name": ""
+    }
+  ],
+  "mount_uuid": "f285e1ac-444f-4798-8e98-e4f7b40f3bc1"
+}
