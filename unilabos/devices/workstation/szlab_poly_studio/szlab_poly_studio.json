@@ -37,6 +37,23 @@
                 "setup": true
             },
             "data": {}
+        },
+        {
+            "id": "szlab_s08_cap_station",
+            "name": "S08 开盖工位",
+            "children": [],
+            "parent": null,
+            "type": "device",
+            "class": "szlab_s08_cap_station",
+            "position": {
+                "x": 500,
+                "y": 0,
+                "z": 0
+            },
+            "config": {
+                "plc_device_id": "szlab_poly_plc"
+            },
+            "data": {}
         }
     ],
     "links": []
