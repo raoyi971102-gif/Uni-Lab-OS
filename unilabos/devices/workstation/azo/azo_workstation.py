@@ -65,9 +65,15 @@ class AzoWorkstation(WorkstationBase):
         spectrometer_average_count: int = 3,
         # 数据保存路径
         data_save_dir: Optional[str] = None,
+        # 模拟模式
+        simulate: bool = False,
         *args,
         **kwargs,
     ):
+        self.simulate = simulate
+        if self.simulate:
+            self._remove_serial_child_for_simulation(kwargs.get("children"))
+
         super().__init__(deck=deck, *args, **kwargs)
 
         # 数据保存目录
@@ -76,35 +82,32 @@ class AzoWorkstation(WorkstationBase):
         self.data_save_dir = Path(data_save_dir)
         self.data_save_dir.mkdir(parents=True, exist_ok=True)
 
-        # 初始化设备实例（串口通信函数将在post_init中注入）
-        self.pump_a = PeristalticPump(
-            pump_id="pump_a",
-            modbus_address=pump_a_address,
-            flow_to_rpm_ratio=pump_a_flow_ratio,
-        )
-
-        self.pump_b = PeristalticPump(
-            pump_id="pump_b",
-            modbus_address=pump_b_address,
-            flow_to_rpm_ratio=pump_b_flow_ratio,
-        )
-
-        self.temperature_controller = TemperatureController(
-            controller_id="temp_controller",
-            modbus_address=temp_controller_address,
-        )
-
-        self.spectrometer = SpectrometerDriver(
-            spectrometer_id="spectrometer",
-            dll_path=spectrometer_dll_path,
-            integration_time=spectrometer_integration_time,
-            average_count=spectrometer_average_count,
-        )
-
         # 工作流状态
         self.current_experiment_id = None
         self.spectrum_data_list = []  # 存储采集的光谱数据
         self._serial_485_ready = False
+
+        if self.simulate:
+            self._initialize_simulated_devices(
+                pump_a_address=pump_a_address,
+                pump_b_address=pump_b_address,
+                pump_a_flow_ratio=pump_a_flow_ratio,
+                pump_b_flow_ratio=pump_b_flow_ratio,
+                temp_controller_address=temp_controller_address,
+                spectrometer_integration_time=spectrometer_integration_time,
+                spectrometer_average_count=spectrometer_average_count,
+            )
+        else:
+            self._initialize_real_devices(
+                pump_a_address=pump_a_address,
+                pump_b_address=pump_b_address,
+                pump_a_flow_ratio=pump_a_flow_ratio,
+                pump_b_flow_ratio=pump_b_flow_ratio,
+                temp_controller_address=temp_controller_address,
+                spectrometer_dll_path=spectrometer_dll_path,
+                spectrometer_integration_time=spectrometer_integration_time,
+                spectrometer_average_count=spectrometer_average_count,
+            )
 
         # 定义支持的工作流
         self.supported_workflows = {
@@ -150,7 +153,93 @@ class AzoWorkstation(WorkstationBase):
             ),
         }
 
-        logger.info("偶氮反应工站初始化完成")
+        logger.info(f"偶氮反应工站初始化完成 (simulate={self.simulate})")
+
+    @staticmethod
+    def _remove_serial_child_for_simulation(children) -> None:
+        """模拟模式下跳过真实 RS485 子设备初始化。"""
+        if not isinstance(children, list):
+            return
+        children[:] = [
+            child
+            for child in children
+            if getattr(getattr(child, "res_content", None), "id", None) != "serial_485"
+        ]
+
+    def _initialize_real_devices(
+        self,
+        pump_a_address: int,
+        pump_b_address: int,
+        pump_a_flow_ratio: float,
+        pump_b_flow_ratio: float,
+        temp_controller_address: int,
+        spectrometer_dll_path: Optional[str],
+        spectrometer_integration_time: float,
+        spectrometer_average_count: int,
+    ) -> None:
+        """初始化真实设备驱动。"""
+        self.pump_a = PeristalticPump(
+            pump_id="pump_a",
+            modbus_address=pump_a_address,
+            flow_to_rpm_ratio=pump_a_flow_ratio,
+        )
+        self.pump_b = PeristalticPump(
+            pump_id="pump_b",
+            modbus_address=pump_b_address,
+            flow_to_rpm_ratio=pump_b_flow_ratio,
+        )
+        self.temperature_controller = TemperatureController(
+            controller_id="temp_controller",
+            modbus_address=temp_controller_address,
+        )
+        self.spectrometer = SpectrometerDriver(
+            spectrometer_id="spectrometer",
+            dll_path=spectrometer_dll_path,
+            integration_time=spectrometer_integration_time,
+            average_count=spectrometer_average_count,
+        )
+
+    def _initialize_simulated_devices(
+        self,
+        pump_a_address: int,
+        pump_b_address: int,
+        pump_a_flow_ratio: float,
+        pump_b_flow_ratio: float,
+        temp_controller_address: int,
+        spectrometer_integration_time: float,
+        spectrometer_average_count: int,
+    ) -> None:
+        """初始化模拟设备驱动。"""
+        try:
+            from azo_simulator import (
+                SimulatedPeristalticPump,
+                SimulatedSpectrometer,
+                SimulatedTemperatureController,
+            )
+        except ImportError as exc:
+            raise RuntimeError("simulate=True 需要仓库根目录下的 azo_simulator 包可导入") from exc
+
+        self.pump_a = SimulatedPeristalticPump(
+            pump_id="pump_a",
+            modbus_address=pump_a_address,
+            flow_to_rpm_ratio=pump_a_flow_ratio,
+        )
+        self.pump_b = SimulatedPeristalticPump(
+            pump_id="pump_b",
+            modbus_address=pump_b_address,
+            flow_to_rpm_ratio=pump_b_flow_ratio,
+        )
+        self.temperature_controller = SimulatedTemperatureController(
+            controller_id="temp_controller",
+            modbus_address=temp_controller_address,
+        )
+        self.spectrometer = SimulatedSpectrometer(
+            spectrometer_id="spectrometer",
+            integration_time=spectrometer_integration_time,
+            average_count=spectrometer_average_count,
+        )
+        self.spectrometer.connect()
+        self._serial_485_ready = True
 
     @not_action
     def post_init(self, ros_node) -> None:
@@ -159,6 +248,13 @@ class AzoWorkstation(WorkstationBase):
         在这里注入串口通信函数（通过代理模式）
         """
         super().post_init(ros_node)
+
+        if self.simulate:
+            self._serial_485_ready = True
+            if not self.spectrometer.is_connected:
+                self.spectrometer.connect()
+            logger.info("偶氮反应工站模拟模式 post_init 完成，跳过真实 RS485 注入")
+            return
 
         # 光谱仪不是COM串口设备，由 SpectrometerDriver 通过 IdeaOptics USB SDK 直接枚举连接。
         serial_485 = self._get_communication_device("serial_485")
@@ -709,6 +805,7 @@ class AzoWorkstation(WorkstationBase):
         """
         return {
             "workstation_id": self._ros_node.device_id if hasattr(self, '_ros_node') else "azo_workstation",
+            "simulate": self.simulate,
             "workflow_status": self.current_workflow_status.value,
             "current_experiment_id": self.current_experiment_id,
             "pump_a": self.pump_a.get_status(),

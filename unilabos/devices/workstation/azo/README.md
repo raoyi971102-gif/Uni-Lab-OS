@@ -93,6 +93,7 @@ unilabos/test/experiments/
       "class": "azo_workstation",
       "config": {
         "protocol_type": [],
+        "simulate": false,
         "pump_a_address": 5,
         "pump_b_address": 6,
         "pump_a_flow_ratio": 1.0,  // TODO: 根据实际泵参数调整
@@ -116,6 +117,30 @@ unilabos/test/experiments/
       }
     }
   ]
+}
+```
+
+`simulate` 用于切换真机和模拟器：
+
+- `false`：使用真实驱动。泵和温控器通过 `serial_485` RS485 串口通信，光谱仪通过 IdeaOptics SDK/USB 连接。
+- `true`：使用仓库根目录 `azo_simulator` 中的模拟设备。工作站会跳过 `serial_485` 子设备初始化，不打开真实串口，也不连接真实光谱仪。
+
+模拟模式示例：
+
+```json
+{
+  "id": "azo_workstation_1",
+  "type": "device",
+  "class": "azo_workstation",
+  "children": ["serial_485"],
+  "config": {
+    "protocol_type": [],
+    "simulate": true,
+    "pump_a_address": 5,
+    "pump_b_address": 6,
+    "temp_controller_address": 1,
+    "data_save_dir": "./azo_experiment_data"
+  }
 }
 ```
 

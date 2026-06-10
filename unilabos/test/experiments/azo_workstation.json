@@ -14,6 +14,7 @@
       },
       "config": {
         "protocol_type": [],
+        "simulate": false,
         "pump_a_address": 5,
         "pump_b_address": 6,
         "pump_a_flow_ratio": 1.0,
