@@ -13,6 +13,7 @@
         "z": 0
       },
       "config": {
+        "protocol_type": [],
         "pump_a_address": 5,
         "pump_b_address": 6,
         "pump_a_flow_ratio": 1.0,
@@ -53,7 +54,7 @@
       "name": "RS485串口",
       "parent": "azo_workstation_1",
       "type": "device",
-      "class": "serial",
+      "class": "azo_raw_serial",
       "children": [],
       "position": {
         "x": 0,

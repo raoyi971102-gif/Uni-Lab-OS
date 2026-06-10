@@ -14,21 +14,27 @@ Azo Reaction Workstation Driver
 4. 实时记录光谱数据
 """
 
+import json
 import time
-import asyncio
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 from pathlib import Path
 from datetime import datetime
-
-from pylabrobot.resources import Deck
 
 from unilabos.devices.workstation.workstation_base import WorkstationBase, WorkflowStatus, WorkflowInfo
 from unilabos.devices.workstation.azo.peristaltic_pump import PeristalticPump
 from unilabos.devices.workstation.azo.temperature_controller import TemperatureController
 from unilabos.devices.workstation.azo.spectrometer import SpectrometerDriver
+from unilabos.registry.decorators import device, not_action, topic_config
 from unilabos.utils.log import logger
 
 
+@device(
+    id="azo_workstation",
+    category=["workstation"],
+    description="偶氮反应微流控工作站，集成双蠕动泵、温控器和 IdeaOptics 光谱仪",
+    display_name="偶氮反应工作站",
+    icon="reaction_station.webp",
+)
 class AzoWorkstation(WorkstationBase):
     """偶氮反应工站
 
@@ -45,7 +51,7 @@ class AzoWorkstation(WorkstationBase):
 
     def __init__(
         self,
-        deck: Optional[Deck] = None,
+        deck: Optional[Any] = None,
         # 蠕动泵参数
         pump_a_address: int = 5,
         pump_b_address: int = 6,
@@ -98,6 +104,7 @@ class AzoWorkstation(WorkstationBase):
         # 工作流状态
         self.current_experiment_id = None
         self.spectrum_data_list = []  # 存储采集的光谱数据
+        self._serial_485_ready = False
 
         # 定义支持的工作流
         self.supported_workflows = {
@@ -145,6 +152,7 @@ class AzoWorkstation(WorkstationBase):
 
         logger.info("偶氮反应工站初始化完成")
 
+    @not_action
     def post_init(self, ros_node) -> None:
         """ROS节点初始化后的回调
 
@@ -167,6 +175,7 @@ class AzoWorkstation(WorkstationBase):
                 self.pump_b.serial_read = serial_read
                 self.temperature_controller.serial_write = serial_write
                 self.temperature_controller.serial_read = serial_read
+                self._serial_485_ready = True
                 logger.info("已将 serial_485 二进制串口接口注入到泵和温控器")
 
         # 连接光谱仪
@@ -285,6 +294,179 @@ class AzoWorkstation(WorkstationBase):
         """
         return self.spectrometer.acquire_spectrum()
 
+    def wait_seconds(self, seconds: float) -> bool:
+        """固定等待一段时间。
+
+        Args:
+            seconds: 等待时长（秒）
+
+        Returns:
+            是否等待完成
+        """
+        if seconds < 0:
+            logger.error(f"等待时长不能为负数: {seconds}")
+            return False
+
+        logger.info(f"等待 {seconds} 秒")
+        end_time = time.time() + seconds
+        while time.time() < end_time:
+            if self.current_workflow_status == WorkflowStatus.STOPPING:
+                logger.info("等待过程中收到工作流停止请求")
+                return False
+            time.sleep(min(0.1, max(0.0, end_time - time.time())))
+        return True
+
+    def wait_until_temperature_stable(
+        self,
+        target_temperature: float,
+        tolerance: float = 1.0,
+        timeout: float = 300.0,
+        check_interval: float = 2.0,
+    ) -> bool:
+        """等待温度进入目标范围。
+
+        Args:
+            target_temperature: 目标温度 (°C)
+            tolerance: 允许偏差 (°C)
+            timeout: 最大等待时间（秒）
+            check_interval: 检查间隔（秒）
+
+        Returns:
+            是否在超时前达到目标范围
+        """
+        if tolerance < 0:
+            logger.error(f"温度容差不能为负数: {tolerance}")
+            return False
+        if timeout < 0:
+            logger.error(f"温度等待超时时间不能为负数: {timeout}")
+            return False
+        if check_interval <= 0:
+            logger.error(f"温度检查间隔必须大于 0: {check_interval}")
+            return False
+
+        logger.info(
+            f"等待温度稳定: 目标={target_temperature}°C, "
+            f"容差=±{tolerance}°C, 超时={timeout}秒"
+        )
+        start_time = time.time()
+        while time.time() - start_time <= timeout:
+            if self.current_workflow_status == WorkflowStatus.STOPPING:
+                logger.info("等待温度稳定过程中收到工作流停止请求")
+                return False
+
+            actual_temperature = self.read_temperature()
+            if actual_temperature is None:
+                logger.warning("读取当前温度失败，继续等待")
+            else:
+                delta = abs(actual_temperature - target_temperature)
+                logger.info(
+                    f"当前温度: {actual_temperature}°C, "
+                    f"目标温度: {target_temperature}°C, 偏差: {delta}°C"
+                )
+                if delta <= tolerance:
+                    logger.info("温度已进入目标范围")
+                    return True
+
+            time.sleep(check_interval)
+
+        logger.warning(f"等待温度稳定超时: {timeout}秒")
+        return False
+
+    def run_pumps_for(self, flow_rate_a: float, flow_rate_b: float, duration: float) -> bool:
+        """启动两个泵并运行指定时间后停止。
+
+        Args:
+            flow_rate_a: 泵A流速 (ml/min)
+            flow_rate_b: 泵B流速 (ml/min)
+            duration: 运行时长（秒）
+
+        Returns:
+            是否完成指定时长运行并成功停止
+        """
+        if duration < 0:
+            logger.error(f"泵运行时长不能为负数: {duration}")
+            return False
+
+        logger.info(f"运行泵: A={flow_rate_a} ml/min, B={flow_rate_b} ml/min, 时长={duration}秒")
+        if not self.set_pump_flow_rates(flow_rate_a, flow_rate_b):
+            logger.error("启动泵失败")
+            return False
+
+        completed = False
+        try:
+            completed = self.wait_seconds(duration)
+        finally:
+            stop_success = self.stop_pumps()
+            if not stop_success:
+                logger.error("停止泵失败")
+            if not completed:
+                logger.warning("泵未完成指定运行时长")
+        return completed and stop_success
+
+    def acquire_spectrum_series(self, duration: float, interval: float, save: bool = True) -> Dict[str, Any]:
+        """在指定时间内周期性采集光谱。
+
+        Args:
+            duration: 采集总时长（秒）
+            interval: 采集间隔（秒）
+            save: 是否保存每次采集到的光谱数据
+
+        Returns:
+            采集结果摘要
+        """
+        if duration < 0:
+            logger.error(f"光谱采集时长不能为负数: {duration}")
+            return {"success": False, "error": "duration must be non-negative", "spectra_collected": 0}
+        if interval <= 0:
+            logger.error(f"光谱采集间隔必须大于 0: {interval}")
+            return {"success": False, "error": "interval must be positive", "spectra_collected": 0}
+
+        if self.current_experiment_id is None:
+            self.current_experiment_id = f"azo_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+        logger.info(f"开始周期性采集光谱: 时长={duration}秒, 间隔={interval}秒, 保存={save}")
+        start_time = time.time()
+        next_spectrum_time = start_time
+        collected_count = 0
+        saved_count = 0
+
+        while time.time() - start_time <= duration:
+            if self.current_workflow_status == WorkflowStatus.STOPPING:
+                logger.info("光谱序列采集过程中收到工作流停止请求")
+                break
+
+            current_time = time.time()
+            if current_time >= next_spectrum_time:
+                spectrum_data = self.acquire_spectrum()
+                if spectrum_data:
+                    spectrum_data["experiment_id"] = self.current_experiment_id
+                    spectrum_data["elapsed_time"] = current_time - start_time
+
+                    actual_temp = self.read_temperature()
+                    if actual_temp is not None:
+                        spectrum_data["temperature_actual"] = actual_temp
+
+                    self.spectrum_data_list.append(spectrum_data)
+                    collected_count += 1
+
+                    if save and self.save_spectrum(spectrum_data, format="csv"):
+                        saved_count += 1
+
+                    logger.info(f"周期性采集光谱 #{collected_count}")
+
+                next_spectrum_time += interval
+
+            time.sleep(0.1)
+
+        return {
+            "success": True,
+            "experiment_id": self.current_experiment_id,
+            "spectra_collected": collected_count,
+            "spectra_saved": saved_count,
+            "duration": duration,
+            "interval": interval,
+        }
+
     def save_spectrum(self, spectrum_data: Dict[str, Any], format: str = "csv") -> bool:
         """保存光谱数据
 
@@ -313,6 +495,36 @@ class AzoWorkstation(WorkstationBase):
             return False
 
     # ============ 工作流实现 ============
+
+    def run_azo_reaction(
+        self,
+        flow_rate_a: float = 1.0,
+        flow_rate_b: float = 1.0,
+        temperature: float = 25.0,
+        duration: float = 3600.0,
+        spectrum_interval: float = 10.0,
+    ) -> bool:
+        """公开的偶氮反应动作。
+
+        Args:
+            flow_rate_a: 泵A流速 (ml/min)
+            flow_rate_b: 泵B流速 (ml/min)
+            temperature: 反应温度 (°C)
+            duration: 反应时长（秒）
+            spectrum_interval: 光谱采集间隔（秒）
+
+        Returns:
+            是否执行成功
+        """
+        return self._run_azo_reaction(
+            {
+                "flow_rate_a": flow_rate_a,
+                "flow_rate_b": flow_rate_b,
+                "temperature": temperature,
+                "duration": duration,
+                "spectrum_interval": spectrum_interval,
+            }
+        )
 
     def _execute_workflow_impl(self, workflow_name: str, parameters: Dict[str, Any]) -> bool:
         """执行工作流的具体实现"""
@@ -488,6 +700,7 @@ class AzoWorkstation(WorkstationBase):
 
     # ============ 状态查询 ============
 
+    @not_action
     def get_workstation_status(self) -> Dict[str, Any]:
         """获取工作站整体状态
 
@@ -504,6 +717,51 @@ class AzoWorkstation(WorkstationBase):
             "spectrometer": self.spectrometer.get_status(),
             "spectra_collected": len(self.spectrum_data_list),
         }
+
+    @property
+    @topic_config()
+    def workstation_status(self) -> str:
+        return json.dumps(self.get_workstation_status(), ensure_ascii=False)
+
+    @property
+    @topic_config()
+    def workflow_status(self) -> str:
+        return self.current_workflow_status.value
+
+    @property
+    @topic_config()
+    def current_experiment(self) -> str:
+        return self.current_experiment_id or ""
+
+    @property
+    @topic_config()
+    def pump_a_flow_rate(self) -> float:
+        return self.pump_a.current_flow_rate
+
+    @property
+    @topic_config()
+    def pump_b_flow_rate(self) -> float:
+        return self.pump_b.current_flow_rate
+
+    @property
+    @topic_config()
+    def temperature_setpoint(self) -> float:
+        return self.temperature_controller.target_temperature
+
+    @property
+    @topic_config()
+    def temperature_actual(self) -> float:
+        return self.temperature_controller.actual_temperature
+
+    @property
+    @topic_config()
+    def spectra_collected(self) -> int:
+        return len(self.spectrum_data_list)
+
+    @property
+    @topic_config()
+    def serial_485_ready(self) -> bool:
+        return self._serial_485_ready
 
     def __del__(self):
         """析构函数，确保设备安全关闭"""

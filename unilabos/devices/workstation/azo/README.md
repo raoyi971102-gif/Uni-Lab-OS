@@ -63,6 +63,7 @@
 unilabos/devices/workstation/azo/
 ├── __init__.py                      # 包初始化
 ├── azo_workstation.py               # 主工作站驱动
+├── azo_raw_serial.py                # 偶氮专用 RS485 二进制串口设备
 ├── peristaltic_pump.py              # 蠕动泵驱动
 ├── temperature_controller.py        # 温控器驱动
 ├── spectrometer.py                  # 光谱仪驱动
@@ -72,9 +73,6 @@ unilabos/devices/workstation/azo/
 │       └── dlls/
 │           └── Ideaoptics.USB.SDK.dll
 └── README.md                        # 本文档
-
-unilabos/registry/devices/
-└── azo_workstation.yaml             # Registry配置
 
 unilabos/test/experiments/
 └── azo_workstation.json             # 示例Graph配置
@@ -92,14 +90,29 @@ unilabos/test/experiments/
     {
       "id": "azo_workstation_1",
       "type": "device",
-      "registry_name": "azo_workstation",
+      "class": "azo_workstation",
       "config": {
+        "protocol_type": [],
         "pump_a_address": 5,
         "pump_b_address": 6,
         "pump_a_flow_ratio": 1.0,  // TODO: 根据实际泵参数调整
         "pump_b_flow_ratio": 1.0,
         "temp_controller_address": 1,
         "data_save_dir": "./azo_experiment_data"
+      }
+    },
+    {
+      "id": "serial_485",
+      "type": "device",
+      "class": "azo_raw_serial",
+      "parent": "azo_workstation_1",
+      "config": {
+        "port": "COM6",
+        "baudrate": 38400,
+        "bytesize": 8,
+        "parity": "N",
+        "stopbits": 1,
+        "timeout": 1.0
       }
     }
   ]
@@ -181,7 +194,7 @@ def flow_rate_to_rpm(self, flow_rate: float) -> int:
 
 ### 串口通信注入
 
-在 `azo_workstation.py` 的 `post_init` 方法中，需要根据实际的子设备配置注入串口通信函数：
+在 `azo_workstation.py` 的 `post_init` 方法中，会从 `serial_485` 子设备注入原始二进制串口读写函数：
 
 ```python
 def post_init(self, ros_node) -> None:
