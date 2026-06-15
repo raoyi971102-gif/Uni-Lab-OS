@@ -1,0 +1,46 @@
+name: CI Check
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - dev
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container:
+      image: styxhuang/unilabos-lite:1.0
+
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Show runtime environment
+        run: |
+          mamba run -n unilab python --version
+          mamba run -n unilab python -c "import sys; print(sys.executable)"
+          mamba run -n unilab python -m pip --version
+          which mamba || true
+          which uv || true
+          which flake8 || true
+          which autopep8 || true
+          which pre-commit || true
+
+      - name: Install Uni-Lab-OS in editable mode
+        run: |
+          mamba run -n unilab python -m pip install --upgrade pip
+          mamba run -n unilab python -m pip install pytest
+          mamba run -n unilab python -m pip install -e .
+          mamba run -n unilab python -m pip install -r unilabos/utils/requirements.txt
+
+      - name: Run flake8
+        run: |
+          mamba run -n unilab python -m flake8 .
+
+      - name: Run tests
+        run: |
+          mamba run -n unilab python -m pytest tests
