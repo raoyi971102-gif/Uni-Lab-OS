@@ -366,6 +366,14 @@ class HostNode(BaseROS2DeviceNode):
             discovery_interval, self._discovery_devices_callback, callback_group=self.callback_group
         )
 
+        # 创建定时器，定期全量补发设备状态（不管值是否变化）。
+        # property_callback 仅在值变化时才推送，且推送时若桥接器未连接会被丢弃；
+        # 恒定不变的状态（如机械臂空闲/故障常为 False）首次推送一旦丢失就不再重发，导致前端显示不全。
+        # 周期性全量补发保证所有状态值都能填上，并在断线重连后自愈。
+        self._status_rebroadcast_timer = self.create_timer(
+            2.0, self._rebroadcast_device_status_callback, callback_group=self.callback_group
+        )
+
         # 添加ping-pong相关属性
         self._ping_responses = {}  # 存储ping响应
         self._ping_lock = threading.Lock()
@@ -780,6 +788,21 @@ class HostNode(BaseROS2DeviceNode):
                             self.lab_logger().trace(f"Status created: {device_id}.{property_name} = {msg.data}")
                         else:
                             self.lab_logger().trace(f"Status updated: {device_id}.{property_name} = {msg.data}")
+
+    def _rebroadcast_device_status_callback(self) -> None:
+        """定期全量补发已缓存的设备状态（不管值是否变化），确保前端状态显示完整。
+
+        property_callback 只在值变化时推送，恒定状态首次推送丢失后不会重发。
+        这里把当前缓存的全部状态再推一次；桥接器未连接时其内部会自动跳过。
+        """
+        try:
+            for device_id, properties in list(self.device_status.items()):
+                for property_name in list(properties.keys()):
+                    for bridge in self.bridges:
+                        if hasattr(bridge, "publish_device_status"):
+                            bridge.publish_device_status(self.device_status, device_id, property_name)
+        except Exception as e:
+            self.lab_logger().debug(f"[Host Node] 全量补发设备状态出错: {e}")
 
     def send_goal(
         self,

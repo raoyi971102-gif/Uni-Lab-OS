@@ -1,0 +1,44 @@
+BallMillJar_Carrier:
+  category:
+  - bottle_carriers
+  class:
+    module: unilabos.devices.workstation.XUSE.bottle_carriers:BallMillJar_Carrier
+    type: pylabrobot
+  description: 球磨罐载架
+  handles: []
+  icon: ''
+  init_param_schema: {}
+  version: 1.0.0
+Funnel_Carrier:
+  category:
+  - bottle_carriers
+  class:
+    module: unilabos.devices.workstation.XUSE.bottle_carriers:Funnel_Carrier
+    type: pylabrobot
+  description: 漏斗载架
+  handles: []
+  icon: ''
+  init_param_schema: {}
+  version: 1.0.0
+LargeCrucible_Carrier:
+  category:
+  - bottle_carriers
+  class:
+    module: unilabos.devices.workstation.XUSE.bottle_carriers:LargeCrucible_Carrier
+    type: pylabrobot
+  description: 大坩埚载架
+  handles: []
+  icon: ''
+  init_param_schema: {}
+  version: 1.0.0
+SmallCrucible_Carrier:
+  category:
+  - bottle_carriers
+  class:
+    module: unilabos.devices.workstation.XUSE.bottle_carriers:SmallCrucible_Carrier
+    type: pylabrobot
+  description: 小坩埚载架
+  handles: []
+  icon: ''
+  init_param_schema: {}
+  version: 1.0.0

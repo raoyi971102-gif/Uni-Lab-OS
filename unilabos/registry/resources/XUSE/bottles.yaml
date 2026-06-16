@@ -1,0 +1,44 @@
+BallMillJar:
+  category:
+  - bottles
+  class:
+    module: unilabos.devices.workstation.XUSE.bottles:BallMillJar
+    type: pylabrobot
+  description: 球磨罐
+  handles: []
+  icon: ''
+  init_param_schema: {}
+  version: 1.0.0
+Funnel:
+  category:
+  - bottles
+  class:
+    module: unilabos.devices.workstation.XUSE.bottles:Funnel
+    type: pylabrobot
+  description: 漏斗
+  handles: []
+  icon: ''
+  init_param_schema: {}
+  version: 1.0.0
+LargeCrucible:
+  category:
+  - bottles
+  class:
+    module: unilabos.devices.workstation.XUSE.bottles:LargeCrucible
+    type: pylabrobot
+  description: 大坩埚
+  handles: []
+  icon: ''
+  init_param_schema: {}
+  version: 1.0.0
+SmallCrucible:
+  category:
+  - bottles
+  class:
+    module: unilabos.devices.workstation.XUSE.bottles:SmallCrucible
+    type: pylabrobot
+  description: 小坩埚
+  handles: []
+  icon: ''
+  init_param_schema: {}
+  version: 1.0.0

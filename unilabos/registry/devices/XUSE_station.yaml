@@ -8,6 +8,7 @@ XUSE_station:
         goal: {}
         goal_default: {}
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 加珠操作（等待加珠请求，触发加珠开始，等待加珠完成）
@@ -19,21 +20,11 @@ XUSE_station:
               type: object
             result:
               description: 加珠 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 加珠返回结果
               type: object
           required:
           - goal
-          title: 加珠参数
+          title: add_bead参数
           type: object
         type: UniLabJsonCommand
       add_powder:
@@ -41,6 +32,7 @@ XUSE_station:
         goal: {}
         goal_default: {}
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 加粉操作（等待加样请求，触发加样开始，等待加样完成）
@@ -52,21 +44,37 @@ XUSE_station:
               type: object
             result:
               description: 加粉 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 加粉返回结果
               type: object
           required:
           - goal
-          title: 加粉参数
+          title: add_powder参数
+          type: object
+        type: UniLabJsonCommand
+      auto-is_robotic_arm_idle:
+        feedback: {}
+        goal: {}
+        goal_default:
+          arm_id: null
+        handles: {}
+        placeholder_keys: {}
+        result: {}
+        schema:
+          description: 检查机械臂是否空闲
+          properties:
+            feedback: {}
+            goal:
+              properties:
+                arm_id:
+                  type: integer
+              required:
+              - arm_id
+              type: object
+            result:
+              type: boolean
+          required:
+          - goal
+          title: is_robotic_arm_idle参数
           type: object
         type: UniLabJsonCommand
       ball_mill:
@@ -74,6 +82,7 @@ XUSE_station:
         goal: {}
         goal_default: {}
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 球磨操作（检查球磨区4个位置占位，等待球磨请求，触发球磨开始，等待球磨完成）
@@ -85,21 +94,11 @@ XUSE_station:
               type: object
             result:
               description: 球磨 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 球磨返回结果
               type: object
           required:
           - goal
-          title: 球磨参数
+          title: ball_mill参数
           type: object
         type: UniLabJsonCommand
       close_can_lid:
@@ -107,6 +106,7 @@ XUSE_station:
         goal: {}
         goal_default: {}
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 关闭罐上盖（等待开罐请求，设置关盖动作代码，触发开罐加工，等待完成）
@@ -118,21 +118,11 @@ XUSE_station:
               type: object
             result:
               description: 关盖 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 关盖返回结果
               type: object
           required:
           - goal
-          title: 关盖参数
+          title: close_can_lid参数
           type: object
         type: UniLabJsonCommand
       large_crucible_discharge:
@@ -140,6 +130,7 @@ XUSE_station:
         goal: {}
         goal_default: {}
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 大坩埚搬运位出料（从取料位移动到放料位）
@@ -151,21 +142,11 @@ XUSE_station:
               type: object
             result:
               description: 大坩锅搬运位出料 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 大坩锅搬运位出料返回结果
               type: object
           required:
           - goal
-          title: 大坩锅搬运位出料参数
+          title: large_crucible_discharge参数
           type: object
         type: UniLabJsonCommand
       large_crucible_feed:
@@ -173,6 +154,7 @@ XUSE_station:
         goal: {}
         goal_default: {}
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 大坩埚搬运位上料（从入料位移动到取料位）
@@ -184,21 +166,11 @@ XUSE_station:
               type: object
             result:
               description: 大坩锅搬运位置上料 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 大坩锅搬运位置上料返回结果
               type: object
           required:
           - goal
-          title: 大坩锅搬运位置上料参数
+          title: large_crucible_feed参数
           type: object
         type: UniLabJsonCommand
       muffle_furnace_sintering:
@@ -207,6 +179,7 @@ XUSE_station:
         goal_default:
           muffle_furnace_position: null
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 马弗炉烧结（指定马弗炉位置，等待请求，触发烧结，等待烧结完成）
@@ -222,21 +195,11 @@ XUSE_station:
               type: object
             result:
               description: 马弗炉烧结 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 马弗炉烧结返回结果
               type: object
           required:
           - goal
-          title: 马弗炉烧结参数
+          title: muffle_furnace_sintering参数
           type: object
         type: UniLabJsonCommand
       open_can_lid:
@@ -244,6 +207,7 @@ XUSE_station:
         goal: {}
         goal_default: {}
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 打开罐上盖（等待开罐请求，设置开盖动作代码，触发开罐加工，等待完成）
@@ -255,21 +219,11 @@ XUSE_station:
               type: object
             result:
               description: 打开罐上盖 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 打开罐上盖返回结果
               type: object
           required:
           - goal
-          title: 打开罐上盖参数
+          title: open_can_lid参数
           type: object
         type: UniLabJsonCommand
       pick_can_from_add_bead_position:
@@ -277,6 +231,7 @@ XUSE_station:
         goal: {}
         goal_default: {}
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 机械臂1从加珠区取罐体
@@ -288,21 +243,11 @@ XUSE_station:
               type: object
             result:
               description: 从加珠区取罐体 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 从加珠区取罐体返回结果
               type: object
           required:
           - goal
-          title: 从加珠区取罐体参数
+          title: pick_can_from_add_bead_position参数
           type: object
         type: UniLabJsonCommand
       pick_can_from_add_powder_position:
@@ -310,6 +255,7 @@ XUSE_station:
         goal: {}
         goal_default: {}
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 机械臂1从加粉区取罐体
@@ -321,21 +267,11 @@ XUSE_station:
               type: object
             result:
               description: 从加粉区取罐体 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 从加粉区取罐体返回结果
               type: object
           required:
           - goal
-          title: 从加粉区取罐体参数
+          title: pick_can_from_add_powder_position参数
           type: object
         type: UniLabJsonCommand
       pick_can_from_ball_mill:
@@ -344,6 +280,7 @@ XUSE_station:
         goal_default:
           mill_position: null
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 机械臂1从球磨区指定位置取罐体
@@ -359,21 +296,11 @@ XUSE_station:
               type: object
             result:
               description: 从球磨区抓取罐体 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 从球磨区抓取罐体返回结果
               type: object
           required:
           - goal
-          title: 从球磨区抓取罐体参数
+          title: pick_can_from_ball_mill参数
           type: object
         type: UniLabJsonCommand
       pick_can_from_can_rack:
@@ -382,6 +309,7 @@ XUSE_station:
         goal_default:
           rack_position: null
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 机械臂1从罐架区指定位置取球磨罐
@@ -397,21 +325,11 @@ XUSE_station:
               type: object
             result:
               description: 从罐架区取球磨罐 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 从罐架区取球磨罐返回结果
               type: object
           required:
           - goal
-          title: 从罐架区取球磨罐参数
+          title: pick_can_from_can_rack参数
           type: object
         type: UniLabJsonCommand
       pick_can_with_powder_and_bead_from_open_can_position:
@@ -419,6 +337,7 @@ XUSE_station:
         goal: {}
         goal_default: {}
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 机械臂1从开盖区抓取带有粉珠的球磨罐
@@ -430,21 +349,11 @@ XUSE_station:
               type: object
             result:
               description: 从开盖区抓取带有粉珠的球磨罐 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 从开盖区抓取带有粉珠的球磨罐返回结果
               type: object
           required:
           - goal
-          title: 从开盖区抓取带有粉珠的球磨罐参数
+          title: pick_can_with_powder_and_bead_from_open_can_position参数
           type: object
         type: UniLabJsonCommand
       pick_empty_can_from_open_can_position:
@@ -452,6 +361,7 @@ XUSE_station:
         goal: {}
         goal_default: {}
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 机械臂1从开盖区抓取空罐
@@ -463,21 +373,11 @@ XUSE_station:
               type: object
             result:
               description: 从开盖区抓取空罐 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 从开盖区抓取空罐返回结果
               type: object
           required:
           - goal
-          title: 从开盖区抓取空罐参数
+          title: pick_empty_can_from_open_can_position参数
           type: object
         type: UniLabJsonCommand
       pick_funnel_from_crucible_rack:
@@ -486,6 +386,7 @@ XUSE_station:
         goal_default:
           rack_position: null
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 机械臂2从漏斗架区指定位置取漏斗
@@ -501,21 +402,11 @@ XUSE_station:
               type: object
             result:
               description: 从漏斗架区取漏斗 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 从漏斗架区取漏斗返回结果
               type: object
           required:
           - goal
-          title: 从漏斗架区取漏斗参数
+          title: pick_funnel_from_crucible_rack参数
           type: object
         type: UniLabJsonCommand
       pick_funnel_from_sieve_position:
@@ -523,6 +414,7 @@ XUSE_station:
         goal: {}
         goal_default: {}
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 机械臂2从过筛区取漏斗
@@ -534,21 +426,11 @@ XUSE_station:
               type: object
             result:
               description: 将漏斗从过筛区取出 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 将漏斗从过筛区取出返回结果
               type: object
           required:
           - goal
-          title: 将漏斗从过筛区取出参数
+          title: pick_funnel_from_sieve_position参数
           type: object
         type: UniLabJsonCommand
       pick_large_crucible_from_moving_position:
@@ -556,6 +438,7 @@ XUSE_station:
         goal: {}
         goal_default: {}
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 机械臂3从搬运区取大坩埚
@@ -567,21 +450,11 @@ XUSE_station:
               type: object
             result:
               description: 从搬运区取大坩埚 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 从搬运区取大坩埚返回结果
               type: object
           required:
           - goal
-          title: 从搬运区取大坩埚参数
+          title: pick_large_crucible_from_moving_position参数
           type: object
         type: UniLabJsonCommand
       pick_large_crucible_from_muffle_furnace:
@@ -590,6 +463,7 @@ XUSE_station:
         goal_default:
           muffle_furnace_position: null
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 机械臂3从马弗炉指定位置取大坩埚
@@ -605,21 +479,11 @@ XUSE_station:
               type: object
             result:
               description: 从马弗炉取大坩埚 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 从马弗炉取大坩埚返回结果
               type: object
           required:
           - goal
-          title: 从马弗炉取大坩埚参数
+          title: pick_large_crucible_from_muffle_furnace参数
           type: object
         type: UniLabJsonCommand
       pick_milled_can_from_open_can_position:
@@ -628,6 +492,7 @@ XUSE_station:
         goal_default:
           mill_position: null
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 机械臂1从开盖区抓取研磨后球磨罐
@@ -643,21 +508,11 @@ XUSE_station:
               type: object
             result:
               description: 从开盖区抓取研磨后球磨罐 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 从开盖区抓取研磨后球磨罐返回结果
               type: object
           required:
           - goal
-          title: 从开盖区抓取研磨后球磨罐参数
+          title: pick_milled_can_from_open_can_position参数
           type: object
         type: UniLabJsonCommand
       pick_milled_can_from_scrape_position:
@@ -666,6 +521,7 @@ XUSE_station:
         goal_default:
           mill_position: null
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 机械臂1从刮粉区取下研磨后球磨罐
@@ -681,21 +537,11 @@ XUSE_station:
               type: object
             result:
               description: 从刮粉区位置取下研磨后球磨罐 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 从刮粉区位置取下研磨后球磨罐返回结果
               type: object
           required:
           - goal
-          title: 从刮粉区位置取下研磨后球磨罐参数
+          title: pick_milled_can_from_scrape_position参数
           type: object
         type: UniLabJsonCommand
       pick_milled_can_from_sieve_position:
@@ -704,6 +550,7 @@ XUSE_station:
         goal_default:
           mill_position: null
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 机械臂1从过筛区抓取研磨后球磨罐
@@ -719,21 +566,11 @@ XUSE_station:
               type: object
             result:
               description: 从过筛区抓取研磨后球磨罐 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 从过筛区抓取研磨后球磨罐返回结果
               type: object
           required:
           - goal
-          title: 从过筛区抓取研磨后球磨罐参数
+          title: pick_milled_can_from_sieve_position参数
           type: object
         type: UniLabJsonCommand
       pick_sieved_can_from_open_can_position:
@@ -742,6 +579,7 @@ XUSE_station:
         goal_default:
           mill_position: null
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 机械臂1从开罐区取下过筛后球磨罐
@@ -757,21 +595,11 @@ XUSE_station:
               type: object
             result:
               description: 将过筛后球磨罐从开罐区位置取下 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 将过筛后球磨罐从开罐区位置取下返回结果
               type: object
           required:
           - goal
-          title: 将过筛后球磨罐从开罐区位置取下参数
+          title: pick_sieved_can_from_open_can_position参数
           type: object
         type: UniLabJsonCommand
       pick_small_crucible_from_crucible_rack:
@@ -780,6 +608,7 @@ XUSE_station:
         goal_default:
           rack_position: null
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 机械臂2从坩埚架区指定位置取小坩埚
@@ -795,21 +624,11 @@ XUSE_station:
               type: object
             result:
               description: 从坩锅架区取小坩埚 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 从坩锅架区取小坩埚返回结果
               type: object
           required:
           - goal
-          title: 从坩锅架区取小坩埚参数
+          title: pick_small_crucible_from_crucible_rack参数
           type: object
         type: UniLabJsonCommand
       pick_small_crucible_from_sieve_position:
@@ -817,6 +636,7 @@ XUSE_station:
         goal: {}
         goal_default: {}
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 机械臂2从过筛区取小坩埚
@@ -828,21 +648,11 @@ XUSE_station:
               type: object
             result:
               description: 将小坩埚从过筛区取出 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 将小坩埚从过筛区取出返回结果
               type: object
           required:
           - goal
-          title: 将小坩埚从过筛区取出参数
+          title: pick_small_crucible_from_sieve_position参数
           type: object
         type: UniLabJsonCommand
       place_can_to_add_bead_position:
@@ -850,6 +660,7 @@ XUSE_station:
         goal: {}
         goal_default: {}
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 机械臂1将罐体放置到加珠区
@@ -861,21 +672,11 @@ XUSE_station:
               type: object
             result:
               description: 将罐体放置到加珠区 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 将罐体放置到加珠区返回结果
               type: object
           required:
           - goal
-          title: 将罐体放置到加珠区参数
+          title: place_can_to_add_bead_position参数
           type: object
         type: UniLabJsonCommand
       place_can_to_add_powder_position:
@@ -883,6 +684,7 @@ XUSE_station:
         goal: {}
         goal_default: {}
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 机械臂1将罐体放置到加粉区
@@ -894,21 +696,11 @@ XUSE_station:
               type: object
             result:
               description: 将罐体放置到加粉区 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 将罐体放置到加粉区返回结果
               type: object
           required:
           - goal
-          title: 将罐体放置到加粉区参数
+          title: place_can_to_add_powder_position参数
           type: object
         type: UniLabJsonCommand
       place_can_to_ball_mill:
@@ -917,6 +709,7 @@ XUSE_station:
         goal_default:
           mill_position: null
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 机械臂1将罐体放置到球磨区指定位置
@@ -932,21 +725,11 @@ XUSE_station:
               type: object
             result:
               description: 将罐体放置到球磨区 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 将罐体放置到球磨区返回结果
               type: object
           required:
           - goal
-          title: 将罐体放置到球磨区参数
+          title: place_can_to_ball_mill参数
           type: object
         type: UniLabJsonCommand
       place_can_to_can_rack:
@@ -955,6 +738,7 @@ XUSE_station:
         goal_default:
           rack_position: null
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 机械臂1将球磨罐放到罐架区指定位置
@@ -970,21 +754,11 @@ XUSE_station:
               type: object
             result:
               description: 将球磨罐放到罐架区 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 将球磨罐放到罐架区返回结果
               type: object
           required:
           - goal
-          title: 将球磨罐放到罐架区参数
+          title: place_can_to_can_rack参数
           type: object
         type: UniLabJsonCommand
       place_can_with_powder_and_bead_to_open_can_position:
@@ -992,6 +766,7 @@ XUSE_station:
         goal: {}
         goal_default: {}
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 机械臂1将带有粉珠的球磨罐放置到开盖区
@@ -1003,21 +778,11 @@ XUSE_station:
               type: object
             result:
               description: 将带有粉珠的球磨罐放置到开盖区 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 将带有粉珠的球磨罐放置到开盖区返回结果
               type: object
           required:
           - goal
-          title: 将带有粉珠的球磨罐放置到开盖区参数
+          title: place_can_with_powder_and_bead_to_open_can_position参数
           type: object
         type: UniLabJsonCommand
       place_empty_can_to_open_can_position:
@@ -1025,6 +790,7 @@ XUSE_station:
         goal: {}
         goal_default: {}
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 机械臂1将空罐放置到开盖区
@@ -1036,21 +802,11 @@ XUSE_station:
               type: object
             result:
               description: 将空罐放到开盖区 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 将空罐放到开盖区返回结果
               type: object
           required:
           - goal
-          title: 将空罐放到开盖区参数
+          title: place_empty_can_to_open_can_position参数
           type: object
         type: UniLabJsonCommand
       place_funnel_to_crucible_rack:
@@ -1059,6 +815,7 @@ XUSE_station:
         goal_default:
           rack_position: null
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 机械臂2将漏斗放到漏斗架指定位置
@@ -1074,21 +831,11 @@ XUSE_station:
               type: object
             result:
               description: 将漏斗放到漏斗架 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 将漏斗放到漏斗架返回结果
               type: object
           required:
           - goal
-          title: 将漏斗放到漏斗架参数
+          title: place_funnel_to_crucible_rack参数
           type: object
         type: UniLabJsonCommand
       place_funnel_to_sieve_position:
@@ -1096,6 +843,7 @@ XUSE_station:
         goal: {}
         goal_default: {}
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 机械臂2将漏斗放到过筛区
@@ -1107,21 +855,11 @@ XUSE_station:
               type: object
             result:
               description: 将漏斗放到过筛区 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 将漏斗放到过筛区返回结果
               type: object
           required:
           - goal
-          title: 将漏斗放到过筛区参数
+          title: place_funnel_to_sieve_position参数
           type: object
         type: UniLabJsonCommand
       place_large_crucible_to_lower_product_rack:
@@ -1129,6 +867,7 @@ XUSE_station:
         goal: {}
         goal_default: {}
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 机械臂3将大坩埚放到成品出料下位置
@@ -1140,21 +879,11 @@ XUSE_station:
               type: object
             result:
               description: 放大坩埚到成品出料下位置 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 放大坩埚到成品出料下位置返回结果
               type: object
           required:
           - goal
-          title: 放大坩埚到成品出料下位置参数
+          title: place_large_crucible_to_lower_product_rack参数
           type: object
         type: UniLabJsonCommand
       place_large_crucible_to_muffle_furnace:
@@ -1163,6 +892,7 @@ XUSE_station:
         goal_default:
           muffle_furnace_position: null
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 机械臂3将大坩埚放到马弗炉指定位置
@@ -1178,21 +908,11 @@ XUSE_station:
               type: object
             result:
               description: 把大坩埚放到马弗炉 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 把大坩埚放到马弗炉返回结果
               type: object
           required:
           - goal
-          title: 把大坩埚放到马弗炉参数
+          title: place_large_crucible_to_muffle_furnace参数
           type: object
         type: UniLabJsonCommand
       place_large_crucible_to_upper_product_rack:
@@ -1200,6 +920,7 @@ XUSE_station:
         goal: {}
         goal_default: {}
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 机械臂3将大坩埚放到成品出料上位置
@@ -1211,21 +932,11 @@ XUSE_station:
               type: object
             result:
               description: 放大坩埚到成品出料上位置 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 放大坩埚到成品出料上位置返回结果
               type: object
           required:
           - goal
-          title: 放大坩埚到成品出料上位置参数
+          title: place_large_crucible_to_upper_product_rack参数
           type: object
         type: UniLabJsonCommand
       place_milled_can_to_open_can_position:
@@ -1234,6 +945,7 @@ XUSE_station:
         goal_default:
           mill_position: null
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 机械臂1将研磨后球磨罐放到开盖区
@@ -1249,21 +961,11 @@ XUSE_station:
               type: object
             result:
               description: 将研磨后球磨罐放到开盖区 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 将研磨后球磨罐放到开盖区返回结果
               type: object
           required:
           - goal
-          title: 将研磨后球磨罐放到开盖区参数
+          title: place_milled_can_to_open_can_position参数
           type: object
         type: UniLabJsonCommand
       place_milled_can_to_scrape_position:
@@ -1272,6 +974,7 @@ XUSE_station:
         goal_default:
           mill_position: null
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 机械臂1将研磨后球磨罐放到刮粉区
@@ -1287,21 +990,11 @@ XUSE_station:
               type: object
             result:
               description: 将研磨后球磨罐放到刮粉区 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 将研磨后球磨罐放到刮粉区返回结果
               type: object
           required:
           - goal
-          title: 将研磨后球磨罐放到刮粉区参数
+          title: place_milled_can_to_scrape_position参数
           type: object
         type: UniLabJsonCommand
       place_milled_can_to_sieve_position:
@@ -1310,6 +1003,7 @@ XUSE_station:
         goal_default:
           mill_position: null
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 机械臂1将研磨后球磨罐放到过筛区
@@ -1325,21 +1019,11 @@ XUSE_station:
               type: object
             result:
               description: 将研磨后球磨罐放到过筛区 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 将研磨后球磨罐放到过筛区返回结果
               type: object
           required:
           - goal
-          title: 将研磨后球磨罐放到过筛区参数
+          title: place_milled_can_to_sieve_position参数
           type: object
         type: UniLabJsonCommand
       place_sieved_can_to_open_can_position:
@@ -1348,6 +1032,7 @@ XUSE_station:
         goal_default:
           mill_position: null
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 机械臂1将过筛后球磨罐放到开罐区位置
@@ -1363,21 +1048,11 @@ XUSE_station:
               type: object
             result:
               description: 将过筛后球磨罐放到开罐区位置 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 将过筛后球磨罐放到开罐区位置返回结果
               type: object
           required:
           - goal
-          title: 将过筛后球磨罐放到开罐区位置参数
+          title: place_sieved_can_to_open_can_position参数
           type: object
         type: UniLabJsonCommand
       place_small_crucible_to_moving_position:
@@ -1386,6 +1061,7 @@ XUSE_station:
         goal_default:
           moving_position: null
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 机械臂2将小坩埚放到搬运位置
@@ -1401,21 +1077,11 @@ XUSE_station:
               type: object
             result:
               description: 将小坩锅放到搬运位置 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 将小坩锅放到搬运位置返回结果
               type: object
           required:
           - goal
-          title: 将小坩锅放到搬运位置参数
+          title: place_small_crucible_to_moving_position参数
           type: object
         type: UniLabJsonCommand
       place_small_crucible_to_sieve_position:
@@ -1423,6 +1089,7 @@ XUSE_station:
         goal: {}
         goal_default: {}
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 机械臂2将小坩埚放到过筛区
@@ -1434,21 +1101,11 @@ XUSE_station:
               type: object
             result:
               description: 将小坩埚放到过筛区 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 将小坩埚放到过筛区返回结果
               type: object
           required:
           - goal
-          title: 将小坩埚放到过筛区参数
+          title: place_small_crucible_to_sieve_position参数
           type: object
         type: UniLabJsonCommand
       scrape_powder:
@@ -1456,6 +1113,7 @@ XUSE_station:
         goal: {}
         goal_default: {}
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 刮粉操作（等待刮粉请求，设置刮粉动作代码，触发刮粉开始，等待刮粉完成）
@@ -1467,21 +1125,71 @@ XUSE_station:
               type: object
             result:
               description: 刮粉 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 刮粉返回结果
               type: object
           required:
           - goal
-          title: 刮粉参数
+          title: scrape_powder参数
+          type: object
+        type: UniLabJsonCommand
+      set_ball_mill_params:
+        feedback: {}
+        goal: {}
+        goal_default:
+          param_file: null
+        handles: {}
+        placeholder_keys: {}
+        result: {}
+        schema:
+          description: 设置球磨工艺参数（从 Excel 参数文件读取并下发到 球磨工艺参数[1].<参数名>）
+          properties:
+            feedback: {}
+            goal:
+              properties:
+                param_file:
+                  description: 球磨参数 Excel(.xlsx) 文件路径。
+                  title: 球磨参数文件
+                  type: string
+              required:
+              - param_file
+              type: object
+            result:
+              description: 设置球磨工艺参数 返回类型
+              title: 设置球磨参数返回结果
+              type: object
+          required:
+          - goal
+          title: set_ball_mill_params参数
+          type: object
+        type: UniLabJsonCommand
+      set_muffle_furnace_params:
+        feedback: {}
+        goal: {}
+        goal_default:
+          param_file: null
+        handles: {}
+        placeholder_keys: {}
+        result: {}
+        schema:
+          description: 设置马弗炉烧结参数（6 台分别设置，从 Excel 的 6 个 sheet 读取并下发到 马弗炉_写[N].<参数名>）
+          properties:
+            feedback: {}
+            goal:
+              properties:
+                param_file:
+                  description: 马弗炉参数 Excel(.xlsx) 文件路径，含 6 个 sheet 分别设置 6 台马弗炉。
+                  title: 马弗炉参数文件
+                  type: string
+              required:
+              - param_file
+              type: object
+            result:
+              description: 设置马弗炉烧结参数 返回类型
+              title: 设置马弗炉参数返回结果
+              type: object
+          required:
+          - goal
+          title: set_muffle_furnace_params参数
           type: object
         type: UniLabJsonCommand
       sieve:
@@ -1489,6 +1197,7 @@ XUSE_station:
         goal: {}
         goal_default: {}
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 过筛操作（等待过筛请求，设置过筛动作代码，触发过筛开始，等待过筛完成）
@@ -1500,21 +1209,11 @@ XUSE_station:
               type: object
             result:
               description: 过筛 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 过筛返回结果
               type: object
           required:
           - goal
-          title: 过筛参数
+          title: sieve参数
           type: object
         type: UniLabJsonCommand
       small_crucible_discharge:
@@ -1522,6 +1221,7 @@ XUSE_station:
         goal: {}
         goal_default: {}
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 小坩埚搬运位出料（从放料位移动到出料位）
@@ -1533,21 +1233,11 @@ XUSE_station:
               type: object
             result:
               description: 小坩埚搬运位出料 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 小坩埚搬运位出料返回结果
               type: object
           required:
           - goal
-          title: 小坩埚搬运位出料参数
+          title: small_crucible_discharge参数
           type: object
         type: UniLabJsonCommand
       small_crucible_feed:
@@ -1555,6 +1245,7 @@ XUSE_station:
         goal: {}
         goal_default: {}
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 小坩埚搬运位上料（从出料位移动到放料位）
@@ -1566,21 +1257,11 @@ XUSE_station:
               type: object
             result:
               description: 小坩埚搬运位上料 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 小坩埚搬运位上料返回结果
               type: object
           required:
           - goal
-          title: 小坩埚搬运位上料参数
+          title: small_crucible_feed参数
           type: object
         type: UniLabJsonCommand
       trigger_all_process:
@@ -1588,6 +1269,7 @@ XUSE_station:
         goal: {}
         goal_default: {}
         handles: {}
+        placeholder_keys: {}
         result: {}
         schema:
           description: 触发完整自动化流程（加粉加珠→球磨→过筛刮粉→马弗炉烧结→成品出料）
@@ -1599,31 +1281,17 @@ XUSE_station:
               type: object
             result:
               description: 整体流程 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 整体流程返回结果
               type: object
           required:
           - goal
-          title: 整体流程参数
+          title: trigger_all_process参数
           type: object
         type: UniLabJsonCommand
       trigger_init:
-        always_free: true
         feedback: {}
-        feedback_interval: 300
         goal: {}
-        goal_default:
-          assignee_user_ids: []
-          timeout_seconds: 3600
+        goal_default: {}
         handles: {}
         node_type: manual_confirm
         placeholder_keys:
@@ -1634,41 +1302,26 @@ XUSE_station:
           properties:
             feedback: {}
             goal:
-              properties:
-                assignee_user_ids:
-                  description: 确认人 ID 列表（由云端 UI 选择）
-                  items:
-                    type: string
-                  title: 确认人
-                  type: array
-                timeout_seconds:
-                  default: 3600
-                  description: 人工确认超时时间，单位秒
-                  title: 超时时间
-                  type: integer
+              properties: {}
               required: []
               type: object
             result:
               description: 初始化 返回类型
-              properties:
-                message:
-                  title: Message
-                  type: string
-                success:
-                  title: Success
-                  type: boolean
-              required:
-              - success
-              - message
               title: 初始化返回结果
               type: object
           required:
           - goal
-          title: 初始化参数
+          title: trigger_init参数
           type: object
         type: UniLabJsonCommand
     module: unilabos.devices.workstation.XUSE.XUSE:XUSEDevice
-    status_types: {}
+    status_types:
+      robotic_arm_1_fault: bool
+      robotic_arm_1_idle: bool
+      robotic_arm_2_fault: bool
+      robotic_arm_2_idle: bool
+      robotic_arm_3_fault: bool
+      robotic_arm_3_idle: bool
     type: python
   config_info: []
   description: 厦门大学固态实验工站（XUSE），包含 3 个机械臂、罐架区、加珠区、开罐区、刮粉区、过筛区、加粉区、球磨区、马弗炉区和出料区
@@ -1682,6 +1335,8 @@ XUSE_station:
           type: number
         csv_path:
           type: string
+        deck:
+          type: object
         password:
           type: string
         subscription_interval:
@@ -1698,8 +1353,25 @@ XUSE_station:
       - url
       type: object
     data:
-      properties: {}
-      required: []
+      properties:
+        robotic_arm_1_fault:
+          type: boolean
+        robotic_arm_1_idle:
+          type: boolean
+        robotic_arm_2_fault:
+          type: boolean
+        robotic_arm_2_idle:
+          type: boolean
+        robotic_arm_3_fault:
+          type: boolean
+        robotic_arm_3_idle:
+          type: boolean
+      required:
+      - robotic_arm_1_fault
+      - robotic_arm_1_idle
+      - robotic_arm_2_fault
+      - robotic_arm_2_idle
+      - robotic_arm_3_fault
+      - robotic_arm_3_idle
       type: object
-  registry_type: device
   version: 1.0.0

@@ -14,8 +14,14 @@ import threading
 from unilabos.utils.log import logger
 import logging
 
+from unilabos.utils.decorator import not_action
+from unilabos.registry.decorators import topic_config
+
 # 导入通讯基类
 from unilabos.devices.workstation.XUSE.base_opcua_client import OpcUaClientWithSubscription
+
+# 导入 deck 资源树
+from unilabos.devices.workstation.XUSE.decks import XUSE_deck
 
 # 导入常量定义
 from unilabos.devices.workstation.XUSE.XUSE_CONSTS import RoboticArmTargetPosition_1, RoboticArmPickPlaceCode_1
@@ -31,10 +37,55 @@ class XUSEDevice(OpcUaClientWithSubscription):
     XUSE 设备类
     继承自 OpcUaClientWithSubscription，实现具体的设备动作函数
     """
-    
+
+    # 动作 -> 机械臂编号 映射（依据《厦大软件PLC测试用例》）。
+    # 同一机械臂的动作共用一把线程锁，串行执行；不涉及机械臂的动作（开罐/加样/球磨/过筛/刮粉等
+    # 加工类，以及编排动作 trigger_all_process）不加锁。
+    _ARM_LOCK_MAP = {
+        # 机械臂 1：球磨罐在 罐架/开盖/加粉/加珠/球磨/过筛/刮粉 之间的取放
+        "pick_can_from_can_rack": 1,
+        "place_empty_can_to_open_can_position": 1,
+        "pick_empty_can_from_open_can_position": 1,
+        "place_can_to_add_powder_position": 1,
+        "pick_can_from_add_powder_position": 1,
+        "place_can_to_add_bead_position": 1,
+        "pick_can_from_add_bead_position": 1,
+        "place_can_with_powder_and_bead_to_open_can_position": 1,
+        "close_can_lid": 1,
+        "pick_can_with_powder_and_bead_from_open_can_position": 1,
+        "place_can_to_ball_mill": 1,
+        "pick_can_from_ball_mill": 1,
+        "place_milled_can_to_open_can_position": 1,
+        "pick_milled_can_from_open_can_position": 1,
+        "place_milled_can_to_sieve_position": 1,
+        "pick_milled_can_from_sieve_position": 1,
+        "place_milled_can_to_scrape_position": 1,
+        "pick_milled_can_from_scrape_position": 1,
+        "place_sieved_can_to_open_can_position": 1,
+        "pick_sieved_can_from_open_can_position": 1,
+        "place_can_to_can_rack": 1,
+        # 机械臂 2：小坩埚/漏斗 在 坩埚架/漏斗架/过筛/搬运位 之间的取放
+        "pick_small_crucible_from_crucible_rack": 2,
+        "place_small_crucible_to_sieve_position": 2,
+        "pick_funnel_from_crucible_rack": 2,
+        "place_funnel_to_sieve_position": 2,
+        "pick_small_crucible_from_sieve_position": 2,
+        "place_small_crucible_to_moving_position": 2,
+        "pick_funnel_from_sieve_position": 2,
+        "place_funnel_to_crucible_rack": 2,
+        # 机械臂 3：大坩埚 在 搬运区/马弗炉/成品料架 之间的取放及烧结
+        "pick_large_crucible_from_moving_position": 3,
+        "place_large_crucible_to_muffle_furnace": 3,
+        "muffle_furnace_sintering": 3,
+        "pick_large_crucible_from_muffle_furnace": 3,
+        "place_large_crucible_to_upper_product_rack": 3,
+        "place_large_crucible_to_lower_product_rack": 3,
+    }
+
     def __init__(
         self, 
         url: str, 
+        deck: Optional[XUSE_deck] = None,
         csv_path: str = None, 
         username: str = None, 
         password: str = None,
@@ -49,6 +100,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         
         参数:
             url: OPC UA 服务器地址
+            deck: XUSE 资源树配置
             csv_path: 节点配置 CSV 文件路径
             username: OPC UA 用户名
             password: OPC UA 密码
@@ -68,9 +120,300 @@ class XUSEDevice(OpcUaClientWithSubscription):
             **kwargs
         )
 
+        # 处理 deck 参数
+        if deck is None or isinstance(deck.get("data") if isinstance(deck, dict) else deck, dict):
+            self.deck = XUSE_deck(setup=True)
+        else:
+            self.deck = deck.get("data") if isinstance(deck, dict) else deck
+
+        if self.deck is None:
+            raise ValueError("Deck 配置不能为空")
+
+        # 统计仓库信息
+        if hasattr(self.deck, "children"):
+            warehouse_count = len(self.deck.children)
+            logger.info(f"Deck 初始化完成，加载 {warehouse_count} 个资源")
+
+        # 机械臂暂存载具（动作间转移物料用）：{arm_id: carrier}
+        self._held_carriers = {}
+
         # 如果提供了 CSV 路径，则直接加载节点
         if csv_path:
             self.load_nodes_from_csv(csv_path)
+
+        # 机械臂状态本地缓存 + 后台轮询线程。
+        # 原因：6 个状态方法会被 ROS 各自的定时器周期调用，如果直接走 get_node_value
+        # （共享 OPC 锁、可能因动作占用而阻塞），部分发布回调会卡住，导致对应 topic 不发布、
+        # host 扫不到、前端状态显示不全。这里用单一后台线程统一刷新缓存，状态方法只读缓存
+        # 即时返回（非阻塞、永不 None），保证 6 个状态都能稳定发布。
+        self._arm_status_nodes = [
+            "Robotic_Arm_Idle_1", "Robotic_Arm_Idle_2", "Robotic_Arm_Idle_3",
+            "Robotic_Arm_Fault_1", "Robotic_Arm_Fault_2", "Robotic_Arm_Fault_3",
+        ]
+        # 启动时先同步读一次真实值初始化缓存（读失败才退回 False 兜底），
+        # 保证 6 个状态从一开始就是 OPC UA 的真实状态，且始终是具体 bool（永不 None、永远发布）。
+        self._arm_status_cache = {}
+        for _n in self._arm_status_nodes:
+            try:
+                self._arm_status_cache[_n] = bool(self.get_node_value(_n))
+            except Exception:
+                self._arm_status_cache[_n] = False
+        self._arm_status_poller_stop = threading.Event()
+        self._arm_status_thread = threading.Thread(
+            target=self._arm_status_poll_loop, name="XUSEArmStatusPoller", daemon=True
+        )
+        self._arm_status_thread.start()
+
+        # 机械臂线程锁：机器人 1/2/3 各一把，保证同一机械臂同一时间只执行一个动作。
+        # 仿照 AI4M，用线程锁串行化同一机械臂的动作；用 RLock 允许同线程内嵌套调用（如编排动作）。
+        self._arm_locks = {1: threading.RLock(), 2: threading.RLock(), 3: threading.RLock()}
+        for _mname, _arm_id in self._ARM_LOCK_MAP.items():
+            _orig = getattr(self, _mname, None)
+            if callable(_orig):
+                setattr(self, _mname, self._make_arm_locked(_orig, _arm_id))
+            else:
+                logger.warning(f"机械臂线程锁包裹失败，方法不存在: {_mname}")
+
+    @not_action
+    def _make_arm_locked(self, func, arm_id: int):
+        """把动作方法包裹成"先获取对应机械臂线程锁，执行后释放"的版本（实例级替换）。"""
+        import functools
+
+        lock = self._arm_locks[arm_id]
+
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            lock.acquire()
+            logger.info(f"[机械臂{arm_id}] 已获取线程锁: {func.__name__}")
+            try:
+                return func(*args, **kwargs)
+            finally:
+                lock.release()
+                logger.info(f"[机械臂{arm_id}] 已释放线程锁: {func.__name__}")
+
+        return wrapper
+
+    @not_action
+    def _arm_status_poll_loop(self):
+        """后台每秒轮询 6 个机械臂状态节点刷新缓存（容错，读取失败保留上次值）。
+
+        缓存在启动时已用真实值初始化，状态方法始终返回具体 bool、6 个 topic 都能稳定发布。
+        """
+        while not self._arm_status_poller_stop.is_set():
+            for node_name in self._arm_status_nodes:
+                try:
+                    self._arm_status_cache[node_name] = bool(self.get_node_value(node_name))
+                except Exception:
+                    pass
+            self._arm_status_poller_stop.wait(1.0)
+
+    @not_action
+    def post_init(self, ros_node):
+        """ROS2 节点就绪后的初始化：本地注册并上传 deck 到云端"""
+        if not (hasattr(self, "deck") and self.deck):
+            return
+
+        if not (hasattr(ros_node, "resource_tracker") and ros_node.resource_tracker):
+            logger.warning("resource_tracker 不存在，无法注册 deck")
+            return
+
+        # 保存 ros_node 引用
+        self._ros_node = ros_node
+
+        # 1. 本地注册（必需）
+        ros_node.resource_tracker.add_resource(self.deck)
+
+        # 2. 上传云端
+        try:
+            from unilabos.ros.nodes.base_device_node import ROS2DeviceNode
+            ROS2DeviceNode.run_async_func(
+                ros_node.update_resource,
+                True,
+                resources=[self.deck]
+            )
+            logger.info("Deck 已上传到云端")
+        except Exception as e:
+            logger.error(f"上传失败: {e}")
+
+    # =================== 前端物料转移辅助方法 ===================
+
+    @not_action
+    def _sync_deck_to_frontend(self) -> None:
+        """将 deck 资源树同步到前端"""
+        if hasattr(self, "_ros_node") and self._ros_node:
+            try:
+                from unilabos.ros.nodes.base_device_node import ROS2DeviceNode
+                ROS2DeviceNode.run_async_func(self._ros_node.update_resource, True, resources=[self.deck])
+                logger.info("✓ 已同步资源更新到前端")
+            except Exception as e:
+                logger.warning(f"前端资源更新失败: {e}")
+
+    @not_action
+    def _find_carrier_in_warehouse(self, warehouse):
+        """在堆栈中查找已有载具：兼容 直接位于 site / 嵌套在 ResourceHolder / children 兜底。
+
+        返回找到的载具（保留其原始名称），未找到返回 None。
+        """
+        if warehouse is None:
+            return None
+        # 1) 直接位于 site 上的载具
+        for s in (warehouse.sites or []):
+            if s is not None and type(s).__name__ != "ResourceHolder":
+                return s
+        # 2) 嵌套在 ResourceHolder 内部的载具
+        for s in (warehouse.sites or []):
+            if s is not None and type(s).__name__ == "ResourceHolder":
+                inner = getattr(s, "resource", None)
+                if inner is not None:
+                    return inner
+        # 3) 兜底：遍历 children 找载具
+        for ch in getattr(warehouse, "children", []) or []:
+            if getattr(ch, "category", "") == "bottle_carrier" or "Carrier" in type(ch).__name__:
+                return ch
+        return None
+
+    @not_action
+    def _pick_carrier_from_warehouse(self, warehouse_name: str, arm_id: int):
+        """从指定 1x1 堆栈取走载具：解绑 → 暂存到机械臂 → 同步前端。
+
+        - 若堆栈已有物料：取走并保留其原始名称（不会改名）。
+        - 若堆栈为空：不做任何转移，也不新建物料（动作照常进行，不报错）。
+
+        参数:
+        - warehouse_name: 源堆栈名称（如「开盖区」）
+        - arm_id: 机械臂编号（暂存键）
+        """
+        warehouse = self.deck.warehouses.get(warehouse_name) if getattr(self, "deck", None) else None
+        carrier = self._find_carrier_in_warehouse(warehouse)
+        if carrier is not None:
+            try:
+                parent = getattr(carrier, "parent", None) or warehouse
+                parent.unassign_child_resource(carrier)
+                logger.info(f"✓ 已从「{warehouse_name}」取走载具 {carrier.name}（保留原名）")
+            except Exception as e:
+                logger.warning(f"从「{warehouse_name}」解绑载具失败（不影响硬件操作）: {e}")
+            self._held_carriers[arm_id] = carrier
+            self._sync_deck_to_frontend()
+        else:
+            logger.info(f"「{warehouse_name}」无物料，跳过物料转移")
+            self._held_carriers[arm_id] = None
+        return carrier
+
+    @not_action
+    def _place_carrier_to_warehouse(self, warehouse_name: str, arm_id: int):
+        """将机械臂暂存载具放入指定 1x1 堆栈：绑定 → 清空暂存 → 同步前端。
+
+        - 若机械臂有暂存物料：放入目标堆栈。
+        - 若没有暂存物料：不做任何转移，也不新建物料（动作照常进行，不报错）。
+
+        参数:
+        - warehouse_name: 目标堆栈名称（如「加样区」）
+        - arm_id: 机械臂编号（暂存键）
+        """
+        warehouse = self.deck.warehouses.get(warehouse_name) if getattr(self, "deck", None) else None
+        carrier = self._held_carriers.get(arm_id)
+        if warehouse is not None and carrier is not None:
+            try:
+                site_idx = 0
+                site_key = list(warehouse._ordering.keys())[site_idx]
+                location = warehouse.child_locations[site_key]
+                warehouse.assign_child_resource(carrier, location=location, spot=site_idx)
+                logger.info(f"✓ 已将载具 {carrier.name} 放入「{warehouse_name}」")
+            except Exception as e:
+                logger.warning(f"将载具放入「{warehouse_name}」失败（不影响硬件操作）: {e}")
+            self._held_carriers[arm_id] = None
+            self._sync_deck_to_frontend()
+        else:
+            logger.info(f"机械臂{arm_id}无暂存物料，跳过物料转移")
+        return carrier
+
+    @not_action
+    def _pick_carrier_from_warehouse_at(self, warehouse_name: str, site_key, arm_id: int):
+        """从多位堆栈指定位 site_key 取走载具，暂存到机械臂（无物料则跳过，不报错）。
+
+        参数:
+        - warehouse_name: 源堆栈名称（如「球磨罐仓库」）
+        - site_key: 堆栈内位键（如「1-1」「C-1」「2」）
+        - arm_id: 机械臂编号（暂存键）
+        """
+        warehouse = self.deck.warehouses.get(warehouse_name) if getattr(self, "deck", None) else None
+        carrier = None
+        if warehouse is not None:
+            try:
+                site_idx = list(warehouse._ordering.keys()).index(str(site_key))
+                site = warehouse.sites[site_idx]
+                if site is not None and type(site).__name__ == "ResourceHolder":
+                    holder = site
+                    carrier = getattr(site, "resource", None)
+                else:
+                    holder = None
+                    carrier = site  # 直接位于位上的载具
+                if carrier is not None:
+                    parent = getattr(carrier, "parent", None) or holder or warehouse
+                    parent.unassign_child_resource(carrier)
+                    logger.info(f"✓ 已从「{warehouse_name}」[{site_key}] 取走载具 {carrier.name}（保留原名）")
+            except Exception as e:
+                logger.warning(f"从「{warehouse_name}」[{site_key}] 取载具失败（不影响硬件操作）: {e}")
+                carrier = None
+        if carrier is not None:
+            self._held_carriers[arm_id] = carrier
+            self._sync_deck_to_frontend()
+        else:
+            logger.info(f"「{warehouse_name}」[{site_key}] 无物料，跳过物料转移")
+            self._held_carriers[arm_id] = None
+        return carrier
+
+    @not_action
+    def _place_carrier_to_warehouse_at(self, warehouse_name: str, site_key, arm_id: int):
+        """将机械臂暂存载具放入多位堆栈指定位 site_key（无暂存则跳过，不报错）。
+
+        参数:
+        - warehouse_name: 目标堆栈名称（如「过筛区」）
+        - site_key: 堆栈内位键（如「1」「1-1」「D-1」）
+        - arm_id: 机械臂编号（暂存键）
+        """
+        warehouse = self.deck.warehouses.get(warehouse_name) if getattr(self, "deck", None) else None
+        carrier = self._held_carriers.get(arm_id)
+        if warehouse is not None and carrier is not None:
+            try:
+                site_idx = list(warehouse._ordering.keys()).index(str(site_key))
+                location = warehouse.child_locations[str(site_key)]
+                warehouse.assign_child_resource(carrier, location=location, spot=site_idx)
+                logger.info(f"✓ 已将载具 {carrier.name} 放入「{warehouse_name}」[{site_key}]")
+            except Exception as e:
+                logger.warning(f"将载具放入「{warehouse_name}」[{site_key}] 失败（不影响硬件操作）: {e}")
+            self._held_carriers[arm_id] = None
+            self._sync_deck_to_frontend()
+        else:
+            logger.info(f"机械臂{arm_id}无暂存物料，跳过物料转移")
+        return carrier
+
+    @not_action
+    def _can_rack_site_key(self, position: int) -> str:
+        """罐架位置号(1-32) → 球磨罐仓库位键（按行：1→1-1, 9→2-1, 32→4-8）。"""
+        return f"{(position - 1) // 8 + 1}-{(position - 1) % 8 + 1}"
+
+    @not_action
+    def _small_crucible_rack_site_key(self, position: int) -> str:
+        """坩埚位置号(1-20) → 小坩埚仓库位键（1→1-1, 10→1-10, 11→2-1, 20→2-10）。"""
+        return f"{(position - 1) // 10 + 1}-{(position - 1) % 10 + 1}"
+
+    @not_action
+    def _wait_condition(self, predicate, timeout: float = 3.0, interval: float = 0.1) -> bool:
+        """持续检测占位条件：满足返回 True；超过 timeout（默认 3 秒）仍不满足返回 False。
+
+        用于所有占位检测：条件不满足时不立即报错，而是持续轮询到超时再交由调用方处理。
+        """
+        deadline = time.time() + timeout
+        while True:
+            try:
+                if predicate():
+                    return True
+            except Exception as e:
+                logger.warning(f"占位检测异常，重试中: {e}")
+            if time.time() >= deadline:
+                return False
+            time.sleep(interval)
 
     # 初始化工站
     def trigger_init(self, **kwargs) -> dict:
@@ -120,7 +463,45 @@ class XUSEDevice(OpcUaClientWithSubscription):
         if arm_id not in [1, 2, 3]:
             raise ValueError("机械臂ID必须为1,2,3")
         return self.get_node_value(f"Robotic_Arm_Idle_{arm_id}")
-    
+
+    # =================== 设备节点状态（前端显示：机械臂空闲/故障） ===================
+
+    @not_action
+    def _read_bool_node(self, node_name: str) -> bool:
+        """读取机械臂状态缓存：非阻塞、永不抛错、永不返回 None（默认 False）。"""
+        return bool(self._arm_status_cache.get(node_name, False))
+
+    @topic_config(period=1.0)
+    def robotic_arm_1_idle(self) -> bool:
+        """机械臂1空闲状态"""
+        return self._read_bool_node("Robotic_Arm_Idle_1")
+
+    @topic_config(period=1.0)
+    def robotic_arm_2_idle(self) -> bool:
+        """机械臂2空闲状态"""
+        return self._read_bool_node("Robotic_Arm_Idle_2")
+
+    @topic_config(period=1.0)
+    def robotic_arm_3_idle(self) -> bool:
+        """机械臂3空闲状态"""
+        return self._read_bool_node("Robotic_Arm_Idle_3")
+
+    @topic_config(period=1.0)
+    def robotic_arm_1_fault(self) -> bool:
+        """机械臂1故障状态"""
+        return self._read_bool_node("Robotic_Arm_Fault_1")
+
+    @topic_config(period=1.0)
+    def robotic_arm_2_fault(self) -> bool:
+        """机械臂2故障状态"""
+        return self._read_bool_node("Robotic_Arm_Fault_2")
+
+    @topic_config(period=1.0)
+    def robotic_arm_3_fault(self) -> bool:
+        """机械臂3故障状态"""
+        return self._read_bool_node("Robotic_Arm_Fault_3")
+
+    @not_action
     def is_open_can_upper_lid_occupied(self) -> bool:
         """
         检查开罐上盖是否占位
@@ -130,6 +511,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         """
         return self.get_node_value("Open_Can_Upper_Lid_Occupied")
     
+    @not_action
     def is_open_can_body_occupied(self) -> bool:
         """
         检查开罐主体是否占位
@@ -139,6 +521,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         """
         return self.get_node_value("Open_Can_Body_Occupied")
     
+    @not_action
     def is_add_sample_occupied(self) -> bool:
         """
         检查加样是否占位
@@ -148,6 +531,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         """
         return self.get_node_value("Add_Sample_Occupied")
     
+    @not_action
     def is_add_bead_occupied(self) -> bool:
         """
         检查加珠是否占位
@@ -157,6 +541,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         """
         return self.get_node_value("Add_Bead_Occupied")
     
+    @not_action
     def is_ball_mill_occupied(self, mill_position: int) -> bool:
         """
         检查球磨区是否占位
@@ -169,6 +554,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         """
         return self.get_node_value(f"Ball_Mill_Occupied_{mill_position}")
     
+    @not_action
     def is_sieve_can_occupied(self) -> bool:
         """
         检查过筛区球磨罐是否占位
@@ -178,6 +564,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         """
         return self.get_node_value("Sieve_Can_Occupied")
     
+    @not_action
     def is_sieve_crucible_occupied(self) -> bool:
         """
         检查过筛区小坩埚是否占位
@@ -187,6 +574,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         """
         return self.get_node_value("Sieve_Crucible_Occupied")
     
+    @not_action
     def is_sieve_funnel_occupied(self) -> bool:
         """
         检查过筛区漏斗是否占位
@@ -196,6 +584,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         """
         return self.get_node_value("Sieve_Funnel_Occupied")
     
+    @not_action
     def is_scrape_occupied(self) -> bool:
         """
         检查刮粉区是否占位
@@ -204,7 +593,36 @@ class XUSEDevice(OpcUaClientWithSubscription):
             bool: 如果刮粉区占位，返回True，否则返回False
         """
         return self.get_node_value("Scrape_Powder_Occupied")
+
+    @not_action
+    def is_can_rack_occupied(self, position: int) -> bool:
+        """
+        检查罐架区（球磨罐仓库）指定位置是否占位（对应 ROBOT_1_occupy[position]）。
+
+        参数:
+            position: 罐架位置，1-32
+
+        Returns:
+            bool: 占位返回 True，否则返回 False
+        """
+        return self.get_node_value(f"Can_Rack_Occupied_{position}")
+
+    @not_action
+    def is_crucible_rack_occupied(self, code: int) -> bool:
+        """
+        检查坩埚架区指定取放代码位置是否占位（对应 ROBOT_2_occupy[code]）。
+
+        说明：code 为机械臂2取放代码，放漏斗为 21-28、取漏斗为 31-38。
+
+        参数:
+            code: 机械臂2取放代码
+
+        Returns:
+            bool: 占位返回 True，否则返回 False
+        """
+        return self.get_node_value(f"Crucible_Rack_Occupied_{code}")
     
+    @not_action
     def is_small_crucible_discharge_occupied(self, position: int) -> bool:
         """
         检查小坩埚出料位指定位置是否占位
@@ -237,6 +655,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         """
         return self.get_node_value("Large_Crucible_Feed_Current_Position")
     
+    @not_action
     def is_muffle_furnace_occupied(self, muffle_furnace_position: int) -> bool:
         """
         检查马弗炉是否占位
@@ -249,6 +668,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         """
         return self.get_node_value(f"Muffle_Furnace_Occupied_{muffle_furnace_position}")
     
+    @not_action
     def is_upper_product_rack_occupied(self) -> bool:
         """
         检查上成品架是否占位
@@ -258,6 +678,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         """
         return self.get_node_value("Upper_Product_Rack_Occupied")
     
+    @not_action
     def is_lower_product_rack_occupied(self) -> bool:
         """
         检查下成品架是否占位
@@ -291,6 +712,11 @@ class XUSEDevice(OpcUaClientWithSubscription):
         
         self._wait_until_true("Robotic_Arm_Idle_1", description="等待机械臂1空闲")
 
+        if not self._wait_condition(lambda: self.is_can_rack_occupied(rack_position)):
+            error_msg = f"罐架位置{rack_position}无球磨罐，无法抓取"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
         self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.CAN_RACK_POSITION) # 设置机械臂目标位置为罐架
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", RoboticArmPickPlaceCode_1.PICK_CAN_RACK_START + rack_position - 1) # 设置罐架位置
         self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
@@ -300,6 +726,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
             if self._wait_until_false("Robotic_Arm_Action_Complete_1", description="从罐架抓取球磨罐完成"): # 等待完成状态复位
                 logger.info("从罐架区取球磨罐完成")
+                # 前端物料转移：从「球磨罐仓库」对应位取走载具，暂存到机械臂1（无物料则跳过）
+                self._pick_carrier_from_warehouse_at("球磨罐仓库", self._can_rack_site_key(rack_position), arm_id=1)
                 return {
                     "success": True,
                     "message": "从罐架区取球磨罐完成",
@@ -325,7 +753,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         logger.info("将空球磨罐放置到开盖区...")
         self._wait_until_true("Robotic_Arm_Idle_1", description="等待机械臂1空闲")
 
-        if self.is_open_can_upper_lid_occupied() or self.is_open_can_body_occupied():
+        if not self._wait_condition(lambda: not (self.is_open_can_upper_lid_occupied() or self.is_open_can_body_occupied())):
             error_msg = "开罐上盖或主体占位，无法放置"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -339,6 +767,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
             if self._wait_until_false("Robotic_Arm_Action_Complete_1", description="将球磨罐放置到开盖区完成"): # 等待完成状态复位
                 logger.info("将球磨罐放置到开盖区完成")
+                # 前端物料转移：将机械臂1暂存载具放入「开盖区」（无暂存则跳过）
+                self._place_carrier_to_warehouse("开盖区", arm_id=1)
                 return {
                     "success": True,
                     "message": "将球磨罐放置到开盖区完成",
@@ -363,12 +793,12 @@ class XUSEDevice(OpcUaClientWithSubscription):
         - 返回成功
         """
         logger.info("打开罐上盖...")
-        if not self.is_open_can_body_occupied():
+        if not self._wait_condition(lambda: self.is_open_can_body_occupied()):
             error_msg = "开罐主体未占位，无法打开"
             logger.error(error_msg)
             raise ValueError(error_msg)
 
-        if self.is_open_can_upper_lid_occupied():
+        if not self._wait_condition(lambda: not (self.is_open_can_upper_lid_occupied())):
             error_msg = "开罐上盖已占位，无法打开"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -408,7 +838,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         logger.info("从开盖区抓取空罐...")
         self._wait_until_true("Robotic_Arm_Idle_1", description="等待机械臂1空闲")
         
-        if not self.is_open_can_body_occupied():
+        if not self._wait_condition(lambda: self.is_open_can_body_occupied()):
             error_msg = "开罐主体未占位，无法抓取"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -422,6 +852,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
             if self._wait_until_false("Robotic_Arm_Action_Complete_1", description="从开盖区抓取球磨罐完成"): # 等待完成状态复位
                 logger.info("从开盖区抓取球磨罐完成")
+                # 前端物料转移：从「开盖区」取走载具，暂存到机械臂1（无物料则跳过）
+                self._pick_carrier_from_warehouse("开盖区", arm_id=1)
                 return {
                     "success": True,
                     "message": "从开盖区抓取球磨罐完成",
@@ -446,7 +878,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         logger.info("将罐体放置到加粉区...")
         self._wait_until_true("Robotic_Arm_Idle_1", description="等待机械臂1空闲")
         
-        if self.is_add_sample_occupied():
+        if not self._wait_condition(lambda: not (self.is_add_sample_occupied())):
             error_msg = "加样占位，无法放置"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -460,6 +892,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
             if self._wait_until_false("Robotic_Arm_Action_Complete_1", description="将罐体放置到加粉区完成"): # 等待完成状态复位
                 logger.info("将罐体放置到加粉区完成")
+                # 前端物料转移：将机械臂1暂存载具放入「加样区」（无暂存则跳过）
+                self._place_carrier_to_warehouse("加样区", arm_id=1)
                 return {
                     "success": True,
                     "message": "将罐体放置到加粉区完成",
@@ -481,7 +915,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         - 返回成功
         """
         logger.info("加粉...")     
-        if not self.is_add_sample_occupied():
+        if not self._wait_condition(lambda: self.is_add_sample_occupied()):
             error_msg = "没有罐体，无法加粉"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -519,7 +953,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         logger.info("从加粉区取罐体...")
         self._wait_until_true("Robotic_Arm_Idle_1", description="等待机械臂1空闲")
         
-        if not self.is_add_sample_occupied():
+        if not self._wait_condition(lambda: self.is_add_sample_occupied()):
             error_msg = "加样未占位，无法取罐体"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -533,6 +967,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
             if self._wait_until_false("Robotic_Arm_Action_Complete_1", description="从加粉区取罐体完成"): # 等待完成状态复位
                 logger.info("从加粉区取罐体完成")
+                # 前端物料转移：从「加样区」取走载具，暂存到机械臂1（无物料则跳过）
+                self._pick_carrier_from_warehouse("加样区", arm_id=1)
                 return {
                     "success": True,
                     "message": "从加粉区取罐体完成",
@@ -558,7 +994,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         logger.info("将罐体放置到加珠区...")
         self._wait_until_true("Robotic_Arm_Idle_1", description="等待机械臂1空闲")
         
-        if self.is_add_bead_occupied():
+        if not self._wait_condition(lambda: not (self.is_add_bead_occupied())):
             error_msg = "加珠未占位，无法放置罐体"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -572,6 +1008,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
             if self._wait_until_false("Robotic_Arm_Action_Complete_1", description="将罐体放置到加珠区成功"): # 等待完成状态复位
                 logger.info("将罐体放置到加珠区成功")
+                # 前端物料转移：将机械臂1暂存载具放入「加珠区」（无暂存则跳过）
+                self._place_carrier_to_warehouse("加珠区", arm_id=1)
                 return {
                     "success": True,
                     "message": "将罐体放置到加珠区成功",
@@ -594,7 +1032,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         - 返回成功
         """
         logger.info("加珠...")
-        if not self.is_add_bead_occupied():
+        if not self._wait_condition(lambda: self.is_add_bead_occupied()):
             error_msg = "加珠未占位，无法加珠"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -630,7 +1068,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         logger.info("从加珠区取罐体...")
         self._wait_until_true("Robotic_Arm_Idle_1", description="等待机械臂1空闲")
         
-        if not self.is_add_bead_occupied():
+        if not self._wait_condition(lambda: self.is_add_bead_occupied()):
             error_msg = "加珠未占位，无法取罐体"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -644,6 +1082,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
             if self._wait_until_false("Robotic_Arm_Action_Complete_1", description="从加珠区取罐体成功"): # 等待完成状态复位
                 logger.info("从加珠区取罐体成功")
+                # 前端物料转移：从「加珠区」取走载具，暂存到机械臂1（无物料则跳过）
+                self._pick_carrier_from_warehouse("加珠区", arm_id=1)
                 return {
                     "success": True,
                     "message": "从加珠区取罐体成功",
@@ -670,7 +1110,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         logger.info("将带有粉珠的球磨罐放置到开盖区...")
         self._wait_until_true("Robotic_Arm_Idle_1", description="等待机械臂1空闲")
 
-        if self.is_open_can_body_occupied():
+        if not self._wait_condition(lambda: not (self.is_open_can_body_occupied())):
             error_msg = "开罐主体占位，无法放置"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -684,6 +1124,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
             if self._wait_until_false("Robotic_Arm_Action_Complete_1", description="将球磨罐放置到开盖区完成"): # 等待完成状态复位
                 logger.info("将球磨罐放置到开盖区完成")
+                # 前端物料转移：将机械臂1暂存载具放入「开盖区」（无暂存则跳过）
+                self._place_carrier_to_warehouse("开盖区", arm_id=1)
                 return {
                     "success": True,
                     "message": "将球磨罐放置到开盖区完成",
@@ -709,12 +1151,12 @@ class XUSEDevice(OpcUaClientWithSubscription):
         - 返回成功
         """
         logger.info("关闭罐上盖...")
-        if not self.is_open_can_body_occupied():
+        if not self._wait_condition(lambda: self.is_open_can_body_occupied()):
             error_msg = "开罐主体未占位，无法关盖"
             logger.error(error_msg)
             raise ValueError(error_msg)
 
-        if not self.is_open_can_upper_lid_occupied():
+        if not self._wait_condition(lambda: self.is_open_can_upper_lid_occupied()):
             error_msg = "开罐上盖未占位，无法关盖"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -754,7 +1196,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         logger.info("从开盖区抓取带有粉珠的球磨罐...")
         self._wait_until_true("Robotic_Arm_Idle_1", description="等待机械臂1空闲")
         
-        if not self.is_open_can_body_occupied():
+        if not self._wait_condition(lambda: self.is_open_can_body_occupied()):
             error_msg = "开罐主体未占位，无法抓取"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -768,6 +1210,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
             if self._wait_until_false("Robotic_Arm_Action_Complete_1", description="从开盖区抓取球磨罐完成"): # 等待完成状态复位
                 logger.info("从开盖区抓取球磨罐完成")
+                # 前端物料转移：从「开盖区」取走载具，暂存到机械臂1（无物料则跳过）
+                self._pick_carrier_from_warehouse("开盖区", arm_id=1)
                 return {
                     "success": True,
                     "message": "从开盖区抓取球磨罐完成",
@@ -799,7 +1243,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
         
-        if self.is_ball_mill_occupied(mill_position):
+        if not self._wait_condition(lambda: not (self.is_ball_mill_occupied(mill_position))):
             error_msg = f"球磨区{mill_position}占位，无法放置"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -814,6 +1258,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
             if self._wait_until_false("Robotic_Arm_Action_Complete_1", description=f"向球磨区{mill_position}放罐完成"): # 等待完成状态复位
                 logger.info(f"向球磨区{mill_position}放罐完成")
+                # 前端物料转移：将机械臂1暂存载具放入「球磨区」对应位（无暂存则跳过）
+                self._place_carrier_to_warehouse_at("球磨区", str(mill_position), arm_id=1)
                 return {
                     "success": True,
                     "message": f"向球磨区{mill_position}放罐完成",
@@ -836,7 +1282,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         - 返回成功
         """   
         for mill_position in [1, 2, 3, 4]:
-            if not self.is_ball_mill_occupied(mill_position):
+            if not self._wait_condition(lambda mp=mill_position: self.is_ball_mill_occupied(mp)):
                 error_msg = f"球磨区位置{mill_position}为空，无法球磨"
                 logger.error(error_msg)
                 raise ValueError(error_msg)
@@ -879,7 +1325,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
         
-        if not self.is_ball_mill_occupied(mill_position):
+        if not self._wait_condition(lambda: self.is_ball_mill_occupied(mill_position)):
             error_msg = f"球磨区位置{mill_position}为空，无法抓取"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -894,6 +1340,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
             if self._wait_until_false("Robotic_Arm_Action_Complete_1", description=f"从球磨区位置{mill_position}抓取罐完成"): # 等待完成状态复位
                 logger.info(f"从球磨区位置{mill_position}抓取罐完成")
+                # 前端物料转移：从「球磨区」对应位取走载具，暂存到机械臂1（无物料则跳过）
+                self._pick_carrier_from_warehouse_at("球磨区", str(mill_position), arm_id=1)
                 return {
                     "success": True,
                     "message": f"从球磨区位置{mill_position}抓取罐完成",
@@ -925,7 +1373,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
         
-        if self.is_open_can_body_occupied():
+        if not self._wait_condition(lambda: not (self.is_open_can_body_occupied())):
             error_msg = "开罐主体占位，无法放置"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -940,6 +1388,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
             if self._wait_until_false("Robotic_Arm_Action_Complete_1", description=f"将研磨后球磨罐{mill_position}放到开盖区完成"): # 等待完成状态复位
                 logger.info(f"将研磨后球磨罐{mill_position}放到开盖区完成")
+                # 前端物料转移：将机械臂1暂存载具放入「开盖区」（无暂存则跳过）
+                self._place_carrier_to_warehouse("开盖区", arm_id=1)
                 return {
                     "success": True,
                     "message": f"将研磨后球磨罐{mill_position}放到开盖区完成",
@@ -971,7 +1421,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
         
-        if not self.is_open_can_body_occupied():
+        if not self._wait_condition(lambda: self.is_open_can_body_occupied()):
             error_msg = "开罐主体未占位，无法抓取"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -986,6 +1436,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
             if self._wait_until_false("Robotic_Arm_Action_Complete_1", description=f"将研磨后球磨罐{mill_position}从开盖区位置抓取完成"): # 等待完成状态复位
                 logger.info(f"将研磨后球磨罐{mill_position}从开盖区位置抓取完成")
+                # 前端物料转移：从「开盖区」取走载具，暂存到机械臂1（无物料则跳过）
+                self._pick_carrier_from_warehouse("开盖区", arm_id=1)
                 return {
                     "success": True,
                     "message": f"将研磨后球磨罐{mill_position}从开盖区位置抓取完成",
@@ -1017,7 +1469,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
         
-        if self.is_sieve_can_occupied():
+        if not self._wait_condition(lambda: not (self.is_sieve_can_occupied())):
             error_msg = "过筛区球磨罐占位，无法放罐"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -1032,6 +1484,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
             if self._wait_until_false("Robotic_Arm_Action_Complete_1", description=f"将研磨后球磨罐{mill_position}放到过筛区完成"): # 等待完成状态复位
                 logger.info(f"将研磨后球磨罐{mill_position}放到过筛区完成")
+                # 前端物料转移：将机械臂1暂存载具放入「过筛区」球磨罐位(1)（无暂存则跳过）
+                self._place_carrier_to_warehouse_at("过筛区", "1", arm_id=1)
                 return {
                     "success": True,
                     "message": f"将研磨后球磨罐{mill_position}放到过筛区完成",
@@ -1056,7 +1510,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         - 返回成功
         """
         logger.info("过筛...")
-        if not self.is_sieve_can_occupied():
+        if not self._wait_condition(lambda: self.is_sieve_can_occupied()):
             error_msg = "过筛区球磨罐没有占位，无法过筛"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -1100,7 +1554,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
         
-        if not self.is_sieve_can_occupied():
+        if not self._wait_condition(lambda: self.is_sieve_can_occupied()):
             error_msg = "过筛区球磨罐没有占位，无法从过筛区抓取球磨罐"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -1115,6 +1569,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
             if self._wait_until_false("Robotic_Arm_Action_Complete_1", description=f"从过筛区抓取研磨后球磨罐{mill_position}完成"): # 等待完成状态复位
                 logger.info(f"从过筛区抓取研磨后球磨罐{mill_position}完成")
+                # 前端物料转移：从「过筛区」球磨罐位(1)取走载具，暂存到机械臂1（无物料则跳过）
+                self._pick_carrier_from_warehouse_at("过筛区", "1", arm_id=1)
                 return {
                     "success": True,
                     "message": f"从过筛区抓取研磨后球磨罐{mill_position}完成",
@@ -1146,7 +1602,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
         
-        if self.is_scrape_occupied():
+        if not self._wait_condition(lambda: not (self.is_scrape_occupied())):
             error_msg = "刮粉区占位，无法放罐"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -1161,6 +1617,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
             if self._wait_until_false("Robotic_Arm_Action_Complete_1", description=f"将研磨后球磨罐{mill_position}放到刮粉区完成"): # 等待完成状态复位
                 logger.info(f"将研磨后球磨罐{mill_position}放到刮粉区完成")
+                # 前端物料转移：将机械臂1暂存载具放入「刮粉区」（无暂存则跳过）
+                self._place_carrier_to_warehouse("刮粉区", arm_id=1)
                 return {
                     "success": True,
                     "message": f"将研磨后球磨罐{mill_position}放到刮粉区完成",
@@ -1185,7 +1643,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         - 返回成功
         """
         logger.info("刮粉区...")
-        if not self.is_scrape_occupied():
+        if not self._wait_condition(lambda: self.is_scrape_occupied()):
             error_msg = "刮粉区没有占位，无法刮粉"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -1230,7 +1688,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
         
-        if not self.is_scrape_occupied():
+        if not self._wait_condition(lambda: self.is_scrape_occupied()):
             error_msg = "刮粉区没有占位，无法取下"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -1245,6 +1703,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
             if self._wait_until_false("Robotic_Arm_Action_Complete_1", description=f"将研磨后球磨罐{mill_position}从刮粉区取下完成"): # 等待完成状态复位
                 logger.info(f"将研磨后球磨罐{mill_position}从刮粉区取下完成")
+                # 前端物料转移：从「刮粉区」取走载具，暂存到机械臂1（无物料则跳过）
+                self._pick_carrier_from_warehouse("刮粉区", arm_id=1)
                 return {
                     "success": True,
                     "message": f"将研磨后球磨罐{mill_position}从刮粉区取下完成",
@@ -1276,7 +1736,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
         
-        if self.is_open_can_body_occupied():
+        if not self._wait_condition(lambda: not (self.is_open_can_body_occupied())):
             error_msg = "开罐区占位，无法放罐"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -1291,6 +1751,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
             if self._wait_until_false("Robotic_Arm_Action_Complete_1", description=f"将过筛后球磨罐{mill_position}放到开罐区完成"): # 等待完成状态复位
                 logger.info(f"将过筛后球磨罐{mill_position}放到开罐区完成")
+                # 前端物料转移：将机械臂1暂存载具放入「开盖区」（无暂存则跳过）
+                self._place_carrier_to_warehouse("开盖区", arm_id=1)
                 return {
                     "success": True,
                     "message": f"将过筛后球磨罐{mill_position}放到开罐区完成",
@@ -1322,7 +1784,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
         
-        if not self.is_open_can_body_occupied():
+        if not self._wait_condition(lambda: self.is_open_can_body_occupied()):
             error_msg = "开罐区没有占位，无法取下"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -1337,6 +1799,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
             if self._wait_until_false("Robotic_Arm_Action_Complete_1", description=f"将过筛后球磨罐{mill_position}从开罐区取下完成"): # 等待完成状态复位
                 logger.info(f"将过筛后球磨罐{mill_position}从开罐区取下完成")
+                # 前端物料转移：从「开盖区」取走载具，暂存到机械臂1（无物料则跳过）
+                self._pick_carrier_from_warehouse("开盖区", arm_id=1)
                 return {
                     "success": True,
                     "message": f"将过筛后球磨罐{mill_position}从开罐区取下完成",
@@ -1375,6 +1839,11 @@ class XUSEDevice(OpcUaClientWithSubscription):
         
         self._wait_until_true("Robotic_Arm_Idle_1", description="等待机械臂1空闲")
 
+        if not self._wait_condition(lambda: not (self.is_can_rack_occupied(rack_position))):
+            error_msg = f"罐架位置{rack_position}已占位，无法放置"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
         self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.CAN_RACK_POSITION) # 设置机械臂目标位置为罐架
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", RoboticArmPickPlaceCode_1.PLACE_CAN_RACK_START + rack_position - 1) # 设置罐架位置
         self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
@@ -1384,6 +1853,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
             if self._wait_until_false("Robotic_Arm_Action_Complete_1", description=f"将球磨罐放到罐架位置{rack_position}完成"): # 等待完成状态复位
                 logger.info(f"将球磨罐放到罐架位置{rack_position}完成")
+                # 前端物料转移：将机械臂1暂存载具放入「球磨罐仓库」对应位（无暂存则跳过）
+                self._place_carrier_to_warehouse_at("球磨罐仓库", self._can_rack_site_key(rack_position), arm_id=1)
                 return {
                     "success": True,
                     "message": f"将球磨罐放到罐架位置{rack_position}完成",
@@ -1424,6 +1895,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Robotic_Arm_Action_Trigger_2", False) # 复位动作触发
             if self._wait_until_false("Robotic_Arm_Action_Complete_2", description=f"取小坩埚位置{rack_position}完成"): # 等待完成状态复位
                 logger.info(f"取小坩埚位置{rack_position}完成")
+                # 前端物料转移：从「小坩埚仓库」对应位取走载具，暂存到机械臂2（无物料则跳过）
+                self._pick_carrier_from_warehouse_at("小坩埚仓库", self._small_crucible_rack_site_key(rack_position), arm_id=2)
                 return {
                     "success": True,
                     "message": f"取小坩埚位置{rack_position}完成",
@@ -1450,7 +1923,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         logger.info(f"将小坩埚放到过筛区")
         self._wait_until_true("Robotic_Arm_Idle_2", description="等待机械臂2空闲")
         
-        if self.is_sieve_crucible_occupied():
+        if not self._wait_condition(lambda: not (self.is_sieve_crucible_occupied())):
             error_msg = "过筛区小坩锅已占位"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -1463,6 +1936,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Robotic_Arm_Action_Trigger_2", False) # 复位动作触发
             if self._wait_until_false("Robotic_Arm_Action_Complete_2", description=f"放小坩埚到过筛区完成"): # 等待完成状态复位
                 logger.info(f"放小坩锅到过筛区完成")
+                # 前端物料转移：将机械臂2暂存载具放入「过筛区」小坩埚位(3)（无暂存则跳过）
+                self._place_carrier_to_warehouse_at("过筛区", "3", arm_id=2)
                 return {
                     "success": True,
                     "message": f"放小坩埚到过筛区完成",
@@ -1494,8 +1969,14 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
         
         self._wait_until_true("Robotic_Arm_Idle_2", description="等待机械臂2空闲")
-        
-        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_2", RoboticArmPickPlaceCode_2.PICK_FUNNEL_RACK_START + rack_position - 1) # 设置漏斗架位置
+
+        funnel_pick_code = RoboticArmPickPlaceCode_2.PICK_FUNNEL_RACK_START + rack_position - 1
+        if not self._wait_condition(lambda: self.is_crucible_rack_occupied(funnel_pick_code)):
+            error_msg = f"漏斗架位置{rack_position}无漏斗，无法抓取"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_2", funnel_pick_code) # 设置漏斗架位置
         self.set_node_value("Robotic_Arm_Action_Trigger_2", False)  # 上升沿: 先复位
         time.sleep(0.5)
         self.set_node_value("Robotic_Arm_Action_Trigger_2", True) # 设置动作触发
@@ -1503,6 +1984,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Robotic_Arm_Action_Trigger_2", False) # 复位动作触发
             if self._wait_until_false("Robotic_Arm_Action_Complete_2", description=f"取漏斗位置{rack_position}完成"): # 等待完成状态复位
                 logger.info(f"取漏斗位置{rack_position}完成")
+                # 前端物料转移：从「漏斗仓库」C-{rack_position} 取走载具，暂存到机械臂2（无物料则跳过）
+                self._pick_carrier_from_warehouse_at("漏斗仓库", f"C-{rack_position}", arm_id=2)
                 return {
                     "success": True,
                     "message": f"取漏斗位置{rack_position}完成",
@@ -1529,7 +2012,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         logger.info(f"将漏斗放到过筛区")
         self._wait_until_true("Robotic_Arm_Idle_2", description="等待机械臂2空闲")
         
-        if self.is_sieve_funnel_occupied():
+        if not self._wait_condition(lambda: not (self.is_sieve_funnel_occupied())):
             error_msg = "过筛区漏斗已占位"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -1542,6 +2025,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Robotic_Arm_Action_Trigger_2", False) # 复位动作触发
             if self._wait_until_false("Robotic_Arm_Action_Complete_2", description=f"放漏斗到过筛区完成"): # 等待完成状态复位
                 logger.info(f"放漏斗到过筛区完成")
+                # 前端物料转移：将机械臂2暂存载具放入「过筛区」漏斗位(2)（无暂存则跳过）
+                self._place_carrier_to_warehouse_at("过筛区", "2", arm_id=2)
                 return {
                     "success": True,
                     "message": f"放漏斗到过筛区完成",
@@ -1568,7 +2053,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         logger.info(f"将小坩埚从过筛区取出")
         self._wait_until_true("Robotic_Arm_Idle_2", description="等待机械臂2空闲")
         
-        if not self.is_sieve_crucible_occupied():
+        if not self._wait_condition(lambda: self.is_sieve_crucible_occupied()):
             error_msg = "过筛区小坩埚未占位"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -1581,6 +2066,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Robotic_Arm_Action_Trigger_2", False) # 复位动作触发
             if self._wait_until_false("Robotic_Arm_Action_Complete_2", description=f"从过筛区取小坩埚完成"): # 等待完成状态复位
                 logger.info(f"从过筛区取小坩埚完成")
+                # 前端物料转移：从「过筛区」小坩埚位(3)取走载具，暂存到机械臂2（无物料则跳过）
+                self._pick_carrier_from_warehouse_at("过筛区", "3", arm_id=2)
                 return {
                     "success": True,
                     "message": f"从过筛区取小坩埚完成",
@@ -1629,6 +2116,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Robotic_Arm_Action_Trigger_2", False) # 复位动作触发
             if self._wait_until_false("Robotic_Arm_Action_Complete_2", description=f"将小坩锅放到搬运位置 {moving_position} 完成"): # 等待完成状态复位
                 logger.info(f"将小坩锅放到搬运位置 {moving_position} 完成")
+                # 前端物料转移：将机械臂2暂存载具放入「小坩埚出料」对应位（无暂存则跳过）
+                self._place_carrier_to_warehouse_at("小坩埚出料", str(moving_position), arm_id=2)
                 return {
                     "success": True,
                     "message": f"将小坩锅放到搬运位置 {moving_position} 完成",
@@ -1655,7 +2144,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         logger.info(f"将漏斗从过筛区取出")
         self._wait_until_true("Robotic_Arm_Idle_2", description="等待机械臂2空闲")
         
-        if not self.is_sieve_funnel_occupied():
+        if not self._wait_condition(lambda: self.is_sieve_funnel_occupied()):
             error_msg = "过筛区漏斗未占位"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -1668,6 +2157,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Robotic_Arm_Action_Trigger_2", False) # 复位动作触发
             if self._wait_until_false("Robotic_Arm_Action_Complete_2", description=f"从过筛区取漏斗完成"): # 等待完成状态复位
                 logger.info(f"从过筛区取漏斗完成")
+                # 前端物料转移：从「过筛区」漏斗位(2)取走载具，暂存到机械臂2（无物料则跳过）
+                self._pick_carrier_from_warehouse_at("过筛区", "2", arm_id=2)
                 return {
                     "success": True,
                     "message": f"从过筛区取漏斗完成",
@@ -1699,8 +2190,14 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
         
         self._wait_until_true("Robotic_Arm_Idle_2", description="等待机械臂2空闲")
-        
-        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_2", RoboticArmPickPlaceCode_2.PLACE_FUNNEL_RACK_START + rack_position - 1) # 设置漏斗架位置
+
+        funnel_place_code = RoboticArmPickPlaceCode_2.PLACE_FUNNEL_RACK_START + rack_position - 1
+        if not self._wait_condition(lambda: not (self.is_crucible_rack_occupied(funnel_place_code))):
+            error_msg = f"漏斗架位置{rack_position}已占位，无法放置"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_2", funnel_place_code) # 设置漏斗架位置
         self.set_node_value("Robotic_Arm_Action_Trigger_2", False)  # 上升沿: 先复位
         time.sleep(0.5)
         self.set_node_value("Robotic_Arm_Action_Trigger_2", True) # 设置动作触发
@@ -1708,6 +2205,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Robotic_Arm_Action_Trigger_2", False) # 复位动作触发
             if self._wait_until_false("Robotic_Arm_Action_Complete_2", description=f"放漏斗位置{rack_position}完成"): # 等待完成状态复位
                 logger.info(f"放漏斗位置{rack_position}完成")
+                # 前端物料转移：将机械臂2暂存载具放入「漏斗仓库」D-{rack_position}（无暂存则跳过）
+                self._place_carrier_to_warehouse_at("漏斗仓库", f"D-{rack_position}", arm_id=2)
                 return {
                     "success": True,
                     "message": f"放漏斗位置{rack_position}完成",
@@ -1737,8 +2236,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
         
-        unoccupied = [i for i in (1, 2, 3, 4) if not self.is_small_crucible_discharge_occupied(i)]
-        if unoccupied:
+        if not self._wait_condition(lambda: all(self.is_small_crucible_discharge_occupied(i) for i in (1, 2, 3, 4))):
+            unoccupied = [i for i in (1, 2, 3, 4) if not self.is_small_crucible_discharge_occupied(i)]
             error_msg = f"小坩埚出料占位 {unoccupied} 未占位，无法出料"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -1896,6 +2395,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Robotic_Arm_Action_Trigger_3", False) # 复位动作触发
             if self._wait_until_false("Robotic_Arm_Action_Complete_3", description=f"取大坩锅完成"): # 等待完成状态复位
                 logger.info(f"取大坩埚完成")
+                # 前端物料转移：从「大坩埚入料」取走载具，暂存到机械臂3（无物料则跳过）
+                self._pick_carrier_from_warehouse("大坩埚入料", arm_id=3)
                 return {
                     "success": True,
                     "message": f"取大坩埚完成",
@@ -1930,7 +2431,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
 
         self._wait_until_true("Robotic_Arm_Idle_3", description="等待机械臂3空闲")
         
-        if self.is_muffle_furnace_occupied(muffle_furnace_position):
+        if not self._wait_condition(lambda: not (self.is_muffle_furnace_occupied(muffle_furnace_position))):
             error_msg = f"马弗炉位置{muffle_furnace_position}占位，无法放料"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -1944,6 +2445,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Robotic_Arm_Action_Trigger_3", False) # 复位动作触发
             if self._wait_until_false("Robotic_Arm_Action_Complete_3", description=f"放马弗炉完成"): # 等待完成状态复位
                 logger.info(f"放马弗炉完成")
+                # 前端物料转移：将机械臂3暂存载具放入「马弗炉{muffle_furnace_position}」（无暂存则跳过）
+                self._place_carrier_to_warehouse(f"马弗炉{muffle_furnace_position}", arm_id=3)
                 return {
                     "success": True,
                     "message": f"放马弗炉完成",
@@ -1974,7 +2477,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
         
-        if not self.is_muffle_furnace_occupied(muffle_furnace_position):
+        if not self._wait_condition(lambda: self.is_muffle_furnace_occupied(muffle_furnace_position)):
             error_msg = f"马弗炉位置{muffle_furnace_position}未占位，无法烧结"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -2018,7 +2521,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
 
         self._wait_until_true("Robotic_Arm_Idle_3", description="等待机械臂3空闲")
         
-        if not self.is_muffle_furnace_occupied(muffle_furnace_position):
+        if not self._wait_condition(lambda: self.is_muffle_furnace_occupied(muffle_furnace_position)):
             error_msg = f"马弗炉位置{muffle_furnace_position}未占位，无法取大坩埚"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -2032,6 +2535,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Robotic_Arm_Action_Trigger_3", False) # 复位动作触发
             if self._wait_until_false("Robotic_Arm_Action_Complete_3", description=f"从马弗炉取大坩埚完成"): # 等待完成状态复位
                 logger.info(f"从马弗炉取大坩埚完成")
+                # 前端物料转移：从「马弗炉{muffle_furnace_position}」取走载具，暂存到机械臂3（无物料则跳过）
+                self._pick_carrier_from_warehouse(f"马弗炉{muffle_furnace_position}", arm_id=3)
                 return {
                     "success": True,
                     "message": f"从马弗炉取大坩埚完成",
@@ -2058,7 +2563,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         logger.info(f"放大坩埚到成品出料上位置")
         self._wait_until_true("Robotic_Arm_Idle_3", description="等待机械臂3空闲")
         
-        if self.is_upper_product_rack_occupied():
+        if not self._wait_condition(lambda: not (self.is_upper_product_rack_occupied())):
             error_msg = f"上成品架占位，无法放料"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -2072,6 +2577,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Robotic_Arm_Action_Trigger_3", False) # 复位动作触发
             if self._wait_until_false("Robotic_Arm_Action_Complete_3", description=f"放成品出料上位置完成"): # 等待完成状态复位
                 logger.info(f"放成品出料上位置完成")
+                # 前端物料转移：将机械臂3暂存载具放入「大坩埚出料」上位(1)（无暂存则跳过）
+                self._place_carrier_to_warehouse_at("大坩埚出料", "1", arm_id=3)
                 return {
                     "success": True,
                     "message": f"放成品出料上位置完成",
@@ -2098,7 +2605,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         logger.info(f"放大坩埚到成品出料下位置")
         self._wait_until_true("Robotic_Arm_Idle_3", description="等待机械臂3空闲")
         
-        if self.is_lower_product_rack_occupied():
+        if not self._wait_condition(lambda: not (self.is_lower_product_rack_occupied())):
             error_msg = f"下成品架占位，无法放料"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -2112,6 +2619,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Robotic_Arm_Action_Trigger_3", False) # 复位动作触发
             if self._wait_until_false("Robotic_Arm_Action_Complete_3", description=f"放成品出料下位置完成"): # 等待完成状态复位
                 logger.info(f"放成品出料下位置完成")
+                # 前端物料转移：将机械臂3暂存载具放入「大坩埚出料」下位(2)（无暂存则跳过）
+                self._place_carrier_to_warehouse_at("大坩埚出料", "2", arm_id=3)
                 return {
                     "success": True,
                     "message": f"放成品出料下位置完成",
@@ -2383,6 +2892,174 @@ class XUSEDevice(OpcUaClientWithSubscription):
             "success": True,
             "message": f"整体流程运行完成",
         } 
+
+    def set_muffle_furnace_params(self, param_file: str) -> dict:
+        """
+        设置马弗炉烧结参数（6 台分别设置）。
+
+        从 Excel 参数文件读取并下发到各马弗炉写节点 马弗炉_写[N].<参数名>。
+        Excel 含若干 sheet，每个 sheet 对应一台马弗炉（sheet 名中的数字 1~6 即炉号）；
+        每个 sheet 两列：第一列"参数名"，第二列"参数值"，首行为表头；参数值为空的行会被跳过。
+        参数名需与节点字段一致（见 templates/马弗炉参数模板.xlsx）。
+
+        Args:
+            param_file[马弗炉参数文件]: 马弗炉参数 Excel(.xlsx) 文件路径，含 6 个 sheet 分别设置 6 台马弗炉。
+        """
+        import re
+        import openpyxl
+
+        if param_file:
+            param_file = param_file.strip().strip('"').strip("'")  # 去除可能的首尾引号/空白
+        if not param_file or not os.path.isfile(param_file):
+            error_msg = f"马弗炉参数文件不存在: {param_file}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        try:
+            wb = openpyxl.load_workbook(param_file, data_only=True)
+        except Exception as e:
+            error_msg = f"无法打开马弗炉参数文件 {param_file}: {e}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        total_written = 0
+        per_furnace = {}
+        errors = []
+        for sheet in wb.worksheets:
+            m = re.search(r"\d+", sheet.title)
+            if not m:
+                logger.warning(f"跳过无法识别炉号的 sheet: {sheet.title}")
+                continue
+            furnace_idx = int(m.group())
+            if furnace_idx < 1 or furnace_idx > 6:
+                logger.warning(f"跳过无效炉号 {furnace_idx} 的 sheet: {sheet.title}")
+                continue
+
+            written = 0
+            for row_idx, row in enumerate(sheet.iter_rows(values_only=True), start=1):
+                if row_idx == 1:  # 跳过表头
+                    continue
+                if not row or row[0] is None or str(row[0]).strip() == "":
+                    continue
+                param_name = str(row[0]).strip()
+                value = row[1] if len(row) > 1 else None
+                if value is None or str(value).strip() == "":
+                    continue  # 参数值为空则跳过该参数
+                node_name = f"马弗炉_写[{furnace_idx}].{param_name}"
+                try:
+                    if self.set_node_value(node_name, int(float(value))):
+                        written += 1
+                    else:
+                        errors.append(f"{node_name} 写入失败")
+                except Exception as e:
+                    errors.append(f"{node_name} 写入出错: {e}")
+
+            per_furnace[furnace_idx] = written
+            total_written += written
+
+            # 写入了参数才触发该炉参数下发，等待下发完成并复位
+            if written > 0:
+                self._send_param_handshake(
+                    f"Muffle_Furnace_Parameter_Send_{furnace_idx}",
+                    f"Muffle_Furnace_Parameter_Send_Complete_{furnace_idx}",
+                    description=f"马弗炉{furnace_idx}参数下发",
+                )
+            logger.info(f"马弗炉{furnace_idx} 参数下发完成，共 {written} 项")
+
+        if total_written == 0:
+            error_msg = f"马弗炉参数下发失败，未写入任何参数（文件: {param_file}）"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        return {
+            "success": True,
+            "message": f"马弗炉参数下发完成，共写入 {total_written} 项",
+            "data": {"total_written": total_written, "per_furnace": per_furnace},
+            "error": errors,
+        }
+
+    def set_ball_mill_params(self, param_file: str) -> dict:
+        """
+        设置球磨工艺参数。
+
+        从 Excel 参数文件读取并下发到球磨写节点 球磨工艺参数[1].<参数名>。
+        球磨仅 1 台，读取第一个 sheet，两列：第一列"参数名"，第二列"参数值"，
+        首行为表头；参数值为空的行会被跳过。
+        参数名需与节点字段一致（见 templates/球磨参数模板.xlsx）。
+
+        Args:
+            param_file[球磨参数文件]: 球磨参数 Excel(.xlsx) 文件路径。
+        """
+        import openpyxl
+
+        if param_file:
+            param_file = param_file.strip().strip('"').strip("'")  # 去除可能的首尾引号/空白
+        if not param_file or not os.path.isfile(param_file):
+            error_msg = f"球磨参数文件不存在: {param_file}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        try:
+            wb = openpyxl.load_workbook(param_file, data_only=True)
+        except Exception as e:
+            error_msg = f"无法打开球磨参数文件 {param_file}: {e}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        sheet = wb.worksheets[0]  # 球磨仅 1 台，取第一个 sheet
+        written = 0
+        errors = []
+        for row_idx, row in enumerate(sheet.iter_rows(values_only=True), start=1):
+            if row_idx == 1:  # 跳过表头
+                continue
+            if not row or row[0] is None or str(row[0]).strip() == "":
+                continue
+            param_name = str(row[0]).strip()
+            value = row[1] if len(row) > 1 else None
+            if value is None or str(value).strip() == "":
+                continue  # 参数值为空则跳过该参数
+            node_name = f"球磨工艺参数[1].{param_name}"
+            try:
+                if self.set_node_value(node_name, int(float(value))):
+                    written += 1
+                else:
+                    errors.append(f"{node_name} 写入失败")
+            except Exception as e:
+                errors.append(f"{node_name} 写入出错: {e}")
+
+        if written == 0:
+            error_msg = f"球磨参数下发失败，未写入任何参数（文件: {param_file}）"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        # 触发球磨参数下发，等待下发完成并复位
+        self._send_param_handshake(
+            "Ball_Mill_Parameter_Send",
+            "Ball_Mill_Parameter_Send_Complete",
+            description="球磨参数下发",
+        )
+
+        logger.info(f"球磨参数下发完成，共 {written} 项")
+        return {
+            "success": True,
+            "message": f"球磨参数下发完成，共写入 {written} 项",
+            "data": {"written": written},
+            "error": errors,
+        }
+
+    def _send_param_handshake(self, send_node: str, complete_node: str, description: str) -> bool:
+        """参数下发握手：上升沿触发下发 → 等待下发完成 → 复位触发并等待完成复位。
+
+        与其它动作的触发/等待完成/复位写法保持一致。
+        """
+        self.set_node_value(send_node, False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value(send_node, True)  # 触发参数下发
+        if self._wait_until_true(complete_node, description=f"{description}完成"):
+            self.set_node_value(send_node, False)  # 复位下发触发
+            self._wait_until_false(complete_node, description=f"{description}完成复位")  # 等待完成状态复位
+            return True
+        return False
 
             
     def _wait_until_true(

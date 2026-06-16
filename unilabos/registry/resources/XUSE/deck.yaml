@@ -1,0 +1,12 @@
+XUSE_deck:
+  category:
+  - XUSE_deck
+  - deck
+  class:
+    module: unilabos.devices.workstation.XUSE.decks:XUSE_deck
+    type: pylabrobot
+  description: XUSE_deck
+  handles: []
+  icon: ''
+  init_param_schema: {}
+  version: 1.0.0

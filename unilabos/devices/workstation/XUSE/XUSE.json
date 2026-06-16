@@ -4,7 +4,7 @@
             "id": "XUSE_station",
             "name": "XUSE_station",
             "children": [
-
+                "XUSE_deck"
             ],
             "parent": null,
             "type": "device",
@@ -23,10 +23,34 @@
             },
             "config": {
                 "url": "opc.tcp://192.168.1.10:4840",
-                "csv_path": "XUSE_variables.csv"
+                "csv_path": "XUSE_variables.csv",
+                "deck": {
+                    "data": {
+                        "_resource_child_name": "XUSE_deck",
+                        "_resource_type": "unilabos.devices.workstation.XUSE.decks:XUSE_deck"
+                    }
+                }
             },
             "data": {
             }
+        },
+        {
+            "id": "XUSE_deck",
+            "name": "XUSE_deck",
+            "sample_id": null,
+            "children": [],
+            "parent": "XUSE_station",
+            "type": "deck",
+            "class": "XUSE_deck",
+            "position": {
+                "x": 200,
+                "y": 0,
+                "z": 0
+            },
+            "config": {
+                "type": "XUSE_deck"
+            },
+            "data": {}
         }
     ]
 }
