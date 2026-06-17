@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
+import sys
 import tempfile
 import threading
 import uuid
@@ -31,7 +33,7 @@ from scripts.run_workflow_local import (
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SZLAB_DIR = REPO_ROOT / "tests" / "szlab"
+SZLAB_DIR = REPO_ROOT / "tests" / "szlab_poly_studio"
 PRESET_DIR = SZLAB_DIR / "presets"
 FRONTEND_DIR = REPO_ROOT / "unilabos_local_ui"
 FRONTEND_DIST_DIR = FRONTEND_DIR / "dist"
@@ -76,7 +78,7 @@ def load_preset(name: str = "ai4c") -> WorkflowPreset:
     data = json.loads(preset_path.read_text(encoding="utf-8"))
     target_device_id = data.get("target_device_id", ROBOT_ARM_DEVICE_ID)
     target_device_ids = list(data.get("target_device_ids") or [target_device_id])
-    path_roots = data.get("path_roots", ["tests/szlab"])
+    path_roots = data.get("path_roots", ["tests/szlab_poly_studio"])
     if data.get("actions_source") == "registry":
         actions = _load_registry_actions(target_device_ids, path_roots, preset_path.parent)
     else:
@@ -748,6 +750,28 @@ def start_ui(
     uvicorn.run(create_app(preset_name=preset_name, runtime_config=runtime_config), host=host, port=port)
 
 
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Run szlab workflow runner service.")
+    parser.add_argument("--host", default="0.0.0.0", help="服务监听地址")
+    parser.add_argument("--port", type=int, default=8000, help="服务监听端口")
+    parser.add_argument("--preset", default="ai4c", help="服务使用的 workflow preset 名称或 JSON 路径")
+    parser.add_argument("--runtime-config", type=Path, default=None, help="覆盖 preset 中的运行配置 JSON")
+    parser.add_argument("--open-browser", action="store_true", help="服务启动后自动打开浏览器")
+    return parser
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    start_ui(
+        host=args.host,
+        port=args.port,
+        open_browser=args.open_browser,
+        preset_name=args.preset,
+        runtime_config=load_runtime_config(args.runtime_config) if args.runtime_config else None,
+    )
+    return 0
+
+
 def _build_action_params(spec: ActionSpec, raw_params: dict[str, Any]) -> dict[str, Any]:
     params: dict[str, Any] = {}
     for param_spec in spec.params:
@@ -915,3 +939,7 @@ npm run build</pre>
         """,
         status_code=503,
     )
+
+
+if __name__ == "__main__":
+    sys.exit(main())

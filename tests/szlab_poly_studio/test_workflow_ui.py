@@ -1,3 +1,5 @@
+import csv
+
 import pytest
 
 from scripts.run_workflow_local import (
@@ -14,6 +16,8 @@ from scripts.workflow_ui import (
     _load_preset_runtime_config,
     _record_to_dict,
     _register_shutdown_handler,
+    _resolve_ui_path,
+    build_parser,
     build_graph_workflow,
     build_linear_workflow,
     build_local_device_graph,
@@ -28,10 +32,32 @@ def test_load_ai4c_preset():
     assert preset.title == "szlab 本地调试工具"
     assert preset.target_device_id == "AI4C_robot_arm"
     assert preset.default_config["graph"] == "__generated__"
-    assert preset.default_config["url"] == "opc.tcp://jdht1471820.bohrium.tech:50001"
+    assert preset.default_config["url"] == "opc.tcp://jdht1471820.bohrium.tech:50003"
     assert preset.default_config["show_csv"] is False
-    assert "csv" not in preset.default_config
+    assert preset.default_config["csv"] == "ai4c_sim_updated.csv"
     assert "pick_well_plate_from_loading_rack" in preset.actions
+
+
+def test_ai4c_preset_csv_matches_default_opc_namespace():
+    preset = load_preset("ai4c")
+    runtime_config = _load_preset_runtime_config(preset)
+    csv_path = _resolve_ui_path(preset.default_config["csv"], preset)
+
+    with csv_path.open(encoding="utf-8", newline="") as handle:
+        rows_by_english_name = {
+            row["EnglishName"]: row
+            for row in csv.DictReader(handle)
+        }
+
+    variables = collect_snapshot_variables(
+        "pick_well_plate_from_loading_rack",
+        {"position": 1},
+        runtime_config,
+    )
+
+    assert preset.default_config["url"] == "opc.tcp://jdht1471820.bohrium.tech:50003"
+    for variable in variables:
+        assert rows_by_english_name[variable]["NodeId"].startswith("ns=4;s=UniLab|")
 
 
 def test_load_ai4c_preset_uses_registry_actions_from_formal_device():
@@ -100,23 +126,26 @@ def test_load_preset_accepts_json_path(tmp_path):
     assert "move_plate" in preset.actions
 
 
-def test_example_preset_uses_szlab_local_action_class():
-    preset = load_preset("example/ai4c_preset.json")
+def test_ai4c_preset_uses_formal_device_class():
+    preset = load_preset("ai4c")
     runtime_config = _load_preset_runtime_config(preset)
 
-    assert runtime_config.device_factory.target_class == "tests.szlab.example.ai4c_actions.ExampleAI4CActions"
+    assert (
+        runtime_config.device_factory.target_class
+        == "unilabos.devices.workstation.AI4C.AI4C_robot_arm.AI4CRobotArmDevice"
+    )
     assert "pick_well_plate_from_loading_rack" in preset.actions
 
 
-def test_example_runtime_device_classes_are_importable():
-    preset = load_preset("example/ai4c_preset.json")
+def test_ai4c_runtime_device_classes_are_importable():
+    preset = load_preset("ai4c")
     runtime_config = _load_preset_runtime_config(preset)
 
     plc_class = _load_class(runtime_config.device_factory.plc_class)
     target_class = _load_class(runtime_config.device_factory.target_class)
 
     assert plc_class.__name__ == "AI4CPLCDevice"
-    assert target_class.__name__ == "ExampleAI4CActions"
+    assert target_class.__name__ == "AI4CRobotArmDevice"
 
 
 def test_build_linear_workflow_creates_nodes_and_ordered_edges():
@@ -383,6 +412,16 @@ def test_register_shutdown_handler_supports_fastapi_on_event_only():
     assert registered["called"] is True
 
 
+def test_workflow_ui_parser_defaults_to_container_service():
+    args = build_parser().parse_args([])
+
+    assert args.host == "0.0.0.0"
+    assert args.port == 8000
+    assert args.preset == "ai4c"
+    assert args.runtime_config is None
+    assert args.open_browser is False
+
+
 def test_workflow_run_manager_reuses_devices_between_runs(monkeypatch):
     preset = load_preset("ai4c")
     runtime_config = _load_preset_runtime_config(preset)
@@ -423,6 +462,7 @@ def test_workflow_run_manager_reuses_devices_between_runs(monkeypatch):
     manager._run_payload("run-2", payload)
 
     assert len(create_calls) == 1
+    assert create_calls[0]["csv_path"].name == "ai4c_sim_updated.csv"
     assert disconnect_calls == []
     assert manager._records["run-1"].status == "completed"
     assert manager._records["run-2"].status == "completed"
