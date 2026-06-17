@@ -1,0 +1,63 @@
+{
+  "name": "szlab_s08_cap_station",
+  "rules": [
+    {
+      "name": "complete S081_1 cap action after params are written",
+      "trigger": {
+        "node": "S081_1参数写入完成",
+        "value": true,
+        "edge": "rising"
+      },
+      "log_nodes": [
+        "S081_1工艺任务",
+        "S082瓶盖暂存位"
+      ],
+      "actions": [
+        {
+          "write": {
+            "node": "S081_1加工完成",
+            "value": false
+          }
+        },
+        {
+          "sleep": 0.2
+        },
+        {
+          "write": {
+            "node": "S081_1加工完成",
+            "value": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "complete S081_2 cap action after params are written",
+      "trigger": {
+        "node": "S081_2参数写入完成",
+        "value": true,
+        "edge": "rising"
+      },
+      "log_nodes": [
+        "S081_2工艺任务",
+        "S082瓶盖暂存位"
+      ],
+      "actions": [
+        {
+          "write": {
+            "node": "S081_2加工完成",
+            "value": false
+          }
+        },
+        {
+          "sleep": 0.2
+        },
+        {
+          "write": {
+            "node": "S081_2加工完成",
+            "value": true
+          }
+        }
+      ]
+    }
+  ]
+}
