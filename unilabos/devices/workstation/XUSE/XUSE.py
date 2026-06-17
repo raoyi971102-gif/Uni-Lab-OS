@@ -29,6 +29,7 @@ from unilabos.devices.workstation.XUSE.XUSE_CONSTS import RoboticArmPickPlaceCod
 from unilabos.devices.workstation.XUSE.XUSE_CONSTS import RoboticArmPickPlaceCode_3
 from unilabos.devices.workstation.XUSE.XUSE_CONSTS import OpenCanActionCode, SieveActionCode, ScrapePowderActionCode
 from unilabos.devices.workstation.XUSE.XUSE_CONSTS import SmallCrucibleDischargePosition, LargeCrucibleFeedPosition
+from unilabos.devices.workstation.XUSE.XUSE_CONSTS import ARM_LOCK_MAP, ARM_STATUS_NODES
 
 # 定义 XUSE 设备通信类
 # 包含三个机械臂，一个罐架区，一个加珠区，一个开罐区，一个刮粉区，一个过筛区，一个加粉区，一个球磨区，一个马弗炉区，一个出料区
@@ -38,49 +39,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
     继承自 OpcUaClientWithSubscription，实现具体的设备动作函数
     """
 
-    # 动作 -> 机械臂编号 映射（依据《厦大软件PLC测试用例》）。
-    # 同一机械臂的动作共用一把线程锁，串行执行；不涉及机械臂的动作（开罐/加样/球磨/过筛/刮粉等
-    # 加工类，以及编排动作 trigger_all_process）不加锁。
-    _ARM_LOCK_MAP = {
-        # 机械臂 1：球磨罐在 罐架/开盖/加粉/加珠/球磨/过筛/刮粉 之间的取放
-        "pick_can_from_can_rack": 1,
-        "place_empty_can_to_open_can_position": 1,
-        "pick_empty_can_from_open_can_position": 1,
-        "place_can_to_add_powder_position": 1,
-        "pick_can_from_add_powder_position": 1,
-        "place_can_to_add_bead_position": 1,
-        "pick_can_from_add_bead_position": 1,
-        "place_can_with_powder_and_bead_to_open_can_position": 1,
-        "close_can_lid": 1,
-        "pick_can_with_powder_and_bead_from_open_can_position": 1,
-        "place_can_to_ball_mill": 1,
-        "pick_can_from_ball_mill": 1,
-        "place_milled_can_to_open_can_position": 1,
-        "pick_milled_can_from_open_can_position": 1,
-        "place_milled_can_to_sieve_position": 1,
-        "pick_milled_can_from_sieve_position": 1,
-        "place_milled_can_to_scrape_position": 1,
-        "pick_milled_can_from_scrape_position": 1,
-        "place_sieved_can_to_open_can_position": 1,
-        "pick_sieved_can_from_open_can_position": 1,
-        "place_can_to_can_rack": 1,
-        # 机械臂 2：小坩埚/漏斗 在 坩埚架/漏斗架/过筛/搬运位 之间的取放
-        "pick_small_crucible_from_crucible_rack": 2,
-        "place_small_crucible_to_sieve_position": 2,
-        "pick_funnel_from_crucible_rack": 2,
-        "place_funnel_to_sieve_position": 2,
-        "pick_small_crucible_from_sieve_position": 2,
-        "place_small_crucible_to_moving_position": 2,
-        "pick_funnel_from_sieve_position": 2,
-        "place_funnel_to_crucible_rack": 2,
-        # 机械臂 3：大坩埚 在 搬运区/马弗炉/成品料架 之间的取放及烧结
-        "pick_large_crucible_from_moving_position": 3,
-        "place_large_crucible_to_muffle_furnace": 3,
-        "muffle_furnace_sintering": 3,
-        "pick_large_crucible_from_muffle_furnace": 3,
-        "place_large_crucible_to_upper_product_rack": 3,
-        "place_large_crucible_to_lower_product_rack": 3,
-    }
+    # 动作 -> 机械臂编号 映射（定义见 XUSE_CONSTS.ARM_LOCK_MAP）。
+    _ARM_LOCK_MAP = ARM_LOCK_MAP
 
     def __init__(
         self, 
@@ -146,10 +106,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         # （共享 OPC 锁、可能因动作占用而阻塞），部分发布回调会卡住，导致对应 topic 不发布、
         # host 扫不到、前端状态显示不全。这里用单一后台线程统一刷新缓存，状态方法只读缓存
         # 即时返回（非阻塞、永不 None），保证 6 个状态都能稳定发布。
-        self._arm_status_nodes = [
-            "Robotic_Arm_Idle_1", "Robotic_Arm_Idle_2", "Robotic_Arm_Idle_3",
-            "Robotic_Arm_Fault_1", "Robotic_Arm_Fault_2", "Robotic_Arm_Fault_3",
-        ]
+        self._arm_status_nodes = list(ARM_STATUS_NODES)
         # 启动时先同步读一次真实值初始化缓存（读失败才退回 False 兜底），
         # 保证 6 个状态从一开始就是 OPC UA 的真实状态，且始终是具体 bool（永不 None、永远发布）。
         self._arm_status_cache = {}
@@ -730,7 +687,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
                 self._pick_carrier_from_warehouse_at("球磨罐仓库", self._can_rack_site_key(rack_position), arm_id=1)
                 return {
                     "success": True,
-                    "message": "从罐架区取球磨罐完成",
+                    "message": f"从罐架区位置{rack_position}取球磨罐完成",
                 }
             else:
                 error_msg = "从罐架区取球磨罐失败，完成复位超时"
@@ -2449,7 +2406,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
                 self._place_carrier_to_warehouse(f"马弗炉{muffle_furnace_position}", arm_id=3)
                 return {
                     "success": True,
-                    "message": f"放马弗炉完成",
+                    "message": f"放大坩埚到马弗炉{muffle_furnace_position}完成",
                 }
             else:
                 error_msg = f"放马弗炉失败，完成复位超时"
@@ -2539,7 +2496,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
                 self._pick_carrier_from_warehouse(f"马弗炉{muffle_furnace_position}", arm_id=3)
                 return {
                     "success": True,
-                    "message": f"从马弗炉取大坩埚完成",
+                    "message": f"从马弗炉{muffle_furnace_position}取大坩埚完成",
                 }
             else:
                 error_msg = f"从马弗炉取大坩埚失败，完成复位超时"

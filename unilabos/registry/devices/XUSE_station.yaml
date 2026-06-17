@@ -66,6 +66,7 @@ XUSE_station:
             goal:
               properties:
                 arm_id:
+                  description: 机械臂ID，1-3
                   type: integer
               required:
               - arm_id
@@ -318,7 +319,7 @@ XUSE_station:
             goal:
               properties:
                 rack_position:
-                  description: 罐架区位置
+                  description: 罐架区位置，1-32
                   type: integer
               required:
               - rack_position
@@ -395,7 +396,7 @@ XUSE_station:
             goal:
               properties:
                 rack_position:
-                  description: 漏斗架位置
+                  description: 漏斗架位置，1-8
                   type: integer
               required:
               - rack_position
@@ -617,7 +618,7 @@ XUSE_station:
             goal:
               properties:
                 rack_position:
-                  description: 坩埚架位置
+                  description: 坩埚架位置，1-20
                   type: integer
               required:
               - rack_position
@@ -747,7 +748,7 @@ XUSE_station:
             goal:
               properties:
                 rack_position:
-                  description: 罐架区位置
+                  description: 罐架区位置，1-32
                   type: integer
               required:
               - rack_position
@@ -824,7 +825,7 @@ XUSE_station:
             goal:
               properties:
                 rack_position:
-                  description: 漏斗架位置
+                  description: 漏斗架位置，1-8
                   type: integer
               required:
               - rack_position

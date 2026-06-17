@@ -284,3 +284,54 @@ class LargeCrucibleFeedPosition(int, Enum):
     FEEDING = 1
     # 取料位
     PICKING = 2
+
+
+# 动作 -> 机械臂编号 映射（依据《厦大软件PLC测试用例》）。
+# 同一机械臂的动作共用一把线程锁，串行执行；不涉及机械臂的动作（开罐/加样/球磨/过筛/刮粉等
+# 加工类，以及编排动作 trigger_all_process）不加锁。
+ARM_LOCK_MAP = {
+    # 机械臂 1：球磨罐在 罐架/开盖/加粉/加珠/球磨/过筛/刮粉 之间的取放
+    "pick_can_from_can_rack": 1,
+    "place_empty_can_to_open_can_position": 1,
+    "pick_empty_can_from_open_can_position": 1,
+    "place_can_to_add_powder_position": 1,
+    "pick_can_from_add_powder_position": 1,
+    "place_can_to_add_bead_position": 1,
+    "pick_can_from_add_bead_position": 1,
+    "place_can_with_powder_and_bead_to_open_can_position": 1,
+    "close_can_lid": 1,
+    "pick_can_with_powder_and_bead_from_open_can_position": 1,
+    "place_can_to_ball_mill": 1,
+    "pick_can_from_ball_mill": 1,
+    "place_milled_can_to_open_can_position": 1,
+    "pick_milled_can_from_open_can_position": 1,
+    "place_milled_can_to_sieve_position": 1,
+    "pick_milled_can_from_sieve_position": 1,
+    "place_milled_can_to_scrape_position": 1,
+    "pick_milled_can_from_scrape_position": 1,
+    "place_sieved_can_to_open_can_position": 1,
+    "pick_sieved_can_from_open_can_position": 1,
+    "place_can_to_can_rack": 1,
+    # 机械臂 2：小坩埚/漏斗 在 坩埚架/漏斗架/过筛/搬运位 之间的取放
+    "pick_small_crucible_from_crucible_rack": 2,
+    "place_small_crucible_to_sieve_position": 2,
+    "pick_funnel_from_crucible_rack": 2,
+    "place_funnel_to_sieve_position": 2,
+    "pick_small_crucible_from_sieve_position": 2,
+    "place_small_crucible_to_moving_position": 2,
+    "pick_funnel_from_sieve_position": 2,
+    "place_funnel_to_crucible_rack": 2,
+    # 机械臂 3：大坩埚 在 搬运区/马弗炉/成品料架 之间的取放及烧结
+    "pick_large_crucible_from_moving_position": 3,
+    "place_large_crucible_to_muffle_furnace": 3,
+    "muffle_furnace_sintering": 3,
+    "pick_large_crucible_from_muffle_furnace": 3,
+    "place_large_crucible_to_upper_product_rack": 3,
+    "place_large_crucible_to_lower_product_rack": 3,
+}
+
+# 机械臂状态节点（前端显示：3 个空闲 + 3 个故障），由后台线程统一轮询刷新缓存。
+ARM_STATUS_NODES = [
+    "Robotic_Arm_Idle_1", "Robotic_Arm_Idle_2", "Robotic_Arm_Idle_3",
+    "Robotic_Arm_Fault_1", "Robotic_Arm_Fault_2", "Robotic_Arm_Fault_3",
+]
