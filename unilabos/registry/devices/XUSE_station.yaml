@@ -81,16 +81,22 @@ XUSE_station:
       ball_mill:
         feedback: {}
         goal: {}
-        goal_default: {}
+        goal_default:
+          require_full: true
         handles: {}
         placeholder_keys: {}
         result: {}
         schema:
-          description: 球磨操作（检查球磨区4个位置占位，等待球磨请求，触发球磨开始，等待球磨完成）
+          description: 球磨操作（检查球磨区占位，等待球磨请求，触发球磨开始，等待球磨完成）
           properties:
             feedback: {}
             goal:
-              properties: {}
+              properties:
+                require_full:
+                  default: true
+                  description: 是否要求球磨区4个位置全部放满才开始加工。true=必须满4个；false=有球磨罐即可开始。
+                  title: 是否需满4罐
+                  type: boolean
               required: []
               type: object
             result:
@@ -1131,6 +1137,48 @@ XUSE_station:
           required:
           - goal
           title: scrape_powder参数
+          type: object
+        type: UniLabJsonCommand
+      set_add_powder_params:
+        feedback: {}
+        goal: {}
+        goal_default:
+          position_number: null
+          powder_name: null
+          weight: null
+        handles: {}
+        placeholder_keys: {}
+        result: {}
+        schema:
+          description: 设置加样参数（下发粉末名称/位置号/重量，并触发加样参数下发握手）
+          properties:
+            feedback: {}
+            goal:
+              properties:
+                powder_name:
+                  description: 粉末名称（字符串）。
+                  title: 粉末名称
+                  type: string
+                position_number:
+                  description: 加样位置号（整数）。
+                  title: 加样_位置号
+                  type: integer
+                weight:
+                  description: 加样重量（克，浮点数）。
+                  title: 加样_重量
+                  type: number
+              required:
+              - powder_name
+              - position_number
+              - weight
+              type: object
+            result:
+              description: 设置加样参数 返回类型
+              title: 设置加样参数返回结果
+              type: object
+          required:
+          - goal
+          title: set_add_powder_params参数
           type: object
         type: UniLabJsonCommand
       set_ball_mill_params:

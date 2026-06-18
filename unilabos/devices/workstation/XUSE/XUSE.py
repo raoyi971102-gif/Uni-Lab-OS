@@ -393,6 +393,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
         self.set_node_value("Robotic_Arm_Action_Trigger_3", False)
 
         logger.info("进行初始化...")
+        self.set_node_value("Station_Initialize_Complete", False)
+        time.sleep(1.0) 
         self.set_node_value("Station_Initialize", True) 
         time.sleep(1.0)
         if self._wait_until_true("Station_Initialize_Complete", description="初始化工站"):
@@ -562,7 +564,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         Returns:
             bool: 占位返回 True，否则返回 False
         """
-        return self.get_node_value(f"Can_Rack_Occupied_{position}")
+        return bool(self.get_node_value(f"Can_Rack_Occupied_{position}"))
 
     @not_action
     def is_crucible_rack_occupied(self, code: int) -> bool:
@@ -674,6 +676,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
 
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.CAN_RACK_POSITION) # 设置机械臂目标位置为罐架
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", RoboticArmPickPlaceCode_1.PICK_CAN_RACK_START + rack_position - 1) # 设置罐架位置
         self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
@@ -715,6 +718,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
 
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.OPEN_CAN_POSITION) # 设置机械臂目标位置为开盖区
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", RoboticArmPickPlaceCode_1.OPEN_CAN_NO_POWDER_PLACE_EMPTY_CAN) # 设置开盖区放空罐
         self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
@@ -800,6 +804,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
         
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.OPEN_CAN_POSITION) # 设置机械臂目标位置为开盖区
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", RoboticArmPickPlaceCode_1.OPEN_CAN_NO_POWDER_PICK_BASE) # 设置开盖区取底座
         self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
@@ -840,6 +845,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
         
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.ADD_POWDER_POSITION) # 设置机械臂目标位置为加粉区
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", RoboticArmPickPlaceCode_1.ADD_POWDER_PLACE_BASE) # 设置加粉区放底座
         self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
@@ -915,6 +921,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
         
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.ADD_POWDER_POSITION) # 设置机械臂目标位置为加粉区
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", RoboticArmPickPlaceCode_1.ADD_POWDER_PICK_BASE) # 设置加粉区取底座
         self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
@@ -956,6 +963,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
         
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.ADD_BEAD_POSITION) # 设置机械臂目标位置为加珠区
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", RoboticArmPickPlaceCode_1.ADD_BEAD_PLACE_BASE) # 设置加珠区放底座
         self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
@@ -1030,6 +1038,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
         
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.ADD_BEAD_POSITION) # 设置机械臂目标位置为加珠区
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", RoboticArmPickPlaceCode_1.ADD_BEAD_PICK_BASE) # 设置加珠区取底座
         self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
@@ -1072,6 +1081,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
 
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.OPEN_CAN_POSITION) # 设置机械臂目标位置为开盖区
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", RoboticArmPickPlaceCode_1.OPEN_CAN_WITH_POWDER_PLACE_BASE) # 设置开盖区放底座
         self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
@@ -1158,6 +1168,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
         
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.OPEN_CAN_POSITION) # 设置机械臂目标位置为开盖区
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", RoboticArmPickPlaceCode_1.OPEN_CAN_WITH_POWDER_PICK_FULL_CAN) # 设置开盖区取满罐
         self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
@@ -1206,6 +1217,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
         
         mill_position_code = RoboticArmPickPlaceCode_1.BALL_MILL_PLACE_CAN_1 + (mill_position - 1)
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.BALL_MILL_POSITION) # 设置机械臂目标位置为球磨区
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", mill_position_code) # 设置球磨区放罐
         self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
@@ -1230,19 +1242,32 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
 
-    def ball_mill(self) -> dict:
+    def ball_mill(self, require_full: bool = True) -> dict:
         """
         进行球磨
-        - 检测球磨区4个位置是否都有球磨罐
+        - 检测球磨区位置是否有球磨罐
         - 启动球磨
         - 等待球磨完成
         - 返回成功
-        """   
-        for mill_position in [1, 2, 3, 4]:
-            if not self._wait_condition(lambda mp=mill_position: self.is_ball_mill_occupied(mp)):
-                error_msg = f"球磨区位置{mill_position}为空，无法球磨"
+
+        Args:
+            require_full[是否需满4罐]: 是否要求球磨区 4 个位置全部放满才开始加工。
+                True=必须满 4 个；False=只要有球磨罐即可开始（默认 True）。
+        """
+        if require_full:
+            for mill_position in [1, 2, 3, 4]:
+                if not self._wait_condition(lambda mp=mill_position: self.is_ball_mill_occupied(mp)):
+                    error_msg = f"球磨区位置{mill_position}为空，需满 4 个球磨罐才开始加工"
+                    logger.error(error_msg)
+                    raise ValueError(error_msg)
+        else:
+            occupied = [mp for mp in [1, 2, 3, 4]
+                        if self._wait_condition(lambda m=mp: self.is_ball_mill_occupied(m))]
+            if not occupied:
+                error_msg = "球磨区无球磨罐，无法球磨"
                 logger.error(error_msg)
                 raise ValueError(error_msg)
+            logger.info(f"球磨区已占位 {occupied}（不要求满 4 个），开始加工")
 
         if self._wait_until_true("Ball_Mill_Request_Process", description="球磨请求加工"):
             logger.info("收到球磨请求加工")
@@ -1288,6 +1313,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
         
         mill_position_code = RoboticArmPickPlaceCode_1.BALL_MILL_PICK_CAN_1 + (mill_position - 1)
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.BALL_MILL_POSITION) # 设置机械臂目标位置为球磨区
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", mill_position_code) # 设置球磨区抓取罐 
         self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
@@ -1336,6 +1362,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
         
         pick_place_code = RoboticArmPickPlaceCode_1.OPEN_CAN_AFTER_MILL_PLACE_CAN_1 + (mill_position - 1) * 10
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.OPEN_CAN_POSITION) # 设置机械臂目标位置为开盖区
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", pick_place_code) # 设置开盖区放罐    
         self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
@@ -1384,6 +1411,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
         
         pick_place_code = RoboticArmPickPlaceCode_1.OPEN_CAN_AFTER_MILL_PICK_BASE_1 + (mill_position - 1) * 10
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.OPEN_CAN_POSITION) # 设置机械臂目标位置为开盖区
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", pick_place_code) # 设置开盖区取座    
         self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
@@ -1432,6 +1460,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
 
         pick_place_code = RoboticArmPickPlaceCode_1.SIEVE_PLACE_BASE_1 + (mill_position - 1) * 10
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.SIEVE_POSITION) # 设置机械臂目标位置为过筛区
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", pick_place_code) # 设置过筛区放座    
         self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
@@ -1517,6 +1546,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
         
         pick_place_code = RoboticArmPickPlaceCode_1.SIEVE_PICK_BASE_1 + (mill_position - 1) * 10
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.SIEVE_POSITION) # 设置机械臂目标位置为过筛区
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", pick_place_code) # 设置过筛区取座       
         self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
@@ -1565,6 +1595,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
 
         pick_place_code = RoboticArmPickPlaceCode_1.SCRAPE_POWDER_PLACE_BASE_1 + (mill_position - 1) * 10
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.SCRAPE_POWDER_POSITION) # 设置机械臂目标位置为刮粉区
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", pick_place_code) # 设置刮粉区放座    
         self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
@@ -1651,6 +1682,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
 
         pick_place_code = RoboticArmPickPlaceCode_1.SCRAPE_POWDER_PICK_BASE_1 + (mill_position - 1) * 10
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.SCRAPE_POWDER_POSITION) # 设置机械臂目标位置为刮粉区
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", pick_place_code) # 设置刮粉区取座
         self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
@@ -1699,6 +1731,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
 
         pick_place_code = RoboticArmPickPlaceCode_1.OPEN_CAN_AFTER_SIEVE_PLACE_BASE_1 + (mill_position - 1) * 10
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.OPEN_CAN_POSITION) # 设置机械臂目标位置为开罐区
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", pick_place_code) # 设置开罐区放座    
         self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
@@ -1747,6 +1780,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
 
         pick_place_code = RoboticArmPickPlaceCode_1.OPEN_CAN_AFTER_SIEVE_PICK_CAN_1 + (mill_position - 1) * 10
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.OPEN_CAN_POSITION) # 设置机械臂目标位置为开罐区
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", pick_place_code) # 设置开罐区取座
         self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
@@ -1801,6 +1835,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
 
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.CAN_RACK_POSITION) # 设置机械臂目标位置为罐架
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", RoboticArmPickPlaceCode_1.PLACE_CAN_RACK_START + rack_position - 1) # 设置罐架位置
         self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
@@ -1844,6 +1879,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         
         self._wait_until_true("Robotic_Arm_Idle_2", description="等待机械臂2空闲")
         
+        self.set_node_value("Robotic_Arm_Action_Complete_2", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_2", RoboticArmPickPlaceCode_2.PICK_CRUCIBLE_RACK_START + rack_position - 1) # 设置坩埚位置
         self.set_node_value("Robotic_Arm_Action_Trigger_2", False)  # 上升沿: 先复位
         time.sleep(0.5)
@@ -1885,6 +1921,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
         
+        self.set_node_value("Robotic_Arm_Action_Complete_2", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_2", RoboticArmPickPlaceCode_2.PLACE_SIEVE_CRUCIBLE) # 设置过筛区位置
         self.set_node_value("Robotic_Arm_Action_Trigger_2", False)  # 上升沿: 先复位
         time.sleep(0.5)
@@ -1933,6 +1970,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
 
+        self.set_node_value("Robotic_Arm_Action_Complete_2", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_2", funnel_pick_code) # 设置漏斗架位置
         self.set_node_value("Robotic_Arm_Action_Trigger_2", False)  # 上升沿: 先复位
         time.sleep(0.5)
@@ -1974,6 +2012,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
         
+        self.set_node_value("Robotic_Arm_Action_Complete_2", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_2", RoboticArmPickPlaceCode_2.PLACE_SIEVE_FUNNEL) # 设置过筛区位置
         self.set_node_value("Robotic_Arm_Action_Trigger_2", False)  # 上升沿: 先复位
         time.sleep(0.5)
@@ -2015,6 +2054,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
         
+        self.set_node_value("Robotic_Arm_Action_Complete_2", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_2", RoboticArmPickPlaceCode_2.PICK_SIEVE_CRUCIBLE) # 设置过筛区位置
         self.set_node_value("Robotic_Arm_Action_Trigger_2", False)  # 上升沿: 先复位
         time.sleep(0.5)
@@ -2065,6 +2105,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
 
+        self.set_node_value("Robotic_Arm_Action_Complete_2", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_2", RoboticArmPickPlaceCode_2.PLACE_SMALL_CRUCIBLE_1 + moving_position - 1) # 设置搬运位置
         self.set_node_value("Robotic_Arm_Action_Trigger_2", False)  # 上升沿: 先复位
         time.sleep(0.5)
@@ -2106,6 +2147,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
         
+        self.set_node_value("Robotic_Arm_Action_Complete_2", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_2", RoboticArmPickPlaceCode_2.PICK_SIEVE_FUNNEL) # 设置过筛区位置
         self.set_node_value("Robotic_Arm_Action_Trigger_2", False)  # 上升沿: 先复位
         time.sleep(0.5)
@@ -2154,6 +2196,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
 
+        self.set_node_value("Robotic_Arm_Action_Complete_2", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_2", funnel_place_code) # 设置漏斗架位置
         self.set_node_value("Robotic_Arm_Action_Trigger_2", False)  # 上升沿: 先复位
         time.sleep(0.5)
@@ -2343,6 +2386,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
         
+        self.set_node_value("Robotic_Arm_Action_Complete_3", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Position_Code_3", RoboticArmTargetPosition_3.LARGE_CRUCIBLE_POSITION) # 设置机械臂目标位置为大坩埚
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_3", RoboticArmPickPlaceCode_3.PICK_FEED_LARGE_CRUCIBLE) # 设置取大坩埚
         self.set_node_value("Robotic_Arm_Action_Trigger_3", False)  # 上升沿: 先复位
@@ -2393,6 +2437,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
 
+        self.set_node_value("Robotic_Arm_Action_Complete_3", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Position_Code_3", RoboticArmTargetPosition_3.MUFFLE_FURNACE_1_POSITION + muffle_furnace_position - 1) # 设置机械臂目标位置为马弗炉
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_3", RoboticArmPickPlaceCode_3.PLACE_MUFFLE_FURNACE_1 + muffle_furnace_position - 1) # 设置放马弗炉
         self.set_node_value("Robotic_Arm_Action_Trigger_3", False)  # 上升沿: 先复位
@@ -2483,6 +2528,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
 
+        self.set_node_value("Robotic_Arm_Action_Complete_3", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Position_Code_3", RoboticArmTargetPosition_3.MUFFLE_FURNACE_1_POSITION + muffle_furnace_position - 1) # 设置机械臂目标位置为马弗炉
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_3", RoboticArmPickPlaceCode_3.PICK_MUFFLE_FURNACE_1 + muffle_furnace_position - 1) # 设置放马弗炉
         self.set_node_value("Robotic_Arm_Action_Trigger_3", False)  # 上升沿: 先复位
@@ -2525,6 +2571,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
 
+        self.set_node_value("Robotic_Arm_Action_Complete_3", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Position_Code_3", RoboticArmTargetPosition_3.DISCHARGE_POSITION) # 设置机械臂目标位置为成品出料架
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_3", RoboticArmPickPlaceCode_3.PLACE_DISCHARGE_UPPER) # 设置放成品出料上位置
         self.set_node_value("Robotic_Arm_Action_Trigger_3", False)  # 上升沿: 先复位
@@ -2567,6 +2614,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
 
+        self.set_node_value("Robotic_Arm_Action_Complete_3", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Position_Code_3", RoboticArmTargetPosition_3.DISCHARGE_POSITION) # 设置机械臂目标位置为成品出料架
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_3", RoboticArmPickPlaceCode_3.PLACE_DISCHARGE_LOWER) # 设置放成品出料下位置
         self.set_node_value("Robotic_Arm_Action_Trigger_3", False)  # 上升沿: 先复位
@@ -3001,6 +3049,61 @@ class XUSEDevice(OpcUaClientWithSubscription):
             "success": True,
             "message": f"球磨参数下发完成，共写入 {written} 项",
             "data": {"written": written},
+            "error": errors,
+        }
+
+    def set_add_powder_params(self, powder_name: str, position_number: int, weight: float) -> dict:
+        """
+        设置加样参数（下发粉末名称/位置号/重量，并触发加样参数下发握手）。
+
+        将 3 个参数分别写入对应节点：粉末名称(STRING)、加样_位置号(INT16)、加样_重量(FLOAT)，
+        写入后触发"加样参数下发"并等待下发完成、复位（与其它参数下发动作一致）。
+
+        Args:
+            powder_name[粉末名称]: 粉末名称（字符串）。
+            position_number[加样_位置号]: 加样位置号（整数）。
+            weight[加样_重量]: 加样重量（克，浮点数）。
+        """
+        if powder_name is None or str(powder_name).strip() == "":
+            error_msg = "加样参数下发失败：粉末名称不能为空"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        written = 0
+        errors = []
+        # 待下发参数：节点名 -> 值（节点名与 CSV 中 Name 一致）
+        params = [
+            ("粉末名称", str(powder_name).strip()),
+            ("加样_位置号", int(position_number)),
+            ("加样_重量", float(weight)),
+        ]
+        for node_name, value in params:
+            try:
+                if self.set_node_value(node_name, value):
+                    written += 1
+                else:
+                    errors.append(f"{node_name} 写入失败")
+            except Exception as e:
+                errors.append(f"{node_name} 写入出错: {e}")
+
+        if written == 0:
+            error_msg = f"加样参数下发失败，未写入任何参数（粉末名称: {powder_name}）"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        # 触发加样参数下发，等待下发完成并复位
+        self._send_param_handshake(
+            "Add_Sample_Parameter_Send",
+            "Add_Sample_Parameter_Send_Complete",
+            description="加样参数下发",
+        )
+
+        logger.info(f"加样参数下发完成，共 {written} 项（粉末:{powder_name} 位置:{position_number} 重量:{weight}）")
+        return {
+            "success": True,
+            "message": f"加样参数下发完成，共写入 {written} 项",
+            "data": {"written": written, "powder_name": powder_name,
+                     "position_number": position_number, "weight": weight},
             "error": errors,
         }
 
