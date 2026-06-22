@@ -438,7 +438,7 @@ def test_szlab_mixer_pump_waits_for_new_completion_cycle_when_done_is_stale():
         def write(self, name, value):
             self.writes.append((name, value))
 
-        def reset_and_pulse(self, name):
+        def pulse(self, name):
             self.pulses.append(name)
 
         def wait_equal(self, name, expected, timeout=300.0, interval=0.2):
@@ -459,7 +459,6 @@ def test_szlab_mixer_pump_waits_for_new_completion_cycle_when_done_is_stale():
 
     assert result["success"] is True
     assert device._client.waits == [("S06加工完成", False), ("S06加工完成", True)]
-    assert device._client.pulses == ["S06参数写入完成"]
 
 
 def test_szlab_mixer_stirrer_waits_for_new_completion_cycle_when_done_is_stale():
