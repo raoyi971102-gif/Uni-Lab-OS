@@ -19,7 +19,7 @@ def test_szlab_poly_studio_imports_from_device_workstation_package():
 def test_szlab_poly_studio_default_csv_resolves_inside_workstation_package():
     csv_path = Path(_resolve_csv_path(None))
 
-    assert csv_path.name == "苏州实验室_0622.csv"
+    assert csv_path.name == "苏州实验室_0610.csv"
     assert csv_path.parent.parts[-4:] == (
         "unilabos",
         "devices",
