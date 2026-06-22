@@ -14,7 +14,7 @@ from unilabos.registry.decorators import action, device, not_action, topic_confi
 from unilabos.utils.log import logger
 
 
-DEFAULT_CSV_NAME = "苏州实验室_0610.csv"
+DEFAULT_CSV_NAME = "苏州实验室_0622.csv"
 
 
 S3_UNUSED_BEAKER_SENSORS: Dict[str, str] = {

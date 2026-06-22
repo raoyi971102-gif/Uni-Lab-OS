@@ -628,7 +628,7 @@ def test_szlab_poly_plc_rejects_non_pc_to_plc_writes():
 
 def test_szlab_poly_plc_loads_new_tab_separated_communication_csv():
     names = load_variable_names_from_csv(
-        "unilabos/devices/workstation/szlab_poly_studio/苏州实验室_0610.csv"
+        "unilabos/devices/workstation/szlab_poly_studio/苏州实验室_0622.csv"
     )
 
     assert "S041磁搅工艺选择" in names
@@ -637,6 +637,39 @@ def test_szlab_poly_plc_loads_new_tab_separated_communication_csv():
     assert "S05拍照结果" in names
     assert "PLC_R任务号" in names
     assert "S04取放料编号" in names
+
+
+def test_szlab_mixer_s04_s05_and_stirrer_nodes_match_0622_csv():
+    names = set(
+        load_variable_names_from_csv(
+            "unilabos/devices/workstation/szlab_poly_studio/苏州实验室_0622.csv"
+        )
+    )
+
+    assert {
+        "PLC_R任务号",
+        "S04取放料编号",
+        "S05准备信号",
+        "S05拍照结果",
+        "S05加工完成",
+        "传感器状态_上位机[3].NO[0]",
+    }.issubset(names)
+    for position in range(1, 7):
+        station = f"S04{position}"
+        assert {
+            f"{station}准备信号",
+            f"{station}磁搅状态",
+            f"{station}允许加工",
+            f"{station}磁搅工艺选择",
+            f"{station}参数写入完成",
+            f"{station}加工完成",
+            f"传感器状态_上位机[2].NO[{position + 9}]",
+            f"磁搅温度反馈_上位机[{position - 1}]",
+            f"磁搅速度设置_上位机[{position - 1}]",
+            f"磁搅温度设置_上位机[{position - 1}]",
+            f"磁搅时间设置_上位机[{position - 1}]",
+            f"磁搅安全温度设置_上位机[{position - 1}]",
+        }.issubset(names)
 
 
 def test_szlab_mixer_runtime_samples_robot_task_variables():

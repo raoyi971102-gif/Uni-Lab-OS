@@ -137,6 +137,63 @@ def test_ai4c_preset_uses_formal_device_class():
     assert "pick_well_plate_from_loading_rack" in preset.actions
 
 
+def test_szlab_mixer_ui_preset_uses_0622_csv_and_s04_s05_actions():
+    preset = load_preset("szlab_mixer")
+    runtime_config = _load_preset_runtime_config(preset)
+    graph_nodes = {node["id"]: node for node in preset.device_graph["nodes"]}
+
+    assert graph_nodes["szlab_poly_plc"]["config"]["csv_path"] == "苏州实验室_0622.csv"
+    assert runtime_config.device_factory.plc_device_id == "szlab_poly_plc"
+    assert preset.actions["run_stirring"].device_id == "szlab_mixer_stirrer"
+    assert preset.actions["take_photo"].device_id == "szlab_mixer_photoshotting"
+    assert preset.actions["submit_pick_from_magnetic_stirrer"].device_id == "szlab_mixer_robot"
+    assert preset.actions["submit_place_to_photo_station"].device_id == "szlab_mixer_robot"
+
+    workflow = build_graph_workflow(
+        flow_nodes=[
+            {
+                "id": "stir",
+                "data": {
+                    "device_id": "szlab_mixer_stirrer",
+                    "method": "run_stirring",
+                    "params": {"position": 1, "speed": 300, "temperature": 25, "duration": 60},
+                },
+            },
+            {
+                "id": "photo",
+                "data": {
+                    "device_id": "szlab_mixer_photoshotting",
+                    "method": "take_photo",
+                    "params": {"sample_id": "sample-1", "require_material": False},
+                },
+            },
+            {
+                "id": "place_photo",
+                "data": {
+                    "device_id": "szlab_mixer_robot",
+                    "method": "submit_place_to_photo_station",
+                    "params": {"sample_id": "sample-1"},
+                },
+            },
+        ],
+        flow_edges=[
+            {"source": "stir", "target": "place_photo"},
+            {"source": "place_photo", "target": "photo"},
+        ],
+        preset=preset,
+    )
+
+    assert [node["device_name"] for node in workflow["nodes"]] == [
+        "szlab_mixer_stirrer",
+        "szlab_mixer_robot",
+        "szlab_mixer_photoshotting",
+    ]
+    assert workflow["edges"] == [
+        {"source_node_uuid": "stir", "target_node_uuid": "place_photo"},
+        {"source_node_uuid": "place_photo", "target_node_uuid": "photo"},
+    ]
+
+
 def test_ai4c_runtime_device_classes_are_importable():
     preset = load_preset("ai4c")
     runtime_config = _load_preset_runtime_config(preset)

@@ -30,7 +30,7 @@
         "position": {"x": -120, "y": 0, "z": 0},
         "config": {
           "url": "${opcua_url}",
-          "csv_path": "苏州实验室_0610.csv"
+          "csv_path": "苏州实验室_0622.csv"
         },
         "data": {}
       },
