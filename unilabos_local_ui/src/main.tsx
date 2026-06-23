@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import ReactFlow, {
   Background,
@@ -101,6 +101,8 @@ function App() {
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
   const [selectedLogNodeId, setSelectedLogNodeId] = useState<string | null>(null);
+  const [opcPanelHeight, setOpcPanelHeight] = useState(150);
+  const opcResizeRef = useRef({ startY: 0, startHeight: 150 });
   const [config, setConfig] = useState({
     graph: DEFAULT_CONFIG.graph,
     url: DEFAULT_CONFIG.url,
@@ -327,6 +329,27 @@ function App() {
     });
   };
 
+  const startOpcPanelResize = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    opcResizeRef.current = { startY: event.clientY, startHeight: opcPanelHeight };
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const delta = opcResizeRef.current.startY - moveEvent.clientY;
+      const nextHeight = opcResizeRef.current.startHeight + delta;
+      setOpcPanelHeight(Math.min(Math.max(nextHeight, 96), 360));
+    };
+
+    const stopResize = () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', stopResize);
+      window.removeEventListener('pointercancel', stopResize);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', stopResize);
+    window.addEventListener('pointercancel', stopResize);
+  }, [opcPanelHeight]);
+
   return (
     <div className="app">
       <header className="header">
@@ -349,7 +372,7 @@ function App() {
           </div>
         </aside>
 
-        <main className="canvas-panel">
+        <main className="canvas-panel" style={{ gridTemplateRows: `minmax(0, 1fr) 8px ${opcPanelHeight}px` }}>
           <div className="flow-canvas">
             <div className="canvas-toolbar">
               {workflow && (
@@ -377,6 +400,13 @@ function App() {
               <Controls />
             </ReactFlow>
           </div>
+          <div
+            className="opc-resizer"
+            role="separator"
+            aria-label="调整 OPC 变量变化面板高度"
+            aria-orientation="horizontal"
+            onPointerDown={startOpcPanelResize}
+          />
           <OpcChangePanel changes={opcChanges} nodes={nodes} />
         </main>
 
