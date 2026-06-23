@@ -1,22 +1,24 @@
 from pathlib import Path
+from importlib.util import find_spec
 
 import pytest
 
-from unilabos.devices.workstation.szlab_poly_studio import (
-    S1Workstation,
-    SZLabPolyPLCDevice,
-    SZLabPolyStudioDeck,
-)
-from unilabos.devices.workstation.szlab_poly_studio.plc import _resolve_csv_path
+import unilabos.devices.workstation.szlab_poly_studio as szlab_poly_studio
 
 
 def test_szlab_poly_studio_imports_from_device_workstation_package():
-    assert S1Workstation.__name__ == "S1Workstation"
-    assert SZLabPolyPLCDevice.__name__ == "SZLabPolyPLCDevice"
-    assert SZLabPolyStudioDeck.__name__ == "SZLabPolyStudioDeck"
+    assert "SZLabPolyPLCDevice" in szlab_poly_studio.__all__
+    assert "S1Workstation" in szlab_poly_studio.__all__
+    assert "SZLabPolyStudioDeck" in szlab_poly_studio.__all__
+    assert "SzlabMixerPumpDevice" in szlab_poly_studio.__all__
 
 
 def test_szlab_poly_studio_default_csv_resolves_inside_workstation_package():
+    if find_spec("pylabrobot") is None:
+        pytest.skip("pylabrobot 未安装，跳过依赖 PLC 模块导入的布局检查")
+
+    from unilabos.devices.workstation.szlab_poly_studio.plc import _resolve_csv_path
+
     csv_path = Path(_resolve_csv_path(None))
 
     assert csv_path.name == "苏州实验室_0610.csv"

@@ -1,4 +1,6 @@
+import csv
 import time
+from importlib.util import find_spec
 
 import pytest
 
@@ -14,6 +16,7 @@ from scripts.workflow_ui import (
     RunRecord,
     WorkflowRunManager,
     _load_preset_runtime_config,
+    _resolve_ui_path,
     _runtime_supported_actions,
     _record_to_dict,
     _register_shutdown_handler,
@@ -21,6 +24,7 @@ from scripts.workflow_ui import (
     build_graph_workflow,
     build_linear_workflow,
     build_local_device_graph,
+    build_parser,
     load_preset,
 )
 
@@ -138,6 +142,9 @@ def test_ai4c_preset_uses_formal_device_class():
 
 
 def test_ai4c_runtime_device_classes_are_importable():
+    if find_spec("rclpy") is None:
+        pytest.skip("rclpy 未安装，跳过依赖 ROS2 的 AI4C 设备类导入检查")
+
     preset = load_preset("ai4c")
     runtime_config = _load_preset_runtime_config(preset)
 
