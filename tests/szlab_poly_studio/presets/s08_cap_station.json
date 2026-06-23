@@ -1,0 +1,54 @@
+{
+  "id": "s08_cap_station",
+  "title": "S08 开盖工位本地调试",
+  "target_device_id": "szlab_s08_cap_station",
+  "target_device_ids": ["szlab_s08_cap_station"],
+  "actions_source": "registry",
+  "runtime_config": "runtime_configs/s08_cap_station_runtime.json",
+  "default_workflow_name": "s08_cap_workflow",
+  "default_config": {
+    "graph": "__generated__",
+    "url": "opc.tcp://127.0.0.1:50102/",
+    "csv": "tests/szlab_poly_studio/fixtures/szlab_s08_cap_station_ci_nodes.csv",
+    "timeout": 300,
+    "no_subscription": true,
+    "show_csv": true
+  },
+  "path_roots": [
+    "tests/szlab_poly_studio",
+    "unilabos/devices/workstation/szlab_poly_studio"
+  ],
+  "device_graph": {
+    "nodes": [
+      {
+        "id": "szlab_poly_plc",
+        "name": "苏州实验室 PLC",
+        "children": [],
+        "parent": null,
+        "type": "device",
+        "class": "szlab_poly_plc",
+        "position": {"x": 0, "y": 0, "z": 0},
+        "config": {
+          "url": "${opcua_url}",
+          "csv_path": "${csv_path}",
+          "auto_connect": true
+        },
+        "data": {}
+      },
+      {
+        "id": "szlab_s08_cap_station",
+        "name": "S08 开盖工位",
+        "children": [],
+        "parent": null,
+        "type": "device",
+        "class": "szlab_s08_cap_station",
+        "position": {"x": 500, "y": 0, "z": 0},
+        "config": {
+          "plc_device_id": "szlab_poly_plc"
+        },
+        "data": {}
+      }
+    ],
+    "links": []
+  }
+}

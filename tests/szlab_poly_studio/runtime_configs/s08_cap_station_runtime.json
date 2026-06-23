@@ -1,0 +1,60 @@
+{
+  "device_factory": {
+    "plc_device_id": "szlab_poly_plc",
+    "target_device_id": "szlab_s08_cap_station",
+    "plc_class": "unilabos.devices.workstation.szlab_poly_studio.plc.SZLabPolyPLCDevice",
+    "target_class": "unilabos.devices.workstation.szlab_poly_studio.s08_cap_station.SZLabS08CapStationDevice",
+    "target_config": {
+      "plc_device_id": "szlab_poly_plc"
+    },
+    "direct_plc_command_method": "_call_plc_command"
+  },
+  "opc_snapshot": {
+    "common_variables": [
+      "S08原点信号",
+      "S081_1允许加工",
+      "S081_1工艺任务",
+      "S081_1参数写入完成",
+      "S081_1加工完成",
+      "S081_2允许加工",
+      "S081_2工艺任务",
+      "S081_2参数写入完成",
+      "S081_2加工完成",
+      "S082瓶盖暂存位"
+    ],
+    "action_variables": {
+      "open_liquid_cap": [
+        "S081_1工艺任务",
+        "S081_1参数写入完成",
+        "S081_1加工完成",
+        "S082瓶盖暂存位"
+      ],
+      "close_liquid_cap": [
+        "S081_1工艺任务",
+        "S081_1参数写入完成",
+        "S081_1加工完成",
+        "S082瓶盖暂存位"
+      ],
+      "open_solid_cap": [
+        "S081_2工艺任务",
+        "S081_2参数写入完成",
+        "S081_2加工完成",
+        "S082瓶盖暂存位"
+      ],
+      "close_solid_cap": [
+        "S081_2工艺任务",
+        "S081_2参数写入完成",
+        "S081_2加工完成",
+        "S082瓶盖暂存位"
+      ],
+      "read_cap_storage_registry": [
+        "S082_1数据缓存[0]",
+        "S082_2数据缓存[0]",
+        "S082_3数据缓存[0]",
+        "S082_4数据缓存[0]",
+        "S082_5数据缓存[0]"
+      ]
+    },
+    "param_variables": {}
+  }
+}

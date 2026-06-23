@@ -1,0 +1,47 @@
+{
+  "name": "s08_open_close_workflow",
+  "nodes": [
+    {
+      "uuid": "node_1",
+      "name": "read_liquid_unit_status",
+      "device_name": "szlab_s08_cap_station",
+      "param": {}
+    },
+    {
+      "uuid": "node_2",
+      "name": "read_cap_storage_registry",
+      "device_name": "szlab_s08_cap_station",
+      "param": {}
+    },
+    {
+      "uuid": "node_3",
+      "name": "open_liquid_cap",
+      "device_name": "szlab_s08_cap_station",
+      "param": {
+        "sample_id": [101, 102, 103],
+        "timeout": 300
+      }
+    },
+    {
+      "uuid": "node_4",
+      "name": "read_cap_storage_registry",
+      "device_name": "szlab_s08_cap_station",
+      "param": {}
+    },
+    {
+      "uuid": "node_5",
+      "name": "close_liquid_cap",
+      "device_name": "szlab_s08_cap_station",
+      "param": {
+        "sample_id": [101, 102, 103],
+        "timeout": 300
+      }
+    }
+  ],
+  "edges": [
+    {"source_node_uuid": "node_1", "target_node_uuid": "node_2"},
+    {"source_node_uuid": "node_2", "target_node_uuid": "node_3"},
+    {"source_node_uuid": "node_3", "target_node_uuid": "node_4"},
+    {"source_node_uuid": "node_4", "target_node_uuid": "node_5"}
+  ]
+}
