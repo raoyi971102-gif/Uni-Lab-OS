@@ -915,3 +915,28 @@ npm run build</pre>
         """,
         status_code=503,
     )
+
+
+def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Uni-Lab 本地 workflow 调试界面")
+    parser.add_argument("--host", default="127.0.0.1", help="监听地址")
+    parser.add_argument("--port", type=int, default=8014, help="监听端口")
+    parser.add_argument("--preset", default="ai4c", help="preset 名称，Docker 默认使用 szlab_mixer")
+    parser.add_argument("--no-browser", action="store_true", help="启动时不自动打开浏览器")
+    parser.add_argument("--runtime-config", type=Path, default=None, help="覆盖 preset 的 runtime config")
+    args = parser.parse_args()
+
+    runtime_config = load_runtime_config(args.runtime_config) if args.runtime_config else None
+    start_ui(
+        host=args.host,
+        port=args.port,
+        open_browser=not args.no_browser,
+        preset_name=args.preset,
+        runtime_config=runtime_config,
+    )
+
+
+if __name__ == "__main__":
+    main()

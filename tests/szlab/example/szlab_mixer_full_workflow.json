@@ -1,5 +1,5 @@
 {
-  "name": "szlab_mixer_workflow",
+  "name": "szlab_mixer_full_workflow",
   "nodes": [
     {
       "uuid": "szlab-add-solvent",

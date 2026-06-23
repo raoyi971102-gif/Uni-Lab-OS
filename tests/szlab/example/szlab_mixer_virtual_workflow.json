@@ -1,0 +1,34 @@
+{
+  "name": "szlab_mixer_virtual_pump",
+  "nodes": [
+    {
+      "uuid": "virtual-transfer-liquid",
+      "name": "auto-transfer_liquid",
+      "device_name": "szlab_mixer_pump",
+      "param": {
+        "pump": 1,
+        "volume": 10,
+        "direction": "aspirate",
+        "pipeline": "aspirate"
+      }
+    },
+    {
+      "uuid": "virtual-run-solvent-addition",
+      "name": "auto-run_solvent_addition",
+      "device_name": "szlab_mixer_pump",
+      "param": {
+        "pump": 1,
+        "aspirate_volume": 10,
+        "dispense_volume": 8,
+        "air_volume": 3,
+        "skip_robot": false
+      }
+    }
+  ],
+  "edges": [
+    {
+      "source_node_uuid": "virtual-transfer-liquid",
+      "target_node_uuid": "virtual-run-solvent-addition"
+    }
+  ]
+}

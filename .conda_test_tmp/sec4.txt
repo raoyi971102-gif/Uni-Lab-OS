@@ -1,0 +1,16 @@
+
+========== 4. pump.py --docker-ui conda unilab ==========
+
+PYTHONPATH=. python -m unilabos.devices.workstation.szlab_mixer.pump --docker-ui
+<frozen runpy>:128: RuntimeWarning: 'unilabos.devices.workstation.szlab_mixer.pump' found in sys.modules after import of package 'unilabos.devices.workstation.szlab_mixer', but prior to execution of 'unilabos.devices.workstation.szlab_mixer.pump'; this may result in unpredictable behaviour
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/yuanbai/Uni-Lab-OS-styxhuang/unilabos/devices/workstation/szlab_mixer/pump.py", line 63, in <module>
+    @device(
+     ^^^^^^^
+  File "/home/yuanbai/Uni-Lab-OS-styxhuang/unilabos/registry/decorators.py", line 328, in decorator
+    raise ValueError(f"@device id 重复: '{did}' 已被 {_registered_devices[did]} 注册")
+ValueError: @device id 重复: 'szlab_mixer_pump' 已被 <class 'unilabos.devices.workstation.szlab_mixer.pump.SzlabMixerPumpDevice'> 注册
+EXIT_CODE: 1
+RESULT: FAIL

@@ -1,0 +1,89 @@
+========== CONDA unilab re-run ==========
+
+========== STEP 1: pytest szlab tests ==========
+CMD: PYTHONPATH=. python -m pytest tests/szlab/test_szlab_mixer_pump.py tests/szlab/test_szlab_mixer_pump_opcua_ci.py tests/szlab/test_szlab_mixer_devices.py -q
+.................                                                        [100%]
+17 passed in 4.25s
+STEP 1: PASS exit=0
+
+========== STEP 2: workflow_ui --help ==========
+CMD: PYTHONPATH=. python -m scripts.workflow_ui --help
+usage: workflow_ui.py [-h] [--host HOST] [--port PORT] [--preset PRESET]
+                      [--no-browser] [--runtime-config RUNTIME_CONFIG]
+
+Uni-Lab 本地 workflow 调试界面
+
+options:
+  -h, --help            show this help message and exit
+  --host HOST           监听地址
+  --port PORT           监听端口
+  --preset PRESET       preset 名称，Docker 默认使用 szlab_mixer
+  --no-browser          启动时不自动打开浏览器
+  --runtime-config RUNTIME_CONFIG
+                        覆盖 preset 的 runtime config
+STEP 2: PASS exit=0
+
+========== STEP 3: pump --docker-ui ==========
+CMD: PYTHONPATH=. python -m unilabos.devices.workstation.szlab_mixer.pump --docker-ui
+<frozen runpy>:128: RuntimeWarning: 'unilabos.devices.workstation.szlab_mixer.pump' found in sys.modules after import of package 'unilabos.devices.workstation.szlab_mixer', but prior to execution of 'unilabos.devices.workstation.szlab_mixer.pump'; this may result in unpredictable behaviour
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/yuanbai/Uni-Lab-OS-styxhuang/unilabos/devices/workstation/szlab_mixer/pump.py", line 63, in <module>
+    @device(
+     ^^^^^^^
+  File "/home/yuanbai/Uni-Lab-OS-styxhuang/unilabos/registry/decorators.py", line 328, in decorator
+    raise ValueError(f"@device id 重复: '{did}' 已被 {_registered_devices[did]} 注册")
+ValueError: @device id 重复: 'szlab_mixer_pump' 已被 <class 'unilabos.devices.workstation.szlab_mixer.pump.SzlabMixerPumpDevice'> 注册
+STEP 3: FAIL exit=1
+
+========== STEP 4: workflow_ui background on 8015 ==========
+CMD: curl -s http://127.0.0.1:8015/api/preset
+{
+    "id": "szlab_mixer",
+    "title": "SZLab Mixer \u672c\u5730\u8c03\u8bd5\u5de5\u5177",
+    "runtime_config": "runtime_configs/szlab_mixer_runtime.json",
+    "default_workflow_name": "szlab_mixer_workflow",
+    "default_config": {
+        "graph": "__generated__",
+        "url": "opc.tcp://jdht1471820.bohrium.tech:50001",
+        "csv": "",
+        "timeout": 300,
+        "no_subscription": true,
+        "show_csv": false
+    },
+    "actions": [
+        {
+            "method": "run_stirring",
+            "label": "\u8fd0\u884c\u78c1\u6405\u5de5\u4f4d",
+            "description": "\u8fd0\u884c\u78c1\u6405\u5de5\u4f4d",
+            "needs_position": true,
+            "params": [
+                {
+                    "name": "position",
+                    "label": "\u78c1\u6405\u4f4d\u7f6e",
+                    "type": "integer",
+                    "description": "\u78c1\u6405\u5de5\u4f4d\u7f16\u53f7\uff0c\u8303\u56f4 1-6",
+                    "min": 1,
+                    "max": 6,
+                    "default": 1
+                },
+                {
+                    "name": "speed",
+                    "label": "speed",
+                    "type": "integer",
+                    "default": 300
+                },
+                {
+                    "name": "temperature",
+                    "label": "temperature",
+                    "type": "integer",
+                    "default": 25
+CMD: curl root GET
+HTTP 200
+423
+STEP 4: PASS
+
+========== STEP 5: Windows Docker ==========
+Windows docker not found
+STEP 5: INFO docker not found

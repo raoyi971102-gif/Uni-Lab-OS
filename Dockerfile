@@ -89,4 +89,4 @@ RUN printf '%s\n' \
 EXPOSE 8000
 
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/docker-entrypoint.sh"]
-CMD ["python", "-m", "scripts.workflow_ui", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "scripts.workflow_ui", "--host", "0.0.0.0", "--port", "8000", "--preset", "szlab_mixer", "--no-browser"]

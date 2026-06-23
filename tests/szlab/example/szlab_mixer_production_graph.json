@@ -3,30 +3,32 @@
     {
       "id": "szlab_mixer_stirrer",
       "name": "szlab_mixer_stirrer",
-      "children": [],
-      "parent": null,
       "type": "device",
       "class": "szlab_mixer_stirrer",
-      "position": {"x": 0, "y": 0, "z": 0},
       "config": {
         "url": "opc.tcp://jdht1471820.bohrium.tech:50001",
         "timeout": 300
-      },
-      "data": {}
+      }
     },
     {
       "id": "szlab_mixer_pump",
       "name": "szlab_mixer_pump",
-      "children": [],
-      "parent": null,
       "type": "device",
       "class": "szlab_mixer_pump",
-      "position": {"x": 120, "y": 0, "z": 0},
       "config": {
         "url": "opc.tcp://jdht1471820.bohrium.tech:50001",
         "timeout": 300,
         "robot_addition_position": 7,
         "robot_stirrer_position": 2,
+        "opcua_node_id_map": {
+          "S06准备信号": "ns=4;s=上位机通讯|S06准备信号",
+          "S06允许加工": "ns=4;s=上位机通讯|S06允许加工",
+          "S06工艺选择": "ns=4;s=上位机通讯|S06工艺选择",
+          "S06_1号溶液添加量": "ns=4;s=上位机通讯|S06_1号溶液添加量",
+          "S06_2号溶液添加量": "ns=4;s=上位机通讯|S06_2号溶液添加量",
+          "S06参数写入完成": "ns=4;s=上位机通讯|S06参数写入完成",
+          "S06加工完成": "ns=4;s=上位机通讯|S06加工完成"
+        },
         "pipeline_route_specs": [
           {"pump": 1, "pipeline": "aspirate", "control_valve": 11, "absolute_position": 21},
           {"pump": 1, "pipeline": "dispense", "control_valve": 12, "absolute_position": 22},
@@ -35,8 +37,7 @@
           {"pump": 2, "pipeline": "dispense", "control_valve": 12, "absolute_position": 22},
           {"pump": 2, "pipeline": "air", "control_valve": 13, "absolute_position": 23}
         ]
-      },
-      "data": {}
+      }
     }
   ],
   "links": []

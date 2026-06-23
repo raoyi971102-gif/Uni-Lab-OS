@@ -3,7 +3,6 @@ from pathlib import Path
 
 from unilabos.registry.ast_registry_scanner import scan_directory
 from unilabos.devices.workstation.szlab_mixer.opcua_client import SzlabMixerOpcUaClient
-from unilabos.devices.workstation.szlab_mixer.pump import SzlabMixerPumpDevice
 from unilabos.devices.workstation.szlab_mixer.stirrer import SzlabMixerStirrerDevice
 from scripts.run_workflow_local import create_local_devices, load_runtime_config
 from scripts.run_workflow_local import WorkflowLogger, WorkflowNode, run_nodes
@@ -18,12 +17,13 @@ def test_szlab_mixer_devices_are_ast_scannable():
     assert set(result["devices"]) == {"szlab_mixer_stirrer", "szlab_mixer_pump"}
     assert "run_stirring" in result["devices"]["szlab_mixer_stirrer"]["actions"]
     assert "transfer_liquid" in result["devices"]["szlab_mixer_pump"]["actions"]
+    assert "run_solvent_addition" in result["devices"]["szlab_mixer_pump"]["actions"]
 
 
 def test_szlab_mixer_registry_actions_can_chain_two_devices():
     preset = load_preset("szlab_mixer")
 
-    assert list(preset.actions) == ["run_stirring", "transfer_liquid"]
+    assert list(preset.actions) == ["run_stirring", "transfer_liquid", "run_solvent_addition"]
     assert preset.actions["run_stirring"].device_id == "szlab_mixer_stirrer"
     assert preset.actions["transfer_liquid"].device_id == "szlab_mixer_pump"
 
@@ -42,7 +42,7 @@ def test_szlab_mixer_registry_actions_can_chain_two_devices():
                 "data": {
                     "device_id": "szlab_mixer_pump",
                     "method": "transfer_liquid",
-                    "params": {"pump": 1, "volume": 1, "direction": "aspirate"},
+                    "params": {"pump": 1, "volume": 1, "direction": "aspirate", "pipeline": "aspirate"},
                 },
             },
         ],
@@ -61,7 +61,7 @@ def test_szlab_mixer_registry_actions_can_chain_two_devices():
             "uuid": "pump",
             "name": "auto-transfer_liquid",
             "device_name": "szlab_mixer_pump",
-            "param": {"pump": 1, "volume": 1, "direction": "aspirate"},
+            "param": {"pump": 1, "volume": 1, "direction": "aspirate", "pipeline": "aspirate"},
         },
     ]
     assert workflow["edges"] == [{"source_node_uuid": "stir", "target_node_uuid": "pump"}]
@@ -108,6 +108,37 @@ def test_szlab_mixer_device_creation_ignores_csv_path(monkeypatch, tmp_path):
     }
 
 
+def test_production_graph_passes_robot_and_pipeline_specs(monkeypatch):
+    created = {}
+
+    class FakePump:
+        def __init__(self, **kwargs):
+            created["pump"] = kwargs
+
+    class FakeStirrer:
+        def __init__(self, **kwargs):
+            created["stirrer"] = kwargs
+
+    def fake_load(class_path: str):
+        if class_path.endswith(".pump.SzlabMixerPumpDevice"):
+            return FakePump
+        if class_path.endswith(".stirrer.SzlabMixerStirrerDevice"):
+            return FakeStirrer
+        raise AssertionError(class_path)
+
+    monkeypatch.setattr("scripts.run_workflow_local._load_class", fake_load)
+
+    create_local_devices(
+        graph_file=Path("tests/szlab/example/szlab_mixer_production_graph.json"),
+        runtime_config=load_runtime_config("tests/szlab/runtime_configs/szlab_mixer_runtime.json"),
+    )
+
+    assert created["pump"]["robot_addition_position"] == 7
+    assert created["pump"]["robot_stirrer_position"] == 2
+    assert len(created["pump"]["pipeline_route_specs"]) == 6
+    assert created["stirrer"]["url"].startswith("opc.tcp://")
+
+
 def test_szlab_mixer_preset_loads_own_runtime_config():
     runtime_config = _load_preset_runtime_config(load_preset("szlab_mixer"))
 
@@ -152,48 +183,27 @@ def test_szlab_mixer_run_nodes_samples_current_device_variables():
     )
 
     assert pump.sampled[0] == [
+        "S06准备信号",
         "S06允许加工",
         "S06参数写入完成",
         "S06注射泵选择",
+        "S06注射泵1控制阀",
+        "S06注射泵1绝对位置控制",
         "S06注射泵1抽液",
         "S06注射泵1排液",
+        "S06注射泵2控制阀",
+        "S06注射泵2绝对位置控制",
         "S06注射泵2抽液",
         "S06注射泵2排液",
         "S06加工完成",
+        "传感器状态_上位机[3].NO[1]",
+        "传感器状态_上位机[4].NO[12]",
+        "传感器状态_上位机[5].NO[1]",
+        "S03_1取料编号",
+        "S03_1放料编号",
     ]
     assert pump.sampled[1] == pump.sampled[0]
     assert any(message.startswith("OPC状态采样") for message, _ in events)
-
-
-def test_szlab_mixer_pump_waits_for_new_completion_cycle_when_done_is_stale():
-    class FakeClient(SzlabMixerOpcUaClient):
-        def __init__(self):
-            self.waits = []
-            self.writes = []
-            self.pulses = []
-
-        def read(self, name):
-            return {"S06允许加工": True, "S06加工完成": True}[name]
-
-        def write(self, name, value):
-            self.writes.append((name, value))
-
-        def pulse(self, name):
-            self.pulses.append(name)
-
-        def wait_equal(self, name, expected, timeout=300.0, interval=0.2):
-            self.waits.append((name, expected))
-            return True
-
-    device = SzlabMixerPumpDevice.__new__(SzlabMixerPumpDevice)
-    device.timeout = 300.0
-    device._status = "Idle"
-    device._client = FakeClient()
-
-    result = device.transfer_liquid(pump=2, volume=10, direction="dispense")
-
-    assert result["success"] is True
-    assert device._client.waits == [("S06加工完成", False), ("S06加工完成", True)]
 
 
 def test_szlab_mixer_stirrer_waits_for_new_completion_cycle_when_done_is_stale():
