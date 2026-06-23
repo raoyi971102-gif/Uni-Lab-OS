@@ -3,7 +3,7 @@
   "nodes": [
     {
       "uuid": "node_1",
-      "name": "read_liquid_unit_status",
+      "name": "read_s08_status",
       "device_name": "szlab_s08_cap_station",
       "param": {}
     },
@@ -15,7 +15,7 @@
     },
     {
       "uuid": "node_3",
-      "name": "open_liquid_cap",
+      "name": "open_liquid_vial_100ml_cap",
       "device_name": "szlab_s08_cap_station",
       "param": {
         "sample_id": [101, 102, 103],
@@ -30,7 +30,7 @@
     },
     {
       "uuid": "node_5",
-      "name": "close_liquid_cap",
+      "name": "close_liquid_vial_100ml_cap",
       "device_name": "szlab_s08_cap_station",
       "param": {
         "sample_id": [101, 102, 103],

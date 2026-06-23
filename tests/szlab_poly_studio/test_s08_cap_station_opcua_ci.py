@@ -11,6 +11,10 @@ from opcua import Client
 
 from unilabos.devices.workstation.szlab_poly_studio.plc import SZLabPolyPLCDevice
 from unilabos.devices.workstation.szlab_poly_studio.s08_cap_station import (
+    NODE_PARAMS_WRITTEN,
+    NODE_PROCESS_COMPLETE,
+    NODE_PROCESS_SELECT,
+    S08ProcessType,
     SZLabS08CapStationDevice,
     _cap_cache_element_name,
 )
@@ -24,10 +28,10 @@ SAMPLE_ID = [101, 102, 103]
 
 S08_VARIABLES = [
     "S08原点信号",
-    "S081_1允许加工",
-    "S081_1工艺任务",
-    "S081_1参数写入完成",
-    "S081_1加工完成",
+    "S08允许加工",
+    NODE_PROCESS_SELECT,
+    NODE_PARAMS_WRITTEN,
+    NODE_PROCESS_COMPLETE,
     "S082瓶盖暂存位",
 ] + [_cap_cache_element_name(2, index) for index in range(3)]
 
@@ -96,9 +100,9 @@ class TestSzlabS08CapStationOpcUaDevice:
             pytest.skip("需要设置 UNILABOS_TEST_SZLAB_S08_OPCUA_URL 才运行 S08 OPC UA 集成测试")
         return url
 
-    def test_open_and_close_liquid_cap_against_virtual_opcua(self) -> None:
+    def test_open_and_close_liquid_vial_100ml_cap_against_virtual_opcua(self) -> None:
         url = self.opcua_url()
-        _ci_log("开始 S08 open/close_liquid_cap OPC UA 集成测试: url=%s", url)
+        _ci_log("开始 S08 open/close_liquid_vial_100ml_cap OPC UA 集成测试: url=%s", url)
         _wait_for_virtual_s08(url)
 
         plc = SZLabPolyPLCDevice(
@@ -110,27 +114,27 @@ class TestSzlabS08CapStationOpcUaDevice:
         device = SZLabS08CapStationDevice(plc_device_id="szlab_poly_plc", process_timeout=8.0)
         _bind_s08_to_plc(device, plc)
         try:
-            open_result = device.open_liquid_cap(sample_id=SAMPLE_ID, cap_storage_slot=2, timeout=8.0)
+            open_result = device.open_liquid_vial_100ml_cap(sample_id=SAMPLE_ID, cap_storage_slot=2, timeout=8.0)
             after_open = plc.get_variables(S08_VARIABLES)
-            _ci_log("open_liquid_cap 返回: %s", open_result)
-            _ci_log("open_liquid_cap 后 OPC 状态: %s", after_open)
+            _ci_log("open_liquid_vial_100ml_cap 返回: %s", open_result)
+            _ci_log("open_liquid_vial_100ml_cap 后 OPC 状态: %s", after_open)
 
             assert open_result["success"] is True
             assert open_result["cap_storage_slot"] == 2
-            assert after_open["S081_1工艺任务"]["value"] == 1
-            assert after_open["S082瓶盖暂存位"]["value"] == 2
+            assert after_open[NODE_PROCESS_SELECT]["value"] == 0
+            assert after_open["S082瓶盖暂存位"]["value"] == 0
             assert after_open[_cap_cache_element_name(2, 0)]["value"] == SAMPLE_ID[0]
+            assert after_open[NODE_PARAMS_WRITTEN]["value"] is False
 
-            plc.write_variable("S081_1加工完成", False)
-            close_result = device.close_liquid_cap(sample_id=SAMPLE_ID, timeout=8.0)
+            close_result = device.close_liquid_vial_100ml_cap(sample_id=SAMPLE_ID, timeout=8.0)
             after_close = plc.get_variables(S08_VARIABLES)
-            _ci_log("close_liquid_cap 返回: %s", close_result)
-            _ci_log("close_liquid_cap 后 OPC 状态: %s", after_close)
+            _ci_log("close_liquid_vial_100ml_cap 返回: %s", close_result)
+            _ci_log("close_liquid_vial_100ml_cap 后 OPC 状态: %s", after_close)
 
             assert close_result["success"] is True
             assert close_result["cap_storage_slot"] == 2
-            assert after_close["S081_1工艺任务"]["value"] == 2
+            assert after_close[NODE_PROCESS_SELECT]["value"] == 0
             assert after_close[_cap_cache_element_name(2, 0)]["value"] == 0
-            assert after_close["S081_1参数写入完成"]["value"] is False
+            assert after_close[NODE_PARAMS_WRITTEN]["value"] is False
         finally:
             plc.disconnect()

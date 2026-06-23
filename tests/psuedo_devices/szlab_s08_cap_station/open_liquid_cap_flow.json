@@ -2,61 +2,35 @@
   "name": "szlab_s08_cap_station",
   "rules": [
     {
-      "name": "complete S081_1 cap action after params are written",
+      "name": "complete S08 cap process after params are written",
       "trigger": {
-        "node": "S081_1参数写入完成",
+        "node": "S08参数写入完成",
         "value": true,
         "edge": "rising"
       },
       "log_nodes": [
-        "S081_1工艺任务",
+        "S08工艺选择",
         "S082瓶盖暂存位"
       ],
       "actions": [
-        {
-          "write": {
-            "node": "S081_1加工完成",
-            "value": false
-          }
-        },
-        {
-          "sleep": 0.2
-        },
-        {
-          "write": {
-            "node": "S081_1加工完成",
-            "value": true
-          }
-        }
+        {"sleep": 0.05},
+        {"write": {"node": "S08工艺完成", "value": 1}, "when": {"node": "S08工艺选择", "value": 1}},
+        {"write": {"node": "S08工艺完成", "value": 2}, "when": {"node": "S08工艺选择", "value": 2}},
+        {"write": {"node": "S08工艺完成", "value": 3}, "when": {"node": "S08工艺选择", "value": 3}},
+        {"write": {"node": "S08工艺完成", "value": 4}, "when": {"node": "S08工艺选择", "value": 4}},
+        {"write": {"node": "S08工艺完成", "value": 5}, "when": {"node": "S08工艺选择", "value": 5}},
+        {"write": {"node": "S08工艺完成", "value": 6}, "when": {"node": "S08工艺选择", "value": 6}}
       ]
     },
     {
-      "name": "complete S081_2 cap action after params are written",
+      "name": "clear S08 process complete after UniLab resets params_written",
       "trigger": {
-        "node": "S081_2参数写入完成",
+        "node": "S08参数写入完成",
         "value": true,
-        "edge": "rising"
+        "edge": "falling"
       },
-      "log_nodes": [
-        "S081_2工艺任务",
-        "S082瓶盖暂存位"
-      ],
       "actions": [
-        {
-          "write": {
-            "node": "S081_2加工完成",
-            "value": false
-          }
-        },
-        {
-          "sleep": 0.2
-        },
-        {
-          "write": {
-            "node": "S081_2加工完成",
-            "value": true
-          }
-        }
+        {"write": {"node": "S08工艺完成", "value": 0}}
       ]
     }
   ]
