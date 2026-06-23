@@ -1,8 +1,8 @@
 {
   "id": "szlab_mixer",
   "title": "SZLab Mixer 本地调试工具",
-  "target_device_id": "szlab_mixer_stirrer",
-  "target_device_ids": ["szlab_mixer_stirrer", "szlab_mixer_pump"],
+  "target_device_id": "szlab_mixer_pump",
+  "target_device_ids": ["szlab_mixer_pump"],
   "actions_source": "registry",
   "runtime_config": "runtime_configs/szlab_mixer_runtime.json",
   "default_workflow_name": "szlab_mixer_workflow",
@@ -20,20 +20,6 @@
   ],
   "device_graph": {
     "nodes": [
-      {
-        "id": "szlab_mixer_stirrer",
-        "name": "szlab_mixer_stirrer",
-        "children": [],
-        "parent": null,
-        "type": "device",
-        "class": "szlab_mixer_stirrer",
-        "position": {"x": 0, "y": 0, "z": 0},
-        "config": {
-          "url": "${opcua_url}",
-          "timeout": "${timeout}"
-        },
-        "data": {}
-      },
       {
         "id": "szlab_mixer_pump",
         "name": "szlab_mixer_pump",
@@ -54,7 +40,10 @@
             "S06_1号溶液添加量": "ns=4;s=上位机通讯|S06_1号溶液添加量",
             "S06_2号溶液添加量": "ns=4;s=上位机通讯|S06_2号溶液添加量",
             "S06参数写入完成": "ns=4;s=上位机通讯|S06参数写入完成",
-            "S06加工完成": "ns=4;s=上位机通讯|S06加工完成"
+            "S06加工完成": "ns=4;s=上位机通讯|S06加工完成",
+            "传感器状态_上位机[3].NO[1]": "ns=4;s=上位机通讯|传感器状态_上位机[3].NO[1]",
+            "传感器状态_上位机[4].NO[12]": "ns=4;s=上位机通讯|传感器状态_上位机[4].NO[12]",
+            "传感器状态_上位机[5].NO[1]": "ns=4;s=上位机通讯|传感器状态_上位机[5].NO[1]"
           },
           "pipeline_route_specs": [
             {"pump": 1, "pipeline": "aspirate", "control_valve": 11, "absolute_position": 21},

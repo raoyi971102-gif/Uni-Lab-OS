@@ -9,7 +9,6 @@ import pytest
 from tests.pseudo_devices.common.opcua_csv_server import OpcUaCsvServer
 from tests.pseudo_devices.common.opcua_flow_daemon import OpcUaFlowDaemon
 from unilabos.devices.workstation.szlab_mixer.pump import SzlabMixerPumpDevice
-from unilabos.devices.workstation.szlab_mixer.sensors import S06PipelineRoute
 
 SZLAB_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SZLAB_DIR.parents[1]
@@ -47,59 +46,26 @@ def opcua_pseudo_stack():
 
 
 class TestSzlabMixerPumpOpcUaDevice:
-    def test_transfer_liquid_against_virtual_opcua(self, opcua_pseudo_stack):
+    def test_run_solvent_addition_against_virtual_opcua(self, opcua_pseudo_stack):
         url, server, daemon = opcua_pseudo_stack
         before = {}
         if server:
-            before = {name: server.read(name) for name in ("S06允许加工", "S06加工完成", "S06注射泵1抽液")}
+            before = {name: server.read(name) for name in ("S06允许加工", "S06加工完成", "S06_1号溶液添加量")}
 
         device = SzlabMixerPumpDevice(
             url=url,
             timeout=8.0,
-            pipeline_routes={
-                (1, "aspirate"): S06PipelineRoute(control_valve=11, absolute_position=21),
-            },
         )
         try:
-            result = device.transfer_liquid(pump=1, volume=10, direction="aspirate", pipeline="aspirate")
+            result = device.run_solvent_addition(pump=1, volume=10, skip_robot=True)
             assert result["success"] is True
         finally:
             device.disconnect()
 
         if server:
-            after = {name: server.read(name) for name in ("S06加工完成", "S06注射泵选择", "S06注射泵1抽液")}
+            after = {name: server.read(name) for name in ("S06加工完成", "S06工艺选择", "S06_1号溶液添加量")}
             logging.info("OPC before=%s", before)
             logging.info("OPC after=%s", after)
-            assert after["S06注射泵1抽液"] == 10
-            assert after["S06注射泵选择"] == 1
+            assert after["S06_1号溶液添加量"] == 0
+            assert after["S06工艺选择"] == 0
             assert after["S06加工完成"] is True
-
-    def test_run_solvent_addition_against_virtual_opcua(self, opcua_pseudo_stack):
-        url, server, _daemon = opcua_pseudo_stack
-        device = SzlabMixerPumpDevice(
-            url=url,
-            timeout=8.0,
-            pipeline_routes={
-                (1, kind): S06PipelineRoute(control_valve=1, absolute_position=1)
-                for kind in ("aspirate", "dispense", "air")
-            },
-            robot_addition_position=7,
-            robot_stirrer_position=2,
-        )
-        try:
-            result = device.run_solvent_addition(
-                pump=1,
-                aspirate_volume=10,
-                dispense_volume=8,
-                air_volume=3,
-                skip_robot=False,
-            )
-            assert result["success"] is True
-        finally:
-            device.disconnect()
-
-        if server:
-            assert server.read("S06注射泵1抽液") == 3
-            assert server.read("S06注射泵1排液") == 8
-            assert server.read("S03_1取料编号") == 7
-            assert server.read("S03_1放料编号") == 2

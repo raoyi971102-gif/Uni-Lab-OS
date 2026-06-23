@@ -6,6 +6,7 @@ import json
 import re
 import tempfile
 import threading
+import time
 import uuid
 import webbrowser
 from concurrent.futures import ThreadPoolExecutor
@@ -22,11 +23,17 @@ from scripts.run_workflow_local import (
     ROBOT_ARM_DEVICE_ID,
     RuntimeConfig,
     WorkflowLogger,
+    WorkflowNode,
+    build_snapshot_diff_detail,
     build_execution_order,
+    collect_snapshot_variables,
     create_local_devices,
     load_workflow_nodes,
     load_runtime_config,
+    method_name_from_template,
     run_nodes,
+    route_node_device,
+    snapshot_opc_state,
 )
 
 
@@ -274,6 +281,51 @@ class RunRecord:
         )
 
 
+def _run_node_with_live_opc_sampling(
+    node: WorkflowNode,
+    devices: dict[str, Any],
+    *,
+    logger: WorkflowLogger,
+    runtime_config: RuntimeConfig,
+    sample_interval: float = 0.5,
+) -> list[dict[str, Any]]:
+    method_name = method_name_from_template(node.name)
+    snapshot_variables = collect_snapshot_variables(method_name, node.param, runtime_config)
+    default_plc = devices.get(runtime_config.device_factory.plc_device_id)
+    device_name = route_node_device(node, runtime_config)
+    device = devices.get(device_name)
+    snapshot_client = default_plc or (device if hasattr(device, "get_variables") else None)
+
+    if snapshot_client is None or not snapshot_variables:
+        return run_nodes([node], devices, logger=logger, runtime_config=runtime_config)
+
+    stop_event = threading.Event()
+
+    def sample_loop() -> None:
+        previous = snapshot_opc_state(snapshot_client, snapshot_variables)
+        while not stop_event.wait(sample_interval):
+            current = snapshot_opc_state(snapshot_client, snapshot_variables)
+            diff_detail = build_snapshot_diff_detail(previous, current, plc=snapshot_client)
+            if diff_detail["changes"]:
+                logger.log(
+                    f"OPC实时变化: {len(diff_detail['changes'])} 个变量变化",
+                    detail=diff_detail,
+                )
+            previous = current
+
+    sampler = threading.Thread(
+        target=sample_loop,
+        daemon=True,
+        name=f"szlab-opc-sampler-{node.uuid[:8]}",
+    )
+    sampler.start()
+    try:
+        return run_nodes([node], devices, logger=logger, runtime_config=runtime_config)
+    finally:
+        stop_event.set()
+        sampler.join(timeout=max(sample_interval * 2, 0.2))
+
+
 class WorkflowRunManager:
     def __init__(self, preset: WorkflowPreset, runtime_config: RuntimeConfig) -> None:
         self._preset = preset
@@ -469,7 +521,14 @@ class WorkflowRunManager:
 
                 logger = WorkflowLogger(writer=append_node_log)
                 try:
-                    results.extend(run_nodes([node], devices, logger=logger, runtime_config=self._runtime_config))
+                    results.extend(
+                        _run_node_with_live_opc_sampling(
+                            node,
+                            devices,
+                            logger=logger,
+                            runtime_config=self._runtime_config,
+                        )
+                    )
                 except Exception as exc:
                     record.node_statuses[node.uuid] = "failed"
                     record.append_log(f"节点执行失败: {exc}", node_id=node.uuid, level="error")
@@ -638,11 +697,42 @@ def _load_preset_runtime_config(preset: WorkflowPreset) -> RuntimeConfig:
     return load_runtime_config()
 
 
+def _runtime_supported_actions(preset: WorkflowPreset, runtime_config: RuntimeConfig) -> dict[str, ActionSpec]:
+    device_ids = set(runtime_config.device_factory.devices)
+    if not device_ids:
+        return preset.actions
+    return {
+        method: action
+        for method, action in preset.actions.items()
+        if (action.device_id or preset.target_device_id) in device_ids
+    }
+
+
+def _preset_for_runtime(preset: WorkflowPreset, runtime_config: RuntimeConfig) -> WorkflowPreset:
+    actions = _runtime_supported_actions(preset, runtime_config)
+    if actions is preset.actions:
+        return preset
+    return WorkflowPreset(
+        id=preset.id,
+        title=preset.title,
+        target_device_id=preset.target_device_id,
+        target_device_ids=preset.target_device_ids,
+        runtime_config=preset.runtime_config,
+        default_workflow_name=preset.default_workflow_name,
+        default_config=preset.default_config,
+        path_roots=preset.path_roots,
+        device_graph=preset.device_graph,
+        actions=actions,
+        base_dir=preset.base_dir,
+    )
+
+
 def create_app(preset_name: str = "ai4c", runtime_config: RuntimeConfig | None = None) -> FastAPI:
     preset = load_preset(preset_name)
     runtime_config = runtime_config or _load_preset_runtime_config(preset)
+    active_preset = _preset_for_runtime(preset, runtime_config)
     app = FastAPI(title="szlab Workflow Debugger")
-    manager = WorkflowRunManager(preset, runtime_config)
+    manager = WorkflowRunManager(active_preset, runtime_config)
     _register_shutdown_handler(app, manager.shutdown)
 
     assets_dir = FRONTEND_DIST_DIR / "assets"
@@ -655,7 +745,7 @@ def create_app(preset_name: str = "ai4c", runtime_config: RuntimeConfig | None =
 
     @app.get("/api/actions", response_class=JSONResponse)
     async def list_actions() -> dict[str, Any]:
-        return {"actions": [_action_to_dict(action) for action in preset.actions.values()]}
+        return {"actions": [_action_to_dict(action) for action in active_preset.actions.values()]}
 
     @app.get("/api/preset", response_class=JSONResponse)
     async def get_preset() -> dict[str, Any]:
@@ -663,9 +753,9 @@ def create_app(preset_name: str = "ai4c", runtime_config: RuntimeConfig | None =
             "id": preset.id,
             "title": preset.title,
             "runtime_config": preset.runtime_config,
-            "default_workflow_name": preset.default_workflow_name,
-            "default_config": preset.default_config,
-            "actions": [_action_to_dict(action) for action in preset.actions.values()],
+            "default_workflow_name": active_preset.default_workflow_name,
+            "default_config": active_preset.default_config,
+            "actions": [_action_to_dict(action) for action in active_preset.actions.values()],
         }
 
     @app.post("/api/workflow/build", response_class=JSONResponse)
@@ -673,8 +763,8 @@ def create_app(preset_name: str = "ai4c", runtime_config: RuntimeConfig | None =
         try:
             return build_linear_workflow(
                 payload.get("steps") or [],
-                name=payload.get("name") or preset.default_workflow_name,
-                preset=preset,
+                name=payload.get("name") or active_preset.default_workflow_name,
+                preset=active_preset,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
@@ -685,8 +775,8 @@ def create_app(preset_name: str = "ai4c", runtime_config: RuntimeConfig | None =
             return build_graph_workflow(
                 flow_nodes=payload.get("nodes") or [],
                 flow_edges=payload.get("edges") or [],
-                name=payload.get("name") or preset.default_workflow_name,
-                preset=preset,
+                name=payload.get("name") or active_preset.default_workflow_name,
+                preset=active_preset,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))

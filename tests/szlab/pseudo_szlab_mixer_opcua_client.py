@@ -13,6 +13,9 @@ class PseudoSzlabMixerOpcUaClient:
         self.values: dict[str, Any] = {
             "S06准备信号": True,
             "S06允许加工": True,
+            "S06工艺选择": 0,
+            "S06_1号溶液添加量": 0,
+            "S06_2号溶液添加量": 0,
             "S06参数写入完成": False,
             "S06加工完成": False,
             "传感器状态_上位机[3].NO[1]": True,
@@ -60,6 +63,11 @@ class PseudoSzlabMixerOpcUaClient:
 
     def get_opc_variable_metadata(self, variable_name: str) -> tuple[str, str | None]:
         return variable_name, f"ns=2;s={variable_name}"
+
+    def check_variable_accessible(self, variable_name: str) -> tuple[bool, str | None]:
+        if variable_name not in self.values:
+            return False, "配置中未找到该变量"
+        return True, f"ns=2;s={variable_name}"
 
     def disconnect(self) -> None:
         return None

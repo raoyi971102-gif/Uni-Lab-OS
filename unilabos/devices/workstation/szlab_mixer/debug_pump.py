@@ -118,12 +118,6 @@ def run_pump_debug(
     volume_pump_2: int,
     direction: Literal["aspirate", "dispense"],
     pipeline: Literal["aspirate", "dispense", "air"],
-    aspirate_volume: int,
-    dispense_volume: int,
-    dispense_volume_pump_1: int,
-    dispense_volume_pump_2: int,
-    air_volume: int,
-    include_air_purge: bool,
     skip_level_check: bool,
     skip_robot: bool,
     beaker_true_means_present: bool,
@@ -136,9 +130,7 @@ def run_pump_debug(
     print(f"Pump module: {pump_module.__file__}")
     print(
         "Resolved action volumes: "
-        f"pump={pump}, volume={volume}, volume_pump_1={volume_pump_1}, volume_pump_2={volume_pump_2}, "
-        f"dispense_volume={dispense_volume}, dispense_volume_pump_1={dispense_volume_pump_1}, "
-        f"dispense_volume_pump_2={dispense_volume_pump_2}"
+        f"pump={pump}, volume={volume}, volume_pump_1={volume_pump_1}, volume_pump_2={volume_pump_2}"
     )
 
     device = SzlabMixerPumpDevice(
@@ -157,20 +149,15 @@ def run_pump_debug(
             result = device.transfer_liquid(
                 pump=pump,
                 volume=volume,
-                volume_pump_1=volume_pump_1,
-                volume_pump_2=volume_pump_2,
                 direction=direction,
                 pipeline=pipeline,
             )
         else:
             result = device.run_solvent_addition(
                 pump=pump,
-                aspirate_volume=aspirate_volume,
-                dispense_volume=dispense_volume,
-                dispense_volume_pump_1=dispense_volume_pump_1,
-                dispense_volume_pump_2=dispense_volume_pump_2,
-                air_volume=air_volume,
-                include_air_purge=include_air_purge,
+                volume=volume,
+                volume_pump_1=volume_pump_1,
+                volume_pump_2=volume_pump_2,
                 skip_level_check=skip_level_check,
                 skip_robot=skip_robot,
                 beaker_true_means_present=beaker_true_means_present,
@@ -202,24 +189,18 @@ def _run_from_config(config_path: Path, *, use_production: bool) -> dict[str, An
         timeout=float(device_cfg["timeout"]),
         robot_addition_position=int(device_cfg["robot_addition_position"]),
         robot_stirrer_position=int(device_cfg["robot_stirrer_position"]),
-        pipeline_route_specs=list(device_cfg["pipeline_route_specs"]),
+        pipeline_route_specs=list(device_cfg.get("pipeline_route_specs", [])),
         opcua_node_id_map=dict(device_cfg.get("opcua_node_id_map", {})) if use_production else {},
         opcua_allow_recursive_browse=(
             bool(device_cfg.get("opcua_allow_recursive_browse", False)) if use_production else False
         ),
-        action=action_name,
+        action=action_name,  # type: ignore[arg-type]
         pump=int(action_cfg["pump"]),
         volume=int(action_cfg["volume"]),
         volume_pump_1=optional_int(action_cfg.get("volume_pump_1")),
         volume_pump_2=optional_int(action_cfg.get("volume_pump_2")),
-        direction=action_cfg["direction"],
-        pipeline=action_cfg["pipeline"],
-        aspirate_volume=int(action_cfg["aspirate_volume"]),
-        dispense_volume=int(action_cfg["dispense_volume"]),
-        dispense_volume_pump_1=optional_int(action_cfg.get("dispense_volume_pump_1")),
-        dispense_volume_pump_2=optional_int(action_cfg.get("dispense_volume_pump_2")),
-        air_volume=int(action_cfg["air_volume"]),
-        include_air_purge=bool(action_cfg["include_air_purge"]),
+        direction=action_cfg.get("direction", "aspirate"),
+        pipeline=action_cfg.get("pipeline", "aspirate"),
         skip_level_check=bool(action_cfg["skip_level_check"]),
         skip_robot=bool(action_cfg["skip_robot"]),
         beaker_true_means_present=bool(action_cfg["beaker_true_means_present"]),
@@ -230,7 +211,7 @@ def reset_plc_signals(config_path: Path, *, use_production: bool) -> None:
     from unilabos.devices.workstation.szlab_mixer.opcua_client import SzlabMixerOpcUaClient
     from unilabos.devices.workstation.szlab_mixer.sensors import (
         S06_PARAM_WRITTEN_VAR,
-        S06_PUMP_SELECT_VAR,
+        S06_PROCESS_SELECT_VAR,
         s06_solution_amount_var,
     )
 
@@ -244,7 +225,7 @@ def reset_plc_signals(config_path: Path, *, use_production: bool) -> None:
     try:
         for name, value in (
             (S06_PARAM_WRITTEN_VAR, False),
-            (S06_PUMP_SELECT_VAR, 0),
+            (S06_PROCESS_SELECT_VAR, 0),
             (s06_solution_amount_var(1), 0),
             (s06_solution_amount_var(2), 0),
         ):

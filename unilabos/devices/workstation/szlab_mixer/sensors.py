@@ -20,8 +20,6 @@ S06_ALLOW_PROCESS_VAR = "S06允许加工"
 S06_PARAM_WRITTEN_VAR = "S06参数写入完成"
 S06_DONE_VAR = "S06加工完成"
 S06_PROCESS_SELECT_VAR = "S06工艺选择"
-# 兼容旧变量名，旧代码/测试中仍可能引用；新接口下含义为工艺选择。
-S06_PUMP_SELECT_VAR = S06_PROCESS_SELECT_VAR
 
 S06PipelineKind = Literal["aspirate", "dispense", "air"]
 
@@ -34,6 +32,10 @@ STORAGE_BOTTLE_PRESENT: dict[int, str] = {
 # CSV 行 188-189：机器人夹爪取放料位置号_烧杯（PC→PLC）
 ROBOT_BEAKER_PICK_VAR = "S03_1取料编号"
 ROBOT_BEAKER_PLACE_VAR = "S03_1放料编号"
+
+
+def s06_solution_amount_var(pump: int) -> str:
+    return f"S06_{pump}号溶液添加量"
 
 
 @dataclass(frozen=True)
@@ -60,10 +62,6 @@ def s06_pump_dispense_var(pump: int) -> str:
     return f"S06注射泵{pump}排液"
 
 
-def s06_solution_amount_var(pump: int) -> str:
-    return f"S06_{pump}号溶液添加量"
-
-
 def parse_pipeline_route_specs(
     specs: list[dict[str, Any]] | None,
     *,
@@ -84,12 +82,7 @@ def parse_pipeline_route_specs(
 
 
 def default_s06_pipeline_routes() -> dict[tuple[int, S06PipelineKind], S06PipelineRoute]:
-    """泵 × 管路默认阀位。
-
-    流程图对应关系（阀位 INT 值待 PLC 定义）：
-    - aspirate / dispense：管路开关 1（储液瓶 ↔ 泵 ↔ 加工烧杯）
-    - air：管路开关 2（箱内空气 purge 至加工烧杯）
-    """
+    """泵 × 管路默认阀位。"""
     routes: dict[tuple[int, S06PipelineKind], S06PipelineRoute] = {}
     for pump in (1, 2):
         for kind in ("aspirate", "dispense", "air"):

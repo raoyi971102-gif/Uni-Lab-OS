@@ -7,10 +7,7 @@
       "device_name": "szlab_mixer_pump",
       "param": {
         "pump": 1,
-        "aspirate_volume": 10,
-        "dispense_volume": 8,
-        "air_volume": 3,
-        "include_air_purge": true,
+        "volume": 8,
         "skip_level_check": false,
         "skip_robot": false,
         "beaker_true_means_present": true

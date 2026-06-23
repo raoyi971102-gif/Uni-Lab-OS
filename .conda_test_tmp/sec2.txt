@@ -1,9 +1,0 @@
-
-
-========== 2. Unit tests conda unilab szlab pytest suite ==========
-
-PYTHONPATH=. python -m pytest tests/szlab/test_szlab_mixer_pump.py tests/szlab/test_szlab_mixer_pump_opcua_ci.py tests/szlab/test_szlab_mixer_devices.py -q
-.................                                                        [100%]
-17 passed in 4.25s
-EXIT_CODE: 0
-RESULT: PASS

@@ -41,15 +41,12 @@ from .sensors import (
     S06_ALLOW_PROCESS_VAR,
     S06_DONE_VAR,
     S06_PARAM_WRITTEN_VAR,
-    S06_PUMP_SELECT_VAR,
+    S06_PROCESS_SELECT_VAR,
     S06_READY_VAR,
     S06PipelineKind,
     S06PipelineRoute,
     STORAGE_BOTTLE_PRESENT,
-    default_s06_pipeline_routes,
     parse_pipeline_route_specs,
-    s06_pump_aspirate_var,
-    s06_pump_dispense_var,
     s06_pump_position_var,
     s06_pump_valve_var,
     s06_solution_amount_var,
@@ -191,7 +188,7 @@ class SzlabMixerPumpDevice:
         """加工结束后清除 PC 写入 PLC 的 S06 参数。"""
         for name, value in (
             (S06_PARAM_WRITTEN_VAR, False),
-            (S06_PUMP_SELECT_VAR, 0),
+            (S06_PROCESS_SELECT_VAR, 0),
             *((amount_var, 0) for amount_var in self._s06_amount_vars_for_process(process)),
         ):
             try:
@@ -234,7 +231,7 @@ class SzlabMixerPumpDevice:
 
         self._status = "Running"
         try:
-            self._client.write(S06_PUMP_SELECT_VAR, int(pump))
+            self._client.write(S06_PROCESS_SELECT_VAR, int(pump))
             for amount_var, amount in amount_values.items():
                 self._client.write(amount_var, amount)
             self._client.write(S06_PARAM_WRITTEN_VAR, True)
@@ -270,23 +267,11 @@ class SzlabMixerPumpDevice:
         direction: Literal["aspirate", "dispense"],
         *,
         require_allow: bool = True,
-        volume_pump_1: int = 0,
-        volume_pump_2: int = 0,
     ) -> dict[str, Any]:
+        del pipeline, direction
         if pump not in (1, 2, 3):
             return {"success": False, "message": "S06 工艺选择必须为 1、2 或 3"}
-
-        if require_allow and not self._read_bool(S06_ALLOW_PROCESS_VAR):
-            return {"success": False, "message": "S06 不允许加工"}
-
-        # 新版 PLC 接口不再暴露抽/排/阀位点位，单步转液统一映射为指定溶液添加量。
-        return self._execute_s06_addition(
-            pump,
-            volume,
-            require_allow=require_allow,
-            volume_pump_1=volume_pump_1,
-            volume_pump_2=volume_pump_2,
-        )
+        return self._execute_s06_addition(pump, volume, require_allow=require_allow)
 
     @not_action
     def _transport_beaker_to_stirrer(self, skip_robot: bool) -> dict[str, Any]:
@@ -322,8 +307,6 @@ class SzlabMixerPumpDevice:
         self,
         pump: int = 1,
         volume: int = 1,
-        volume_pump_1: int = 0,
-        volume_pump_2: int = 0,
         direction: Literal["aspirate", "dispense"] = "aspirate",
         pipeline: S06PipelineKind = "aspirate",
     ) -> dict[str, Any]:
@@ -332,8 +315,6 @@ class SzlabMixerPumpDevice:
             pipeline=pipeline,
             volume=volume,
             direction=direction,
-            volume_pump_1=volume_pump_1,
-            volume_pump_2=volume_pump_2,
         )
 
     @action(
@@ -353,12 +334,9 @@ class SzlabMixerPumpDevice:
     def run_solvent_addition(
         self,
         pump: int = 1,
-        aspirate_volume: int = 1,
-        dispense_volume: int = 1,
-        dispense_volume_pump_1: int = 0,
-        dispense_volume_pump_2: int = 0,
-        air_volume: int = 1,
-        include_air_purge: bool = True,
+        volume: int = 1,
+        volume_pump_1: int = 0,
+        volume_pump_2: int = 0,
         skip_level_check: bool = False,
         skip_robot: bool = True,
         beaker_true_means_present: bool = True,
@@ -391,10 +369,10 @@ class SzlabMixerPumpDevice:
 
         result = self._execute_s06_addition(
             pump,
-            dispense_volume,
+            volume,
             require_allow=False,
-            volume_pump_1=dispense_volume_pump_1,
-            volume_pump_2=dispense_volume_pump_2,
+            volume_pump_1=volume_pump_1,
+            volume_pump_2=volume_pump_2,
         )
         steps.append({"step": "写入溶液添加量并启动 S06", **result})
         if not result["success"]:
@@ -413,9 +391,9 @@ class SzlabMixerPumpDevice:
             "message": f"S06 泵 {pump} 加液流程完成",
             "data": {
                 "pump": pump,
-                "aspirate_volume": aspirate_volume,
-                "dispense_volume": dispense_volume,
-                "air_volume": air_volume if include_air_purge else 0,
+                "volume": volume,
+                "volume_pump_1": volume_pump_1,
+                "volume_pump_2": volume_pump_2,
             },
             "steps": steps,
         }

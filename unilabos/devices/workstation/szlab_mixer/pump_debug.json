@@ -32,19 +32,13 @@
     }
   },
   "action": {
-    "name": "transfer_liquid",
+    "name": "run_solvent_addition",
     "pump": 3,
     "volume": 10,
     "volume_pump_1": 18,
     "volume_pump_2": 12,
     "direction": "aspirate",
     "pipeline": "aspirate",
-    "aspirate_volume": 10,
-    "dispense_volume": 8,
-    "dispense_volume_pump_1": 8,
-    "dispense_volume_pump_2": 8,
-    "air_volume": 3,
-    "include_air_purge": true,
     "skip_level_check": true,
     "skip_robot": true,
     "beaker_true_means_present": true
