@@ -16,7 +16,7 @@
   },
   "path_roots": [
     "tests/szlab",
-    "unilabos/devices/workstation/szlab_mixer"
+    "unilabos/devices/workstation/szlab_poly_studio/pump"
   ],
   "device_graph": {
     "nodes": [

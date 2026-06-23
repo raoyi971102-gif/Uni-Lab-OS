@@ -1,5 +1,8 @@
 """生成 SZLab 加液模块流程图 PNG。"""
 from __future__ import annotations
+from matplotlib.patches import FancyBboxPatch
+import matplotlib.patches as mpatches
+import matplotlib.pyplot as plt
 
 import os
 from pathlib import Path
@@ -7,9 +10,6 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-from matplotlib.patches import FancyBboxPatch
 
 
 def _desktop_path() -> Path:

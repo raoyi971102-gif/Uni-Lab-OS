@@ -402,4 +402,4 @@ class SzlabMixerPumpDevice:
 if __name__ == "__main__":
     import runpy
 
-    runpy.run_module("unilabos.devices.workstation.szlab_mixer.debug_pump", run_name="__main__")
+    runpy.run_module("unilabos.devices.workstation.szlab_poly_studio.pump.debug_pump", run_name="__main__")

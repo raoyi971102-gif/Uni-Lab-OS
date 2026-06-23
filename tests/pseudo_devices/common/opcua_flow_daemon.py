@@ -55,7 +55,7 @@ class OpcUaFlowDaemon:
             raise ConnectionRefusedError(
                 f"无法连接 {self.url}。请先另开终端启动 OPC CSV 服务器，例如:\n"
                 "  PYTHONPATH=. python tests/pseudo_devices/common/opcua_csv_server.py \\\n"
-                "    --csv unilabos/devices/workstation/szlab_mixer/pump_nodes.csv \\\n"
+                "    --csv unilabos/devices/workstation/szlab_poly_studio/pump/pump_nodes.csv \\\n"
                 f"    --endpoint {self.url}"
             ) from exc
         objects = self._client.get_objects_node()

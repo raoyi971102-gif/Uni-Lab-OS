@@ -325,10 +325,8 @@ CSV：
 
 ```bash
 PYTHONPATH=. python - <<'PY'
-from unilabos.devices.workstation.szlab_mixer.stirrer import SzlabMixerStirrerDevice
-from unilabos.devices.workstation.szlab_mixer.pump import SzlabMixerPumpDevice
+from unilabos.devices.workstation.szlab_poly_studio.pump.pump import SzlabMixerPumpDevice
 
-print(SzlabMixerStirrerDevice.__name__)
 print(SzlabMixerPumpDevice.__name__)
 PY
 ```
@@ -342,11 +340,11 @@ preset 需要包含：
 ```json
 {
   "actions_source": "registry",
-  "target_device_ids": ["szlab_mixer_stirrer", "szlab_mixer_pump"],
+  "target_device_ids": ["szlab_mixer_pump"],
   "runtime_config": "runtime_configs/szlab_mixer_runtime.json",
   "path_roots": [
     "tests/szlab",
-    "unilabos/devices/workstation/szlab_mixer"
+    "unilabos/devices/workstation/szlab_poly_studio/pump"
   ]
 }
 ```
@@ -357,8 +355,7 @@ runtime config 需要把设备实例 id 映射到正式设备类：
 {
   "device_factory": {
     "devices": {
-      "szlab_mixer_stirrer": "unilabos.devices.workstation.szlab_mixer.stirrer.SzlabMixerStirrerDevice",
-      "szlab_mixer_pump": "unilabos.devices.workstation.szlab_mixer.pump.SzlabMixerPumpDevice"
+      "szlab_mixer_pump": "unilabos.devices.workstation.szlab_poly_studio.pump.pump.SzlabMixerPumpDevice"
     }
   }
 }

@@ -2,7 +2,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from unilabos.registry.ast_registry_scanner import scan_directory
-from unilabos.devices.workstation.szlab_mixer.sensors import (
+from unilabos.devices.workstation.szlab_poly_studio.pump.sensors import (
     S06PipelineRoute,
     default_s06_pipeline_routes,
     s06_pump_valve_var,
@@ -13,7 +13,7 @@ from scripts.workflow_ui import _load_preset_runtime_config, build_graph_workflo
 
 
 def test_szlab_mixer_devices_are_ast_scannable():
-    root = Path("unilabos/devices/workstation/szlab_mixer")
+    root = Path("unilabos/devices/workstation/szlab_poly_studio/pump")
     with ThreadPoolExecutor(max_workers=2) as executor:
         result = scan_directory(root, python_path=Path(".").resolve(), executor=executor)
 
@@ -135,7 +135,7 @@ def test_szlab_mixer_preset_loads_own_runtime_config():
     runtime_config = _load_preset_runtime_config(load_preset("szlab_mixer"))
 
     assert runtime_config.device_factory.devices == {
-        "szlab_mixer_pump": "unilabos.devices.workstation.szlab_mixer.pump.SzlabMixerPumpDevice",
+        "szlab_mixer_pump": "unilabos.devices.workstation.szlab_poly_studio.pump.pump.SzlabMixerPumpDevice",
     }
     assert runtime_config.device_factory.plc_class == ""
 

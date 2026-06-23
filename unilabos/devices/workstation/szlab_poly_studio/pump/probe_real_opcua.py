@@ -2,7 +2,7 @@
 
 用法::
 
-    PYTHONPATH=. python -m unilabos.devices.workstation.szlab_mixer.probe_real_opcua
+    PYTHONPATH=. python -m unilabos.devices.workstation.szlab_poly_studio.pump.probe_real_opcua
 
 如果 UaExpert 截图显示 ``ns=2;i=257`` 一类 NodeId，但程序读取失败，
 这个脚本会快速扫描几个常见 namespace 下的 i=250..280，确认当前 endpoint

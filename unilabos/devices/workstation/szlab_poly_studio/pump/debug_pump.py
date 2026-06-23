@@ -10,7 +10,7 @@
 
 运行::
 
-    PYTHONPATH=. python -m unilabos.devices.workstation.szlab_mixer.debug_pump
+    PYTHONPATH=. python -m unilabos.devices.workstation.szlab_poly_studio.pump.debug_pump
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from typing import Any, Literal
 from urllib.parse import urlparse
 
 _DEVICE_DIR = Path(__file__).resolve().parent
-_REPO_ROOT = _DEVICE_DIR.parents[3]
+_REPO_ROOT = _DEVICE_DIR.parents[4]
 _DEFAULT_CONFIG = _DEVICE_DIR / "pump_debug.json"
 logger = logging.getLogger(__name__)
 
@@ -122,8 +122,8 @@ def run_pump_debug(
     skip_robot: bool,
     beaker_true_means_present: bool,
 ) -> dict[str, Any]:
-    import unilabos.devices.workstation.szlab_mixer.pump as pump_module
-    from unilabos.devices.workstation.szlab_mixer.pump import SzlabMixerPumpDevice
+    import unilabos.devices.workstation.szlab_poly_studio.pump.pump as pump_module
+    from unilabos.devices.workstation.szlab_poly_studio.pump.pump import SzlabMixerPumpDevice
 
     print(f"OPC UA: {opcua_url}")
     print(f"Action: {action}")
@@ -208,8 +208,8 @@ def _run_from_config(config_path: Path, *, use_production: bool) -> dict[str, An
 
 
 def reset_plc_signals(config_path: Path, *, use_production: bool) -> None:
-    from unilabos.devices.workstation.szlab_mixer.opcua_client import SzlabMixerOpcUaClient
-    from unilabos.devices.workstation.szlab_mixer.sensors import (
+    from unilabos.devices.workstation.szlab_poly_studio.pump.opcua_client import SzlabMixerOpcUaClient
+    from unilabos.devices.workstation.szlab_poly_studio.pump.sensors import (
         S06_PARAM_WRITTEN_VAR,
         S06_PROCESS_SELECT_VAR,
         s06_solution_amount_var,

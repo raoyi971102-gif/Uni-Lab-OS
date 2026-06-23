@@ -4,8 +4,8 @@
     "production_url": "opc.tcp://192.168.1.10:4840/"
   },
   "virtual_opcua": {
-    "csv": "unilabos/devices/workstation/szlab_mixer/pump_nodes.csv",
-    "flow": "unilabos/devices/workstation/szlab_mixer/pump_flow.json",
+    "csv": "unilabos/devices/workstation/szlab_poly_studio/pump/pump_nodes.csv",
+    "flow": "unilabos/devices/workstation/szlab_poly_studio/pump/pump_flow.json",
     "endpoint": "opc.tcp://127.0.0.1:48506/"
   },
   "device": {

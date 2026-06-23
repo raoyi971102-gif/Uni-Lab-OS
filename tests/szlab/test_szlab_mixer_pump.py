@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from unilabos.devices.workstation.szlab_mixer.pump import SzlabMixerPumpDevice
-from unilabos.devices.workstation.szlab_mixer.sensors import S06PipelineRoute, parse_pipeline_route_specs
+from unilabos.devices.workstation.szlab_poly_studio.pump.pump import SzlabMixerPumpDevice
+from unilabos.devices.workstation.szlab_poly_studio.pump.sensors import S06PipelineRoute, parse_pipeline_route_specs
 from tests.szlab.pseudo_szlab_mixer_opcua_client import PseudoSzlabMixerOpcUaClient
 
 
