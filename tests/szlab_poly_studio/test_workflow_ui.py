@@ -13,14 +13,10 @@ from scripts.run_workflow_local import (
 from scripts.workflow_ui import (
     RunRecord,
     WorkflowRunManager,
-    _build_action_params,
-    _coerce_integer_list,
-    _json_type_from_python_type,
     _load_preset_runtime_config,
     _record_to_dict,
     _register_shutdown_handler,
     _resolve_ui_path,
-    ActionSpec,
     build_parser,
     build_graph_workflow,
     build_linear_workflow,
@@ -520,30 +516,3 @@ def test_run_nodes_logs_opc_summary_with_detail_instead_of_full_snapshots():
         "value_goal": {"success": True, "value": False},
         "after": {"success": True, "value": False},
     }
-
-
-def test_json_type_from_python_type_maps_integer_list():
-    assert _json_type_from_python_type("list[int]") == "integer_list"
-    assert _json_type_from_python_type("Sequence[int]") == "integer_list"
-    assert _json_type_from_python_type("Optional[int]") == "integer_optional"
-
-
-def test_coerce_integer_list_accepts_array_and_csv_text():
-    assert _coerce_integer_list([101, 102, 103], name="sample_id") == [101, 102, 103]
-    assert _coerce_integer_list("101,102, 103", name="sample_id") == [101, 102, 103]
-
-
-def test_s08_open_action_exposes_sample_id_param_type():
-    preset = load_preset("s08_cap_station")
-    action = preset.actions["open_liquid_vial_100ml_cap"]
-    sample_id_param = next(param for param in action.params if param["name"] == "sample_id")
-    assert sample_id_param["type"] == "integer_list"
-    assert action.needs_sample_id is True
-
-
-def test_build_action_params_coerces_sample_id_for_s08_open():
-    preset = load_preset("s08_cap_station")
-    spec = preset.actions["open_liquid_vial_100ml_cap"]
-    params = _build_action_params(spec, {"sample_id": "101, 102, 103"})
-    assert params["sample_id"] == [101, 102, 103]
-    assert params["timeout"] == 300.0

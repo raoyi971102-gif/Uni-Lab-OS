@@ -53,13 +53,6 @@ class ActionSpec:
     def needs_position(self) -> bool:
         return any(param.get("name") == "position" for param in self.params)
 
-    @property
-    def needs_sample_id(self) -> bool:
-        return any(
-            param.get("name") == "sample_id" or param.get("type") == "integer_list"
-            for param in self.params
-        )
-
 
 @dataclass(frozen=True)
 class WorkflowPreset:
@@ -218,10 +211,6 @@ def _find_action_handle_for_param(handles: Any, param_name: str) -> dict[str, An
 
 def _json_type_from_python_type(python_type: str | None) -> str:
     type_name = str(python_type or "string")
-    if type_name in {"list[int]", "Sequence[int]"}:
-        return "integer_list"
-    if type_name in {"Optional[int]", "int | None"}:
-        return "integer_optional"
     return {
         "int": "integer",
         "float": "number",
@@ -783,27 +772,6 @@ def main() -> int:
     return 0
 
 
-def _coerce_integer_list(value: Any, *, name: str) -> list[int]:
-    if value is None:
-        raise ValueError(f"{name} 不能为空")
-    if isinstance(value, str):
-        parts = [part.strip() for part in value.replace("，", ",").split(",") if part.strip()]
-        if not parts:
-            raise ValueError(f"{name} 不能为空")
-        try:
-            return [int(part) for part in parts]
-        except ValueError as exc:
-            raise ValueError(f"{name} 必须是逗号分隔的整数列表") from exc
-    if isinstance(value, (list, tuple)):
-        if not value:
-            raise ValueError(f"{name} 不能为空")
-        try:
-            return [int(item) for item in value]
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"{name} 必须是整数列表") from exc
-    raise ValueError(f"{name} 必须是整数列表")
-
-
 def _build_action_params(spec: ActionSpec, raw_params: dict[str, Any]) -> dict[str, Any]:
     params: dict[str, Any] = {}
     for param_spec in spec.params:
@@ -811,15 +779,7 @@ def _build_action_params(spec: ActionSpec, raw_params: dict[str, Any]) -> dict[s
         if not name:
             continue
         value = raw_params.get(name, param_spec.get("default"))
-        param_type = param_spec.get("type")
-        if param_type == "integer_list":
-            if value is None and param_spec.get("default") is not None:
-                value = param_spec.get("default")
-            params[name] = _coerce_integer_list(value, name=name)
-            continue
-        if param_type == "integer_optional" and value in (None, ""):
-            continue
-        if param_type == "integer":
+        if param_spec.get("type") == "integer":
             try:
                 value = int(value)
             except (TypeError, ValueError) as exc:
@@ -920,7 +880,6 @@ def _action_to_dict(action: ActionSpec) -> dict[str, Any]:
         "label": action.label,
         "description": action.description,
         "needs_position": action.needs_position,
-        "needs_sample_id": action.needs_sample_id,
         "params": action.params,
         "device_id": action.device_id,
     }

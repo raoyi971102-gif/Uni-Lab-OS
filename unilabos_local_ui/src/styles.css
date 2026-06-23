@@ -671,22 +671,6 @@ code {
   font-weight: 800;
 }
 
-.flow-node-param {
-  margin-top: 6px;
-  color: #475569;
-  font-size: 11px;
-  line-height: 1.4;
-  word-break: break-word;
-}
-
-.node-modal label small {
-  display: block;
-  margin-top: 6px;
-  color: #64748b;
-  font-size: 12px;
-  line-height: 1.4;
-}
-
 .react-flow__handle {
   width: 9px;
   height: 9px;

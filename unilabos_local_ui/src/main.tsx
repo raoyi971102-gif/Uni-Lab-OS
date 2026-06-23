@@ -22,24 +22,13 @@ import './styles.css';
 import { collectOpcChanges, formatOpcValue, type LogEvent, type OpcChange } from './opcChanges';
 import { createWorkflowRequest, workflowDraftKey } from './workflowDraft';
 
-type ActionParamSpec = {
-  name: string;
-  label?: string;
-  type?: string;
-  default?: unknown;
-  description?: string;
-  min?: number;
-  max?: number;
-};
-
 type ActionSpec = {
   method: string;
   label: string;
   description: string;
   device_id?: string;
   needs_position: boolean;
-  needs_sample_id?: boolean;
-  params?: ActionParamSpec[];
+  params?: Array<Record<string, unknown>>;
 };
 
 type PresetPayload = {
@@ -84,10 +73,9 @@ type ActionNodeData = {
   method: string;
   label: string;
   description: string;
-  params: Record<string, unknown>;
+  params: { position?: number };
   runStatus?: NodeRunStatus;
   onPositionChange?: (nodeId: string, value: number) => void;
-  onSampleIdChange?: (nodeId: string, value: number[]) => void;
 };
 
 const DEFAULT_CONFIG = {
@@ -112,7 +100,6 @@ function App() {
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
-  const [sampleIdDraft, setSampleIdDraft] = useState('');
   const [selectedLogNodeId, setSelectedLogNodeId] = useState<string | null>(null);
   const [config, setConfig] = useState({
     graph: DEFAULT_CONFIG.graph,
@@ -127,14 +114,6 @@ function App() {
   const editingNode = useMemo(
     () => nodes.find((node) => node.id === editingNodeId) || null,
     [editingNodeId, nodes],
-  );
-  const actionsByMethod = useMemo(
-    () => new Map(actions.map((action) => [action.method, action])),
-    [actions],
-  );
-  const editingAction = useMemo(
-    () => (editingNode ? actionsByMethod.get(editingNode.data.method) || null : null),
-    [actionsByMethod, editingNode],
   );
   const logEvents = useMemo(() => normalizeLogEvents(runStatus), [runStatus]);
   const opcChanges = useMemo(() => collectOpcChanges(logEvents), [logEvents]);
@@ -210,7 +189,7 @@ function App() {
           method: action.method,
           label: action.label,
           description: action.description,
-          params: buildDefaultParams(action),
+          params: action.needs_position ? { position: 1 } : {},
           runStatus: 'idle',
         },
       },
@@ -225,44 +204,6 @@ function App() {
           : node,
       ),
     );
-  };
-
-  const updateSampleId = (nodeId: string, value: number[]) => {
-    setNodes((current) =>
-      current.map((node) =>
-        node.id === nodeId
-          ? { ...node, data: { ...node.data, params: { ...node.data.params, sample_id: value } } }
-          : node,
-      ),
-    );
-  };
-
-  useEffect(() => {
-    if (!editingNode) {
-      setSampleIdDraft('');
-      return;
-    }
-    setSampleIdDraft(formatSampleIdInput(editingNode.data.params.sample_id));
-  }, [editingNode]);
-
-  const commitSampleIdDraft = (nodeId: string) => {
-    try {
-      updateSampleId(nodeId, parseSampleIdInput(sampleIdDraft));
-      setMessage('');
-      return true;
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
-      return false;
-    }
-  };
-
-  const closeNodeModal = () => {
-    if (editingNode && actionNeedsSampleId(editingAction, editingNode.data.params)) {
-      if (!commitSampleIdDraft(editingNode.id)) {
-        return;
-      }
-    }
-    setEditingNodeId(null);
   };
 
   const buildWorkflow = useCallback(async () => {
@@ -421,11 +362,7 @@ function App() {
             <ReactFlow
               nodes={nodes.map((node) => ({
                 ...node,
-                data: {
-                  ...node.data,
-                  onPositionChange: updatePosition,
-                  onSampleIdChange: updateSampleId,
-                },
+                data: { ...node.data, onPositionChange: updatePosition },
               }))}
               edges={edges}
               nodeTypes={nodeTypes}
@@ -468,14 +405,14 @@ function App() {
       </div>
 
       {editingNode && (
-        <div className="modal-backdrop" onMouseDown={closeNodeModal}>
+        <div className="modal-backdrop" onMouseDown={() => setEditingNodeId(null)}>
           <div className="config-modal node-modal" onMouseDown={(event) => event.stopPropagation()}>
             <div className="modal-head">
               <div>
                 <h2>{editingNode.data.label}</h2>
                 <p>{editingNode.data.description}</p>
               </div>
-              <button className="icon-button" onClick={closeNodeModal}>关闭</button>
+              <button className="icon-button" onClick={() => setEditingNodeId(null)}>关闭</button>
             </div>
             <div className="node-modal-meta">
               <span>节点 ID</span>
@@ -490,29 +427,15 @@ function App() {
                   type="number"
                   min={1}
                   max={8}
-                  value={Number(editingNode.data.params.position) || 1}
+                  value={editingNode.data.params.position || 1}
                   onChange={(event) => updatePosition(editingNode.id, Number(event.target.value))}
                 />
               </label>
-            ) : null}
-            {actionNeedsSampleId(editingAction, editingNode.data.params) ? (
-              <label>
-                样品 ID 列表
-                <input
-                  type="text"
-                  value={sampleIdDraft}
-                  placeholder="101, 102, 103"
-                  onChange={(event) => setSampleIdDraft(event.target.value)}
-                  onBlur={() => commitSampleIdDraft(editingNode.id)}
-                />
-                <small>逗号分隔，最多 30 个整数；开盖/关盖都会写入 PLC 数据缓存。</small>
-              </label>
-            ) : null}
-            {!actionHasEditableParams(editingAction, editingNode.data.params) ? (
+            ) : (
               <div className="empty-state">该动作没有可编辑参数。</div>
-            ) : null}
+            )}
             <div className="modal-actions">
-              <button onClick={closeNodeModal}>完成</button>
+              <button onClick={() => setEditingNodeId(null)}>完成</button>
             </div>
           </div>
         </div>
@@ -656,7 +579,6 @@ function statusText(status?: string) {
 
 function ActionNode({ id, data, selected }: NodeProps<ActionNodeData>) {
   const runStatus = data.runStatus || 'idle';
-  const sampleIds = Array.isArray(data.params.sample_id) ? data.params.sample_id : null;
 
   return (
     <div className={`flow-node ${selected ? 'selected' : ''} ${runStatus}`}>
@@ -666,9 +588,6 @@ function ActionNode({ id, data, selected }: NodeProps<ActionNodeData>) {
         <span className={`node-status ${runStatus}`}>{nodeStatusText(runStatus)}</span>
       </div>
       <div className="flow-node-title">{data.label}</div>
-      {sampleIds?.length ? (
-        <div className="flow-node-param">sample_id: {sampleIds.join(', ')}</div>
-      ) : null}
       <code>{id}</code>
       <Handle type="source" position={Position.Right} />
     </div>
@@ -846,60 +765,6 @@ function groupLogEvents(events: LogEvent[]) {
   });
 
   return groups;
-}
-
-function buildDefaultParams(action: ActionSpec): Record<string, unknown> {
-  const params: Record<string, unknown> = {};
-  for (const spec of action.params || []) {
-    if (spec.name === 'sample_id' || spec.type === 'integer_list') {
-      params.sample_id = Array.isArray(spec.default) ? spec.default : [101, 102, 103];
-    } else if (spec.name === 'position' || spec.type === 'integer') {
-      params.position = spec.default ?? 1;
-    }
-  }
-  if (action.needs_position && !('position' in params)) {
-    params.position = 1;
-  }
-  if (action.needs_sample_id && !('sample_id' in params)) {
-    params.sample_id = [101, 102, 103];
-  }
-  return params;
-}
-
-function actionNeedsSampleId(action: ActionSpec | null, params: Record<string, unknown>) {
-  if ('sample_id' in params) return true;
-  if (!action) return false;
-  return Boolean(
-    action.needs_sample_id
-    || (action.params || []).some((spec) => spec.name === 'sample_id' || spec.type === 'integer_list'),
-  );
-}
-
-function actionHasEditableParams(action: ActionSpec | null, params: Record<string, unknown>) {
-  return 'position' in params || actionNeedsSampleId(action, params);
-}
-
-function parseSampleIdInput(raw: string): number[] {
-  const parts = raw.replace(/，/g, ',').split(',').map((part) => part.trim()).filter(Boolean);
-  if (!parts.length) {
-    throw new Error('sample_id 不能为空');
-  }
-  const values = parts.map((part) => {
-    const value = Number(part);
-    if (!Number.isInteger(value)) {
-      throw new Error(`sample_id 包含非法整数: ${part}`);
-    }
-    return value;
-  });
-  if (values.length > 30) {
-    throw new Error('sample_id 最多 30 个整数');
-  }
-  return values;
-}
-
-function formatSampleIdInput(value: unknown): string {
-  if (!Array.isArray(value)) return '';
-  return value.map((item) => String(item)).join(', ');
 }
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
