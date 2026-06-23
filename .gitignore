@@ -6,6 +6,8 @@ unilabos_data/
 pyrightconfig.json
 .cursorignore
 device_package*/
+.conda_test_tmp/
+
 ## Python
 
 # Byte-compiled / optimized / DLL files

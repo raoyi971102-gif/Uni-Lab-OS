@@ -1,4 +1,6 @@
 import csv
+import time
+from importlib.util import find_spec
 
 import pytest
 
@@ -14,13 +16,15 @@ from scripts.workflow_ui import (
     RunRecord,
     WorkflowRunManager,
     _load_preset_runtime_config,
+    _resolve_ui_path,
+    _runtime_supported_actions,
     _record_to_dict,
     _register_shutdown_handler,
-    _resolve_ui_path,
-    build_parser,
+    _run_node_with_live_opc_sampling,
     build_graph_workflow,
     build_linear_workflow,
     build_local_device_graph,
+    build_parser,
     load_preset,
 )
 
@@ -195,6 +199,9 @@ def test_szlab_mixer_ui_preset_uses_0622_csv_and_s04_s05_actions():
 
 
 def test_ai4c_runtime_device_classes_are_importable():
+    if find_spec("rclpy") is None:
+        pytest.skip("rclpy 未安装，跳过依赖 ROS2 的 AI4C 设备类导入检查")
+
     preset = load_preset("ai4c")
     runtime_config = _load_preset_runtime_config(preset)
 
@@ -373,6 +380,34 @@ def test_build_local_device_graph_keeps_csv_when_explicitly_configured():
     assert nodes["AI4C_plc"]["config"]["csv_path"] == "ai4c_sim_updated.csv"
 
 
+def test_szlab_mixer_pump_runtime_snapshot_variables_are_mapped_for_production_opcua():
+    preset = load_preset("szlab_mixer")
+    runtime_config = load_runtime_config("tests/szlab_poly_studio/runtime_configs/szlab_mixer_pump_runtime.json")
+    graph = build_local_device_graph(
+        opcua_url="opc.tcp://192.168.1.10:4840/",
+        use_subscription=False,
+        preset=preset,
+    )
+    pump_node = next(node for node in graph["nodes"] if node["id"] == "szlab_mixer_pump")
+    node_id_map = pump_node["config"]["opcua_node_id_map"]
+
+    for method_name in ("transfer_liquid", "run_solvent_addition"):
+        variables = collect_snapshot_variables(method_name, {}, runtime_config)
+        assert variables
+        assert set(variables) <= set(node_id_map)
+
+
+def test_pump_runtime_only_exposes_pump_actions():
+    preset = load_preset("szlab_mixer")
+    runtime_config = load_runtime_config("tests/szlab_poly_studio/runtime_configs/szlab_mixer_pump_runtime.json")
+
+    actions = _runtime_supported_actions(preset, runtime_config)
+
+    assert "run_solvent_addition" in actions
+    assert "transfer_liquid" in actions
+    assert "run_stirring" not in actions
+
+
 def test_runtime_config_collects_common_action_and_param_variables(tmp_path):
     config_path = tmp_path / "runtime.json"
     config_path.write_text(
@@ -523,6 +558,78 @@ def test_workflow_run_manager_reuses_devices_between_runs(monkeypatch):
     assert disconnect_calls == []
     assert manager._records["run-1"].status == "completed"
     assert manager._records["run-2"].status == "completed"
+
+
+def test_run_node_with_live_opc_sampling_logs_changes_during_action(tmp_path):
+    config_path = tmp_path / "runtime.json"
+    config_path.write_text(
+        """
+        {
+          "device_factory": {
+            "target_device_id": "pump"
+          },
+          "opc_snapshot": {
+            "action_variables": {
+              "run_solvent_addition": ["S06加工完成"]
+            }
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    class FakePump:
+        def __init__(self):
+            self.value = 0
+
+        def get_variables(self, variable_names, use_cache=False):
+            return {name: {"success": True, "value": self.value} for name in variable_names}
+
+        def get_opc_variable_metadata(self, variable_name):
+            return variable_name, f"ns=4;s={variable_name}"
+
+        def run_solvent_addition(self):
+            self.value = 1
+            time.sleep(0.03)
+            self.value = 2
+            time.sleep(0.03)
+            return {"success": True}
+
+    events = []
+
+    def write_event(message, *, level="info", detail=None):
+        events.append({"message": message, "level": level, "detail": detail})
+
+    node = WorkflowNode(
+        uuid="node_1",
+        name="auto-run_solvent_addition",
+        device_name="pump",
+        param={},
+    )
+    pump = FakePump()
+
+    results = _run_node_with_live_opc_sampling(
+        node,
+        {"pump": pump},
+        logger=WorkflowLogger(writer=write_event),
+        runtime_config=load_runtime_config(config_path),
+        sample_interval=0.01,
+    )
+
+    assert results == [
+        {
+            "uuid": "node_1",
+            "device_name": "pump",
+            "method": "run_solvent_addition",
+            "param": {},
+            "opc_before": {"S06加工完成": {"success": True, "value": 0}},
+            "opc_after": {"S06加工完成": {"success": True, "value": 2}},
+            "result": {"success": True},
+        }
+    ]
+    live_events = [event for event in events if event["message"].startswith("OPC实时变化:")]
+    assert live_events
+    assert live_events[-1]["detail"]["changes"][0]["after"] == {"success": True, "value": 2}
 
 
 def test_run_nodes_logs_opc_summary_with_detail_instead_of_full_snapshots():
