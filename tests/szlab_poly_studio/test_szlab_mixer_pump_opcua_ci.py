@@ -2,97 +2,70 @@ from __future__ import annotations
 
 import logging
 import os
-import time
-from typing import Any
+from pathlib import Path
 
 import pytest
-from opcua import Client
 
-from unilabos.devices.workstation.szlab_poly_studio.szlab_mixer.pump import SzlabMixerPumpDevice
+from tests.pseudo_devices.common.opcua_csv_server import OpcUaCsvServer
+from tests.pseudo_devices.common.opcua_flow_daemon import OpcUaFlowDaemon
+from unilabos.devices.workstation.szlab_poly_studio.pump.pump import SzlabMixerPumpDevice
 
-
-LOGGER = logging.getLogger(__name__)
-
-PUMP_VARIABLES = [
-    "S06允许加工",
-    "S06参数写入完成",
-    "S06注射泵选择",
-    "S06注射泵1抽液",
-    "S06注射泵1排液",
-    "S06注射泵2抽液",
-    "S06注射泵2排液",
-    "S06加工完成",
-]
+SZLAB_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SZLAB_DIR.parents[1]
+PUMP_CSV = REPO_ROOT / "unilabos/devices/workstation/szlab_poly_studio/pump/pump_nodes.csv"
+PUMP_FLOW = REPO_ROOT / "unilabos/devices/workstation/szlab_poly_studio/pump/pump_flow.json"
+DEFAULT_ENDPOINT = "opc.tcp://127.0.0.1:48506/"
 
 
-def _ci_log(message: str, *args: Any) -> None:
-    if args:
-        message = message % args
-    print(f"[szlab_mixer_pump_ci] {message}", flush=True)
-    LOGGER.info(message)
+@pytest.fixture(scope="module")
+def opcua_pseudo_stack():
+    url = os.environ.get("UNILABOS_TEST_SZLAB_MIXER_OPCUA_URL")
+    external = bool(url)
+    server = None
+    daemon = None
 
+    if not external:
+        url = DEFAULT_ENDPOINT
+        server = OpcUaCsvServer(endpoint=url, csv_path=PUMP_CSV)
+        server.start()
+        daemon = OpcUaFlowDaemon(url=url, flow_path=PUMP_FLOW)
+        daemon.start()
 
-def _browse_virtual_mixer_nodes(url: str) -> tuple[Client, dict[str, Any]]:
-    client = Client(url)
-    client.connect()
-    objects = client.get_objects_node()
-    for child in objects.get_children():
-        if child.get_browse_name().Name == "VirtualMixer":
-            nodes = {node.get_browse_name().Name: node for node in child.get_children()}
-            return client, nodes
-    client.disconnect()
-    raise RuntimeError("OPC UA 中未找到 VirtualMixer 对象")
+    logging.info("OPC UA endpoint=%s", url)
+    logging.info("CSV=%s", PUMP_CSV)
+    logging.info("flow=%s", PUMP_FLOW)
+    if daemon:
+        logging.info("flow summary:\n%s", daemon.summary)
 
+    yield url, server, daemon
 
-def _wait_for_virtual_mixer(url: str, timeout: float = 15.0) -> None:
-    started_at = time.time()
-    last_error = ""
-    while time.time() - started_at < timeout:
-        try:
-            client, nodes = _browse_virtual_mixer_nodes(url)
-            try:
-                missing = sorted(set(PUMP_VARIABLES) - set(nodes))
-                if missing:
-                    raise RuntimeError(f"VirtualMixer 缺少变量: {missing}")
-                _ci_log("VirtualMixer ready: url=%s variables=%s", url, sorted(nodes))
-                return
-            finally:
-                client.disconnect()
-        except Exception as exc:
-            last_error = str(exc)
-            _ci_log("等待 VirtualMixer ready: url=%s error=%s", url, last_error)
-            time.sleep(0.5)
-    raise TimeoutError(f"等待 VirtualMixer 超时: {last_error}")
+    if daemon:
+        daemon.stop()
+    if server:
+        server.stop()
 
 
 class TestSzlabMixerPumpOpcUaDevice:
-    """CI 中针对 szlab_mixer_pump device 的真实 OPC UA 闭环测试。"""
+    def test_run_solvent_addition_against_virtual_opcua(self, opcua_pseudo_stack):
+        url, server, daemon = opcua_pseudo_stack
+        before = {}
+        if server:
+            before = {name: server.read(name) for name in ("S06允许加工", "S06加工完成", "S06_1号溶液添加量")}
 
-    @staticmethod
-    def opcua_url() -> str:
-        url = os.environ.get("UNILABOS_TEST_SZLAB_MIXER_OPCUA_URL")
-        if not url:
-            pytest.skip("需要设置 UNILABOS_TEST_SZLAB_MIXER_OPCUA_URL 才运行虚拟 OPC UA 集成测试")
-        return url
-
-    def test_transfer_liquid_against_virtual_opcua(self) -> None:
-        url = self.opcua_url()
-        _ci_log("开始 szlab_mixer pump OPC UA 集成测试: url=%s", url)
-        _wait_for_virtual_mixer(url)
-
-        device = SzlabMixerPumpDevice(url=url, timeout=8.0)
+        device = SzlabMixerPumpDevice(
+            url=url,
+            timeout=8.0,
+        )
         try:
-            before = device.get_variables(PUMP_VARIABLES)
-            _ci_log("pump action 前 OPC 状态: %s", before)
-
-            result = device.transfer_liquid(pump=1, volume=10, direction="aspirate")
-
-            after = device.get_variables(PUMP_VARIABLES)
-            _ci_log("pump action 后 OPC 状态: %s", after)
-            _ci_log("pump action 返回: %s", result)
-
+            result = device.run_solvent_addition(pump=1, volume=10, skip_robot=True)
             assert result["success"] is True
-            assert after["S06注射泵选择"]["value"] == 1
-            assert after["S06注射泵1抽液"]["value"] == 10
         finally:
             device.disconnect()
+
+        if server:
+            after = {name: server.read(name) for name in ("S06加工完成", "S06工艺选择", "S06_1号溶液添加量")}
+            logging.info("OPC before=%s", before)
+            logging.info("OPC after=%s", after)
+            assert after["S06_1号溶液添加量"] == 0
+            assert after["S06工艺选择"] == 0
+            assert after["S06加工完成"] is True

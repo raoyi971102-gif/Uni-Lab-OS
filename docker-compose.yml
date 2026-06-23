@@ -1,9 +1,10 @@
 services:
-  unilabos:
-    image: ${UNILABOS_IMAGE:-styxhuang/unilabos:latest}
-    container_name: unilabos
+  unilabos-ui:
+    image: ${UNILABOS_IMAGE:-registry-1.docker.io/styxhuang/unilabos:latest}
+    container_name: unilabos-ui
+    platform: linux/amd64
     ports:
-      - "${UNILABOS_PORT:-50001}:8000"
+      - "${UNILABOS_PORT:-50003}:8000"
     restart: unless-stopped
     environment:
       PYTHONUNBUFFERED: "1"

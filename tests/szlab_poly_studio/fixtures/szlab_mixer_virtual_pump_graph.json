@@ -1,0 +1,17 @@
+{
+  "nodes": [
+    {
+      "id": "szlab_mixer_pump",
+      "name": "szlab_mixer_pump",
+      "type": "device",
+      "class": "szlab_mixer_pump",
+      "config": {
+        "url": "opc.tcp://127.0.0.1:48506/",
+        "timeout": 30,
+        "robot_addition_position": 7,
+        "robot_stirrer_position": 2
+      }
+    }
+  ],
+  "links": []
+}
