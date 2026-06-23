@@ -100,7 +100,7 @@ def test_szlab_mixer_device_creation_ignores_csv_path(monkeypatch, tmp_path):
     devices = create_local_devices(
         graph_file=graph_path,
         csv_path=Path("/tmp/invalid.csv"),
-        runtime_config=load_runtime_config("tests/szlab/runtime_configs/szlab_mixer_runtime.json"),
+        runtime_config=load_runtime_config("tests/szlab_poly_studio/runtime_configs/szlab_mixer_runtime.json"),
     )
 
     assert set(devices) == {"szlab_mixer_pump"}
@@ -131,6 +131,57 @@ def test_production_graph_passes_robot_and_pipeline_specs(monkeypatch):
     assert len(created["pump"]["pipeline_route_specs"]) == 6
 
 
+def test_szlab_mixer_devices_use_poly_studio_plc_client(monkeypatch):
+    created = []
+
+    class FakePolyPLCClient:
+        def __init__(self, **kwargs):
+            created.append(kwargs)
+
+    monkeypatch.setattr(
+        "unilabos.devices.workstation.szlab_poly_studio.szlab_mixer.pump.SZLabPolyPLCDevice",
+        FakePolyPLCClient,
+    )
+    monkeypatch.setattr(
+        "unilabos.devices.workstation.szlab_poly_studio.szlab_mixer.stirrer.SZLabPolyPLCDevice",
+        FakePolyPLCClient,
+    )
+
+    pump = SzlabMixerPumpDevice(
+        url="opc.tcp://example:50001",
+        username="user",
+        password="secret",
+        timeout=7.0,
+        auto_connect=False,
+    )
+    stirrer = SzlabMixerStirrerDevice(
+        url="opc.tcp://example:50001",
+        username="user",
+        password="secret",
+        timeout=8.0,
+        auto_connect=False,
+    )
+
+    assert isinstance(pump._client, FakePolyPLCClient)
+    assert isinstance(stirrer._client, FakePolyPLCClient)
+    assert created == [
+        {
+            "url": "opc.tcp://example:50001",
+            "username": "user",
+            "password": "secret",
+            "timeout": 7.0,
+            "auto_connect": False,
+        },
+        {
+            "url": "opc.tcp://example:50001",
+            "username": "user",
+            "password": "secret",
+            "timeout": 8.0,
+            "auto_connect": False,
+        },
+    ]
+
+
 def test_szlab_mixer_preset_loads_own_runtime_config():
     runtime_config = _load_preset_runtime_config(load_preset("szlab_mixer"))
 
@@ -157,7 +208,7 @@ def test_szlab_mixer_run_nodes_samples_current_device_variables():
 
     pump = FakePump()
     events = []
-    runtime_config = load_runtime_config("tests/szlab/runtime_configs/szlab_mixer_runtime.json")
+    runtime_config = load_runtime_config("tests/szlab_poly_studio/runtime_configs/szlab_mixer_runtime.json")
 
     run_nodes(
         [
