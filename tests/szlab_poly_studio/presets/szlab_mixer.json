@@ -4,7 +4,7 @@
   "target_device_id": "szlab_mixer_pump",
   "target_device_ids": ["szlab_mixer_pump"],
   "actions_source": "registry",
-  "runtime_config": "runtime_configs/szlab_mixer_runtime.json",
+  "runtime_config": "../runtime_configs/szlab_mixer_runtime.json",
   "default_workflow_name": "szlab_mixer_workflow",
   "default_config": {
     "graph": "__generated__",
@@ -15,7 +15,7 @@
     "show_csv": false
   },
   "path_roots": [
-    "tests/szlab",
+    "tests/szlab_poly_studio",
     "unilabos/devices/workstation/szlab_poly_studio/pump"
   ],
   "device_graph": {

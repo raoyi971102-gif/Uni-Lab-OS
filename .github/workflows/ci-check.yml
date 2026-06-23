@@ -44,9 +44,9 @@ jobs:
       - name: Run szlab mixer pump tests
         run: |
           mamba run -n unilab python -m pytest \
-            tests/szlab/test_szlab_mixer_pump.py \
-            tests/szlab/test_szlab_mixer_devices.py \
-            tests/szlab/test_szlab_mixer_pump_opcua_ci.py \
+            tests/szlab_poly_studio/test_szlab_mixer_pump.py \
+            tests/szlab_poly_studio/test_szlab_mixer_devices.py \
+            tests/szlab_poly_studio/test_szlab_mixer_pump_opcua_ci.py \
             -q
 
       - name: Run tests

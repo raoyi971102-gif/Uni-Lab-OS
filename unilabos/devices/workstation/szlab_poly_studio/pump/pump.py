@@ -21,7 +21,7 @@ Docker 本地调试（推荐）：
 3. 浏览器打开 http://localhost:50003/ ，选择 ``transfer_liquid`` 或 ``run_solvent_addition``，
    在页面填写 OPC UA URL（默认见 ``DEFAULT_OPCUA_URL``）后执行。
 
-单元测试与伪 OPC UA 联调见 ``tests/szlab/README.md``。
+单元测试与伪 OPC UA 联调见 ``tests/szlab_poly_studio/README.md``。
 单独调试脚本见 ``debug_pump.py``（改通讯地址即可切换虚拟/真机）。
 """
 

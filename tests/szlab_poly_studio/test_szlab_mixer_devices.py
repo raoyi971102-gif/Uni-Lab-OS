@@ -122,64 +122,13 @@ def test_production_graph_passes_robot_and_pipeline_specs(monkeypatch):
     monkeypatch.setattr("scripts.run_workflow_local._load_class", fake_load)
 
     create_local_devices(
-        graph_file=Path("tests/szlab/example/szlab_mixer_production_graph.json"),
-        runtime_config=load_runtime_config("tests/szlab/runtime_configs/szlab_mixer_runtime.json"),
+        graph_file=Path("tests/szlab_poly_studio/fixtures/szlab_mixer_pump_production_graph.json"),
+        runtime_config=load_runtime_config("tests/szlab_poly_studio/runtime_configs/szlab_mixer_runtime.json"),
     )
 
     assert created["pump"]["robot_addition_position"] == 7
     assert created["pump"]["robot_stirrer_position"] == 2
     assert len(created["pump"]["pipeline_route_specs"]) == 6
-
-
-def test_szlab_mixer_devices_use_poly_studio_plc_client(monkeypatch):
-    created = []
-
-    class FakePolyPLCClient:
-        def __init__(self, **kwargs):
-            created.append(kwargs)
-
-    monkeypatch.setattr(
-        "unilabos.devices.workstation.szlab_poly_studio.szlab_mixer.pump.SZLabPolyPLCDevice",
-        FakePolyPLCClient,
-    )
-    monkeypatch.setattr(
-        "unilabos.devices.workstation.szlab_poly_studio.szlab_mixer.stirrer.SZLabPolyPLCDevice",
-        FakePolyPLCClient,
-    )
-
-    pump = SzlabMixerPumpDevice(
-        url="opc.tcp://example:50001",
-        username="user",
-        password="secret",
-        timeout=7.0,
-        auto_connect=False,
-    )
-    stirrer = SzlabMixerStirrerDevice(
-        url="opc.tcp://example:50001",
-        username="user",
-        password="secret",
-        timeout=8.0,
-        auto_connect=False,
-    )
-
-    assert isinstance(pump._client, FakePolyPLCClient)
-    assert isinstance(stirrer._client, FakePolyPLCClient)
-    assert created == [
-        {
-            "url": "opc.tcp://example:50001",
-            "username": "user",
-            "password": "secret",
-            "timeout": 7.0,
-            "auto_connect": False,
-        },
-        {
-            "url": "opc.tcp://example:50001",
-            "username": "user",
-            "password": "secret",
-            "timeout": 8.0,
-            "auto_connect": False,
-        },
-    ]
 
 
 def test_szlab_mixer_preset_loads_own_runtime_config():

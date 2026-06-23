@@ -9,7 +9,7 @@ PYTHONPATH=. python -m scripts.workflow_ui \
   --host 0.0.0.0 \
   --port 8014 \
   --preset szlab_mixer \
-  --runtime-config tests/szlab/runtime_configs/szlab_mixer_pump_runtime.json
+  --runtime-config tests/szlab_poly_studio/runtime_configs/szlab_mixer_pump_runtime.json
 ```
 
 浏览器打开 `http://127.0.0.1:8014/`。真机调试时 OPC UA URL 填 `opc.tcp://192.168.1.10:4840/`。
@@ -35,7 +35,7 @@ PYTHONPATH=. python tests/pseudo_devices/common/opcua_flow_daemon.py \
 终端 3 — 复位变量：
 
 ```bash
-PYTHONPATH=. python tests/szlab/reset_virtual_pump_opcua.py
+PYTHONPATH=. python tests/szlab_poly_studio/reset_virtual_pump_opcua.py
 ```
 
 UI 中 OPC UA URL 填 `opc.tcp://127.0.0.1:48506/`，运行 `run_solvent_addition`。
@@ -55,15 +55,15 @@ beaker_true_means_present: true
 ## 命令行测试
 
 ```bash
-PYTHONPATH=. pytest tests/szlab/test_szlab_mixer_pump.py -q
-PYTHONPATH=. pytest tests/szlab/test_szlab_mixer_pump_opcua_ci.py -q
+PYTHONPATH=. pytest tests/szlab_poly_studio/test_szlab_mixer_pump.py -q
+PYTHONPATH=. pytest tests/szlab_poly_studio/test_szlab_mixer_pump_opcua_ci.py -q
 ```
 
 如需连外部 OPC UA：
 
 ```bash
 export UNILABOS_TEST_SZLAB_MIXER_OPCUA_URL=opc.tcp://192.168.1.10:4840/
-PYTHONPATH=. pytest tests/szlab/test_szlab_mixer_pump_opcua_ci.py -q
+PYTHONPATH=. pytest tests/szlab_poly_studio/test_szlab_mixer_pump_opcua_ci.py -q
 ```
 
 ## 相关文件
@@ -73,5 +73,5 @@ PYTHONPATH=. pytest tests/szlab/test_szlab_mixer_pump_opcua_ci.py -q
 | `unilabos/devices/workstation/szlab_poly_studio/pump/pump_nodes.csv` | S06 加液泵 OPC 变量表 |
 | `unilabos/devices/workstation/szlab_poly_studio/pump/pump_flow.json` | 虚拟 PLC 完成信号规则 |
 | `unilabos/devices/workstation/szlab_poly_studio/pump/pump_debug.json` | 单独调试参数 |
-| `tests/szlab/runtime_configs/szlab_mixer_pump_runtime.json` | pump-only 运行配置 |
-| `tests/szlab/presets/szlab_mixer.json` | UI preset |
+| `tests/szlab_poly_studio/runtime_configs/szlab_mixer_pump_runtime.json` | pump-only 运行配置 |
+| `tests/szlab_poly_studio/presets/szlab_mixer.json` | UI preset |

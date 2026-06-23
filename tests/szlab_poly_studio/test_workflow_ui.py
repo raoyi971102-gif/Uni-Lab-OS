@@ -318,7 +318,7 @@ def test_build_local_device_graph_keeps_csv_when_explicitly_configured():
 
 def test_szlab_mixer_pump_runtime_snapshot_variables_are_mapped_for_production_opcua():
     preset = load_preset("szlab_mixer")
-    runtime_config = load_runtime_config("tests/szlab/runtime_configs/szlab_mixer_pump_runtime.json")
+    runtime_config = load_runtime_config("tests/szlab_poly_studio/runtime_configs/szlab_mixer_pump_runtime.json")
     graph = build_local_device_graph(
         opcua_url="opc.tcp://192.168.1.10:4840/",
         use_subscription=False,
@@ -335,7 +335,7 @@ def test_szlab_mixer_pump_runtime_snapshot_variables_are_mapped_for_production_o
 
 def test_pump_runtime_only_exposes_pump_actions():
     preset = load_preset("szlab_mixer")
-    runtime_config = load_runtime_config("tests/szlab/runtime_configs/szlab_mixer_pump_runtime.json")
+    runtime_config = load_runtime_config("tests/szlab_poly_studio/runtime_configs/szlab_mixer_pump_runtime.json")
 
     actions = _runtime_supported_actions(preset, runtime_config)
 
