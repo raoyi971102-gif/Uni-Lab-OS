@@ -5,15 +5,47 @@ import threading
 import time
 from typing import Any, Dict, List, Optional
 
-from opcua import Client
+from opcua import Client, ua
 
-from unilabos.device_comms.opcua_client.node.uniopcua import NodeType
-from unilabos.devices.workstation.post_process.post_process import BaseClient, OpcUaNode
+from unilabos.device_comms.opcua_client.node.uniopcua import NodeType, Variable
+try:
+    from unilabos.devices.workstation.post_process.post_process import BaseClient, OpcUaNode
+except ModuleNotFoundError as exc:
+    if exc.name != "pylabrobot":
+        raise
+    BaseClient = object
+    OpcUaNode = None
 from unilabos.registry.decorators import action, device, not_action, topic_config
 from unilabos.utils.log import logger
 
 
 DEFAULT_CSV_NAME = "szlab_plc_0610.csv"
+
+
+def wait_variable_equal(
+    reader: Any,
+    variable_name: str,
+    expected: Any,
+    *,
+    timeout: float = 300.0,
+    interval: float = 1.0,
+) -> bool:
+    started_at = time.time()
+    while time.time() - started_at <= timeout:
+        if reader.read_variable(variable_name, use_cache=False) == expected:
+            return True
+        time.sleep(interval)
+    return False
+
+
+def wait_variable_true(
+    reader: Any,
+    variable_name: str,
+    *,
+    timeout: float = 300.0,
+    interval: float = 1.0,
+) -> bool:
+    return wait_variable_equal(reader, variable_name, True, timeout=timeout, interval=interval)
 
 
 S3_UNUSED_BEAKER_SENSORS: Dict[str, str] = {
@@ -161,23 +193,27 @@ def load_variable_names_from_csv(csv_path: str) -> List[str]:
     names: List[str] = []
     seen = set()
     last_error: Optional[UnicodeDecodeError] = None
-    for encoding in ("utf-8-sig", "gb18030", "gbk"):
-        try:
-            with open(csv_path, newline="", encoding=encoding) as csv_file:
-                reader = csv.DictReader(csv_file)
-                if "变量名" not in (reader.fieldnames or []):
-                    raise ValueError("CSV 文件缺少 '变量名' 列")
-                for row in reader:
-                    name = (row.get("变量名") or "").strip()
-                    if not name or name in seen:
+    for encoding in ("utf-8-sig", "utf-16", "utf-16-le", "gb18030", "gbk"):
+        for delimiter in (",", "\t"):
+            try:
+                with open(csv_path, newline="", encoding=encoding) as csv_file:
+                    reader = csv.DictReader(csv_file, delimiter=delimiter)
+                    if "变量名" not in (reader.fieldnames or []):
+                        names.clear()
+                        seen.clear()
                         continue
-                    seen.add(name)
-                    names.append(name)
-            return names
-        except UnicodeDecodeError as exc:
-            names.clear()
-            seen.clear()
-            last_error = exc
+                    for row in reader:
+                        name = (row.get("变量名") or "").strip()
+                        if not name or name in seen:
+                            continue
+                        seen.add(name)
+                        names.append(name)
+                return names
+            except UnicodeDecodeError as exc:
+                names.clear()
+                seen.clear()
+                last_error = exc
+                break
     if last_error:
         raise last_error
     return names
@@ -199,14 +235,18 @@ class SZLabPolyPLCDevice(BaseClient):
         heartbeat_node: str = "Heart_Beat",
         auto_connect: bool = True,
         opcua_log_level: str = "WARNING",
+        opcua_node_id_map: Optional[Dict[str, str]] = None,
         *args,
         **kwargs,
     ):
+        if OpcUaNode is None:
+            raise ModuleNotFoundError("SZLabPolyPLCDevice 需要可选依赖 pylabrobot，请在 unilab 环境中运行")
         super().__init__()
         self.csv_path = _resolve_csv_path(csv_path)
         self.heartbeat_node = heartbeat_node
         self.heartbeat_on = False
         self._heartbeat_timer: Optional[threading.Timer] = None
+        self._direct_node_id_map = dict(opcua_node_id_map or {})
 
         nodes = [
             OpcUaNode(name=name, node_type=NodeType.VARIABLE, data_type=None)
@@ -220,8 +260,48 @@ class SZLabPolyPLCDevice(BaseClient):
             client.set_user(username)
             client.set_password(password)
         self._set_client(client)
+        if self._direct_node_id_map:
+            self._register_direct_node_ids(nodes)
         if auto_connect:
             self._connect()
+
+    @not_action
+    def _connect(self) -> None:
+        if not self._direct_node_id_map:
+            return super()._connect()
+        logger.info("try to connect client...")
+        if not self.client:
+            raise ValueError("client is not initialized")
+        try:
+            self.client.connect()
+            logger.info("client connected!")
+            missing = sorted(set(self._variables_to_find) - set(self._node_registry))
+            if missing:
+                logger.warning(f"以下节点缺少 NodeId 映射，未执行自动浏览: {', '.join(missing)}")
+        except Exception as exc:
+            logger.error(f"client connect failed: {exc}")
+            raise
+
+    @not_action
+    def _register_direct_node_ids(self, nodes: List[OpcUaNode]) -> None:
+        if not self.client:
+            raise ValueError("client is not initialized")
+        nodes_by_name = {node.name: node for node in nodes}
+        for name, node_id in self._direct_node_id_map.items():
+            node = nodes_by_name.get(name)
+            if node is None:
+                continue
+            if node.node_type != NodeType.VARIABLE:
+                continue
+            self._node_registry[name] = Variable(self.client, name, node_id, node.data_type)
+            self._variables_to_find.setdefault(
+                name,
+                {
+                    "node_type": node.node_type,
+                    "data_type": node.data_type,
+                    "node_id": node_id,
+                },
+            )
 
     @not_action
     def read_variable(self, node_name: str, use_cache: bool = True) -> Any:
@@ -233,10 +313,35 @@ class SZLabPolyPLCDevice(BaseClient):
 
     @not_action
     def write_variable(self, node_name: str, value: Any) -> bool:
-        error = self.use_node(node_name).write(value)
-        if error:
-            raise RuntimeError(f"写入 PLC 变量失败: {node_name}")
+        node = self.use_node(node_name)
+        try:
+            self._write_value_only(node, value)
+        except Exception as exc:
+            raise RuntimeError(f"写入 PLC 变量失败: {node_name}") from exc
         return True
+
+    @not_action
+    def _write_value_only(self, node: Any, value: Any) -> None:
+        opc_node = node._get_node()
+        variant_type = opc_node.get_data_type_as_variant_type()
+        data_value = ua.DataValue()
+        data_value.Value = ua.Variant(value, variant_type)
+        data_value.StatusCode = None
+        data_value.SourceTimestamp = None
+        data_value.ServerTimestamp = None
+        data_value.SourcePicoseconds = None
+        data_value.ServerPicoseconds = None
+
+        write_value = ua.WriteValue()
+        write_value.NodeId = opc_node.nodeid
+        write_value.AttributeId = ua.AttributeIds.Value
+        write_value.Value = data_value
+
+        params = ua.WriteParameters()
+        params.NodesToWrite = [write_value]
+        results = self.client.uaclient.write(params)
+        if results and not results[0].is_good():
+            raise RuntimeError(str(results[0]))
 
     @not_action
     def disconnect(self) -> None:
@@ -275,12 +380,26 @@ class SZLabPolyPLCDevice(BaseClient):
         timeout: float = 300.0,
         interval: float = 0.2,
     ) -> bool:
-        start = time.time()
-        while time.time() - start < timeout:
-            if self.read(node_name) == expected:
-                return True
-            time.sleep(interval)
-        return False
+        return self.wait_variable_equal(node_name, expected, timeout=timeout, interval=interval)
+
+    @not_action
+    def wait_variable_equal(
+        self,
+        node_name: str,
+        expected: Any,
+        timeout: float = 300.0,
+        interval: float = 1.0,
+    ) -> bool:
+        return wait_variable_equal(self, node_name, expected, timeout=timeout, interval=interval)
+
+    @not_action
+    def wait_variable_true(
+        self,
+        node_name: str,
+        timeout: float = 300.0,
+        interval: float = 1.0,
+    ) -> bool:
+        return wait_variable_true(self, node_name, timeout=timeout, interval=interval)
 
     @not_action
     def wait_new_cycle_done(

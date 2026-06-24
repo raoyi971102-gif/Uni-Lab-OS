@@ -5,6 +5,8 @@ __all__ = [
     "SZLabPolyStudioDeck",
     "S1Workstation",
     "SzlabMixerPumpDevice",
+    "SzlabMixerPhotoShottingDevice",
+    "SzlabMixerMagneticStirrerDevice",
     "powder_container_placeholder_warehouse",
     "s1_loading_buffer_warehouse",
     "s2_tip_placeholder_warehouse",
@@ -17,6 +19,8 @@ __all__ = [
 
 if TYPE_CHECKING:
     from unilabos.devices.workstation.szlab_poly_studio.decks import SZLabPolyStudioDeck
+    from unilabos.devices.workstation.szlab_poly_studio.magnetic_stirring.magnetic_stirring import SzlabMixerMagneticStirrerDevice
+    from unilabos.devices.workstation.szlab_poly_studio.photoshotting.photoshotting import SzlabMixerPhotoShottingDevice
     from unilabos.devices.workstation.szlab_poly_studio.plc import SZLabPolyPLCDevice
     from unilabos.devices.workstation.szlab_poly_studio.pump.pump import SzlabMixerPumpDevice
     from unilabos.devices.workstation.szlab_poly_studio.s1 import S1Workstation
@@ -49,6 +53,16 @@ def __getattr__(name: str):
         from unilabos.devices.workstation.szlab_poly_studio.pump.pump import SzlabMixerPumpDevice
 
         return SzlabMixerPumpDevice
+    if name == "SzlabMixerPhotoShottingDevice":
+        from unilabos.devices.workstation.szlab_poly_studio.photoshotting.photoshotting import SzlabMixerPhotoShottingDevice
+
+        return SzlabMixerPhotoShottingDevice
+    if name == "SzlabMixerMagneticStirrerDevice":
+        from unilabos.devices.workstation.szlab_poly_studio.magnetic_stirring.magnetic_stirring import (
+            SzlabMixerMagneticStirrerDevice,
+        )
+
+        return SzlabMixerMagneticStirrerDevice
     if name in {
         "powder_container_placeholder_warehouse",
         "s1_loading_buffer_warehouse",

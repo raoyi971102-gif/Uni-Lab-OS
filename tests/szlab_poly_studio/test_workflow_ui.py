@@ -1,6 +1,8 @@
 import csv
+import json
 import time
 from importlib.util import find_spec
+from pathlib import Path
 
 import pytest
 
@@ -17,6 +19,7 @@ from scripts.workflow_ui import (
     WorkflowRunManager,
     _load_preset_runtime_config,
     _resolve_ui_path,
+    _action_to_dict,
     _runtime_supported_actions,
     _record_to_dict,
     _register_shutdown_handler,
@@ -139,6 +142,153 @@ def test_ai4c_preset_uses_formal_device_class():
         == "unilabos.devices.workstation.AI4C.AI4C_robot_arm.AI4CRobotArmDevice"
     )
     assert "pick_well_plate_from_loading_rack" in preset.actions
+
+
+def test_photoshotting_preset_uses_s05_camera_config():
+    preset = load_preset("photoshotting")
+    runtime_config = _load_preset_runtime_config(preset)
+    csv_path = _resolve_ui_path(preset.default_config["csv"], preset)
+    graph = build_local_device_graph(
+        opcua_url="opc.tcp://127.0.0.1:48405/",
+        csv_path=str(csv_path),
+        preset=preset,
+    )
+
+    assert preset.id == "photoshotting"
+    assert csv_path.exists()
+    assert preset.target_device_ids == ["szlab_mixer_photoshotting"]
+    assert list(preset.actions) == ["take_photo"]
+    assert runtime_config.device_factory.devices == {
+        "szlab_mixer_photoshotting": (
+            "unilabos.devices.workstation.szlab_poly_studio.photoshotting.photoshotting."
+            "SzlabMixerPhotoShottingDevice"
+        )
+    }
+    assert collect_snapshot_variables("take_photo", {}, runtime_config) == [
+        "S05加工完成",
+        "S05拍照结果",
+    ]
+
+    camera_node = next(node for node in graph["nodes"] if node["id"] == "szlab_mixer_photoshotting")
+    assert camera_node["config"]["url"] == "opc.tcp://127.0.0.1:48405/"
+    assert camera_node["config"]["csv_path"].endswith("photoshotting/photoshotting_nodes.csv")
+    assert camera_node["config"]["save_dir"] == "unilabos_data/szlab_poly_studio/photoshotting/photos"
+    assert camera_node["config"]["opcua_node_id_map"] == {
+        "S05加工完成": "ns=4;s=上位机通讯|S05加工完成",
+        "S05拍照结果": "ns=4;s=上位机通讯|S05拍照结果",
+    }
+    assert _action_to_dict(preset.actions["take_photo"], runtime_config)["opc_variables"] == [
+        "S05加工完成",
+        "S05拍照结果",
+    ]
+
+
+def test_magnetic_stirring_preset_uses_s04_stirrer_config():
+    preset = load_preset("magnetic_stirring")
+    runtime_config = _load_preset_runtime_config(preset)
+    csv_path = _resolve_ui_path(preset.default_config["csv"], preset)
+    graph = build_local_device_graph(
+        opcua_url="opc.tcp://127.0.0.1:48405/",
+        csv_path=str(csv_path),
+        preset=preset,
+    )
+
+    assert preset.id == "magnetic_stirring"
+    assert csv_path.exists()
+    assert preset.target_device_ids == ["szlab_mixer_stirrer"]
+    assert list(preset.actions) == ["run_stirring"]
+    assert runtime_config.device_factory.devices == {
+        "szlab_mixer_stirrer": (
+            "unilabos.devices.workstation.szlab_poly_studio.magnetic_stirring."
+            "magnetic_stirring.SzlabMixerMagneticStirrerDevice"
+        )
+    }
+    assert collect_snapshot_variables("run_stirring", {"position": 1}, runtime_config) == [
+        "S041允许加工",
+        "S041磁搅工艺选择",
+        "S041参数写入完成",
+        "S041加工完成",
+        "磁搅温度反馈_上位机[0]",
+        "磁搅速度设置_上位机[0]",
+        "磁搅温度设置_上位机[0]",
+        "磁搅时间设置_上位机[0]",
+        "磁搅安全温度设置_上位机[0]",
+    ]
+
+    stirrer_node = next(node for node in graph["nodes"] if node["id"] == "szlab_mixer_stirrer")
+    assert stirrer_node["config"]["url"] == "opc.tcp://127.0.0.1:48405/"
+    assert stirrer_node["config"]["csv_path"].endswith("magnetic_stirring/magnetic_stirring_nodes.csv")
+    assert stirrer_node["config"]["opcua_node_id_map"]["S041允许加工"] == "ns=4;s=上位机通讯|S041允许加工"
+    assert (
+        stirrer_node["config"]["opcua_node_id_map"]["磁搅速度设置_上位机[0]"]
+        == "ns=4;s=上位机通讯|磁搅速度设置_上位机[0]"
+    )
+    assert (
+        stirrer_node["config"]["opcua_node_id_map"]["磁搅温度反馈_上位机[0]"]
+        == "ns=4;s=上位机通讯|磁搅温度反馈_上位机[0]"
+    )
+    assert (
+        stirrer_node["config"]["opcua_node_id_map"]["磁搅温度设置_上位机[0]"]
+        == "ns=4;s=上位机通讯|磁搅温度设置_上位机[0]"
+    )
+    assert _action_to_dict(preset.actions["run_stirring"], runtime_config)["opc_variables"] == []
+
+
+def test_szlab_mixer_ui_preset_uses_0622_csv_and_s04_s05_actions():
+    preset = load_preset("szlab_mixer")
+    runtime_config = _load_preset_runtime_config(preset)
+    graph_nodes = {node["id"]: node for node in preset.device_graph["nodes"]}
+
+    assert graph_nodes["szlab_poly_plc"]["config"]["csv_path"] == "苏州实验室_0622.csv"
+    assert runtime_config.device_factory.plc_device_id == "szlab_poly_plc"
+    assert preset.actions["run_stirring"].device_id == "szlab_mixer_stirrer"
+    assert preset.actions["take_photo"].device_id == "szlab_mixer_photoshotting"
+    assert preset.actions["submit_pick_from_magnetic_stirrer"].device_id == "szlab_mixer_robot"
+    assert preset.actions["submit_place_to_photo_station"].device_id == "szlab_mixer_robot"
+
+    workflow = build_graph_workflow(
+        flow_nodes=[
+            {
+                "id": "stir",
+                "data": {
+                    "device_id": "szlab_mixer_stirrer",
+                    "method": "run_stirring",
+                    "params": {"position": 1, "speed": 300, "temperature": 25, "duration": 60},
+                },
+            },
+            {
+                "id": "photo",
+                "data": {
+                    "device_id": "szlab_mixer_photoshotting",
+                    "method": "take_photo",
+                    "params": {"sample_id": "sample-1", "require_material": False},
+                },
+            },
+            {
+                "id": "place_photo",
+                "data": {
+                    "device_id": "szlab_mixer_robot",
+                    "method": "submit_place_to_photo_station",
+                    "params": {"sample_id": "sample-1"},
+                },
+            },
+        ],
+        flow_edges=[
+            {"source": "stir", "target": "place_photo"},
+            {"source": "place_photo", "target": "photo"},
+        ],
+        preset=preset,
+    )
+
+    assert [node["device_name"] for node in workflow["nodes"]] == [
+        "szlab_mixer_stirrer",
+        "szlab_mixer_robot",
+        "szlab_mixer_photoshotting",
+    ]
+    assert workflow["edges"] == [
+        {"source_node_uuid": "stir", "target_node_uuid": "place_photo"},
+        {"source_node_uuid": "place_photo", "target_node_uuid": "photo"},
+    ]
 
 
 def test_ai4c_runtime_device_classes_are_importable():
@@ -324,12 +474,11 @@ def test_build_local_device_graph_keeps_csv_when_explicitly_configured():
 
 
 def test_szlab_mixer_pump_runtime_snapshot_variables_are_mapped_for_production_opcua():
-    preset = load_preset("szlab_mixer")
     runtime_config = load_runtime_config("tests/szlab_poly_studio/runtime_configs/szlab_mixer_pump_runtime.json")
-    graph = build_local_device_graph(
-        opcua_url="opc.tcp://192.168.1.10:4840/",
-        use_subscription=False,
-        preset=preset,
+    graph = json.loads(
+        Path("tests/szlab_poly_studio/fixtures/szlab_mixer_pump_production_graph.json").read_text(
+            encoding="utf-8"
+        )
     )
     pump_node = next(node for node in graph["nodes"] if node["id"] == "szlab_mixer_pump")
     node_id_map = pump_node["config"]["opcua_node_id_map"]
@@ -346,8 +495,7 @@ def test_pump_runtime_only_exposes_pump_actions():
 
     actions = _runtime_supported_actions(preset, runtime_config)
 
-    assert "run_solvent_addition" in actions
-    assert "transfer_liquid" in actions
+    assert actions == {}
     assert "run_stirring" not in actions
 
 
@@ -573,6 +721,58 @@ def test_run_node_with_live_opc_sampling_logs_changes_during_action(tmp_path):
     live_events = [event for event in events if event["message"].startswith("OPC实时变化:")]
     assert live_events
     assert live_events[-1]["detail"]["changes"][0]["after"] == {"success": True, "value": 2}
+
+
+def test_run_node_with_live_opc_sampling_skips_parallel_sampling_for_direct_device(tmp_path):
+    config_path = tmp_path / "runtime.json"
+    config_path.write_text(
+        """
+        {
+          "device_factory": {
+            "devices": {
+              "camera": "example.Camera"
+            }
+          },
+          "opc_snapshot": {
+            "action_variables": {
+              "take_photo": ["S05加工完成", "S05拍照结果"]
+            }
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    class FakeCamera:
+        def __init__(self):
+            self.reading = False
+
+        def get_variables(self, variable_names, use_cache=False):
+            if self.reading:
+                raise AssertionError("不应并发读取同一个 OPC 客户端")
+            return {name: {"success": True, "value": 1} for name in variable_names}
+
+        def take_photo(self):
+            self.reading = True
+            time.sleep(0.03)
+            self.reading = False
+            return {"success": True}
+
+    events = []
+
+    def write_event(message, *, level="info", detail=None):
+        events.append({"message": message, "level": level, "detail": detail})
+
+    results = _run_node_with_live_opc_sampling(
+        WorkflowNode(uuid="node_1", name="auto-take_photo", device_name="camera", param={}),
+        {"camera": FakeCamera()},
+        logger=WorkflowLogger(writer=write_event),
+        runtime_config=load_runtime_config(config_path),
+        sample_interval=0.01,
+    )
+
+    assert results[0]["result"] == {"success": True}
+    assert not [event for event in events if event["message"].startswith("OPC实时变化:")]
 
 
 def test_run_nodes_logs_opc_summary_with_detail_instead_of_full_snapshots():

@@ -26,15 +26,16 @@ from scripts.run_workflow_local import (
     RuntimeConfig,
     WorkflowLogger,
     WorkflowNode,
-    build_snapshot_diff_detail,
     build_execution_order,
+    build_snapshot_diff_detail,
     collect_snapshot_variables,
     create_local_devices,
+    format_snapshot_detail,
     load_workflow_nodes,
     load_runtime_config,
     method_name_from_template,
-    run_nodes,
     route_node_device,
+    run_nodes,
     snapshot_opc_state,
 )
 
@@ -291,41 +292,90 @@ def _run_node_with_live_opc_sampling(
     runtime_config: RuntimeConfig,
     sample_interval: float = 0.5,
 ) -> list[dict[str, Any]]:
+    device_name = route_node_device(node, runtime_config)
+    device = devices.get(device_name)
+    if device is None:
+        raise KeyError(f"未创建本地设备实例: {device_name}")
+
     method_name = method_name_from_template(node.name)
     snapshot_variables = collect_snapshot_variables(method_name, node.param, runtime_config)
     default_plc = devices.get(runtime_config.device_factory.plc_device_id)
-    device_name = route_node_device(node, runtime_config)
-    device = devices.get(device_name)
     snapshot_client = default_plc or (device if hasattr(device, "get_variables") else None)
-
-    if snapshot_client is None or not snapshot_variables:
+    if not snapshot_variables or snapshot_client is None or not hasattr(snapshot_client, "get_variables"):
         return run_nodes([node], devices, logger=logger, runtime_config=runtime_config)
 
-    stop_event = threading.Event()
+    if not hasattr(device, method_name):
+        raise AttributeError(f"{device_name} 不存在动作方法: {method_name}")
+    before = snapshot_opc_state(snapshot_client, snapshot_variables) if snapshot_client is not None else {}
 
-    def sample_loop() -> None:
-        previous = snapshot_opc_state(snapshot_client, snapshot_variables)
-        while not stop_event.wait(sample_interval):
+    logger.log(
+        f"[1/1] {device_name}.{method_name}({node.param})",
+        detail={"device_name": device_name, "method": method_name, "param": node.param},
+    )
+    if before:
+        logger.log(
+            f"OPC状态采样: {len(before)} 个变量",
+            detail={"before": format_snapshot_detail(before, snapshot_client)},
+        )
+
+    stop_sampling = threading.Event()
+    last_snapshot = dict(before)
+    sampling_errors: list[Exception] = []
+    skip_parallel_sampling = bool(runtime_config.device_factory.devices) and snapshot_client is device
+
+    def sample_live_changes() -> None:
+        nonlocal last_snapshot
+        while not stop_sampling.wait(sample_interval):
             current = snapshot_opc_state(snapshot_client, snapshot_variables)
-            diff_detail = build_snapshot_diff_detail(previous, current, plc=snapshot_client)
+            diff_detail = build_snapshot_diff_detail(last_snapshot, current, plc=snapshot_client)
+            last_snapshot = current
             if diff_detail["changes"]:
                 logger.log(
-                    f"OPC实时变化: {len(diff_detail['changes'])} 个变量变化",
+                    f"OPC实时变化: {len(diff_detail['changes'])}/{len(current)} 个变量变化",
                     detail=diff_detail,
                 )
-            previous = current
 
-    sampler = threading.Thread(
-        target=sample_loop,
-        daemon=True,
-        name=f"szlab-opc-sampler-{node.uuid[:8]}",
-    )
-    sampler.start()
+    sampler: threading.Thread | None = None
+    if snapshot_client is not None and snapshot_variables and not skip_parallel_sampling:
+        sampler = threading.Thread(target=sample_live_changes, name="SzlabLiveOpcSampler", daemon=True)
+        sampler.start()
+
     try:
-        return run_nodes([node], devices, logger=logger, runtime_config=runtime_config)
+        result = getattr(device, method_name)(**node.param)
     finally:
-        stop_event.set()
-        sampler.join(timeout=max(sample_interval * 2, 0.2))
+        stop_sampling.set()
+        if sampler is not None:
+            sampler.join(timeout=max(sample_interval * 2, 0.1))
+
+    after = snapshot_opc_state(snapshot_client, snapshot_variables) if snapshot_client is not None else {}
+    if after:
+        final_live_diff = build_snapshot_diff_detail(last_snapshot, after, plc=snapshot_client)
+        if sampler is not None and final_live_diff["changes"]:
+            logger.log(
+                f"OPC实时变化: {len(final_live_diff['changes'])}/{len(after)} 个变量变化",
+                detail=final_live_diff,
+            )
+        diff_detail = build_snapshot_diff_detail(before, after, plc=snapshot_client)
+        logger.log(
+            f"OPC状态变化: {len(diff_detail['changes'])}/{len(before)} 个变量变化",
+            detail=diff_detail,
+        )
+    if sampling_errors:
+        logger.log(f"OPC实时采样异常: {sampling_errors[-1]}", level="warning")
+    logger.log(f"动作结果: {result}", detail={"result": result})
+
+    output = {
+        "uuid": node.uuid,
+        "device_name": device_name,
+        "method": method_name,
+        "param": node.param,
+        "opc_before": before,
+        "opc_after": after,
+        "result": result,
+    }
+    if isinstance(result, dict) and result.get("success") is False:
+        raise RuntimeError(f"动作失败: {device_name}.{method_name}: {result}")
+    return [output]
 
 
 class WorkflowRunManager:
@@ -747,7 +797,7 @@ def create_app(preset_name: str = "ai4c", runtime_config: RuntimeConfig | None =
 
     @app.get("/api/actions", response_class=JSONResponse)
     async def list_actions() -> dict[str, Any]:
-        return {"actions": [_action_to_dict(action) for action in active_preset.actions.values()]}
+        return {"actions": [_action_to_dict(action, runtime_config) for action in active_preset.actions.values()]}
 
     @app.get("/api/preset", response_class=JSONResponse)
     async def get_preset() -> dict[str, Any]:
@@ -757,7 +807,7 @@ def create_app(preset_name: str = "ai4c", runtime_config: RuntimeConfig | None =
             "runtime_config": preset.runtime_config,
             "default_workflow_name": active_preset.default_workflow_name,
             "default_config": active_preset.default_config,
-            "actions": [_action_to_dict(action) for action in active_preset.actions.values()],
+            "actions": [_action_to_dict(action, runtime_config) for action in active_preset.actions.values()],
         }
 
     @app.post("/api/workflow/build", response_class=JSONResponse)
@@ -964,8 +1014,8 @@ def _disconnect_devices(devices: dict[str, Any], log: Any | None = None) -> None
                 log(f"断开设备 {device_id} 连接时出错: {exc}")
 
 
-def _action_to_dict(action: ActionSpec) -> dict[str, Any]:
-    return {
+def _action_to_dict(action: ActionSpec, runtime_config: RuntimeConfig | None = None) -> dict[str, Any]:
+    data = {
         "method": action.method,
         "label": action.label,
         "description": action.description,
@@ -973,6 +1023,16 @@ def _action_to_dict(action: ActionSpec) -> dict[str, Any]:
         "params": action.params,
         "device_id": action.device_id,
     }
+    if runtime_config is not None:
+        data["opc_variables"] = _collect_action_level_opc_variables(action.method, runtime_config)
+    return data
+
+
+def _collect_action_level_opc_variables(method: str, runtime_config: RuntimeConfig) -> list[str]:
+    snapshot_config = runtime_config.opc_snapshot
+    variables = list(snapshot_config.common_variables)
+    variables.extend(snapshot_config.action_variables.get(method, []))
+    return list(dict.fromkeys(variables))
 
 
 def _record_to_dict(record: RunRecord) -> dict[str, Any]:

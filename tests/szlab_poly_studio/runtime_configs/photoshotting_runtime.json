@@ -1,0 +1,17 @@
+{
+  "device_factory": {
+    "devices": {
+      "szlab_mixer_photoshotting": "unilabos.devices.workstation.szlab_poly_studio.photoshotting.photoshotting.SzlabMixerPhotoShottingDevice"
+    }
+  },
+  "opc_snapshot": {
+    "common_variables": [],
+    "action_variables": {
+      "take_photo": [
+        "S05加工完成",
+        "S05拍照结果"
+      ]
+    },
+    "param_variables": {}
+  }
+}

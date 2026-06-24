@@ -11,6 +11,8 @@ def test_szlab_poly_studio_imports_from_device_workstation_package():
     assert "S1Workstation" in szlab_poly_studio.__all__
     assert "SZLabPolyStudioDeck" in szlab_poly_studio.__all__
     assert "SzlabMixerPumpDevice" in szlab_poly_studio.__all__
+    assert "SzlabMixerPhotoShottingDevice" in szlab_poly_studio.__all__
+    assert "SzlabMixerMagneticStirrerDevice" in szlab_poly_studio.__all__
 
 
 def test_szlab_poly_studio_default_csv_resolves_inside_workstation_package():
@@ -29,6 +31,20 @@ def test_szlab_poly_studio_default_csv_resolves_inside_workstation_package():
         "szlab_poly_studio",
     )
     assert csv_path.exists()
+
+
+def test_szlab_poly_studio_latest_csv_supports_utf16_encoding():
+    if find_spec("pylabrobot") is None:
+        pytest.skip("pylabrobot 未安装，跳过依赖 PLC 模块导入的 CSV 检查")
+
+    from unilabos.devices.workstation.szlab_poly_studio.plc import load_variable_names_from_csv
+
+    csv_path = Path("unilabos/devices/workstation/szlab_poly_studio/szlab_plc_0623.csv")
+
+    names = load_variable_names_from_csv(str(csv_path))
+
+    assert "S05加工完成" in names
+    assert "S05拍照结果" in names
 
 
 def test_temporary_top_level_workstation_package_path_is_removed():
