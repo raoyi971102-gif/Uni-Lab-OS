@@ -23,7 +23,7 @@ from unilabos.devices.workstation.szlab_poly_studio.s08.s08_cap_station import (
 LOGGER = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-S08_CSV_PATH = REPO_ROOT / "tests" / "szlab_poly_studio" / "fixtures" / "szlab_s08_cap_station_ci_nodes.csv"
+S08_CSV_PATH = REPO_ROOT / "unilabos" / "devices" / "workstation" / "szlab_poly_studio" / "s08" / "s08_nodes.csv"
 SAMPLE_ID = [101, 102, 103]
 
 S08_VARIABLES = [

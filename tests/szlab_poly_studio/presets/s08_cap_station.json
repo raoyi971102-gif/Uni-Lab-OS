@@ -9,7 +9,7 @@
   "default_config": {
     "graph": "__generated__",
     "url": "opc.tcp://127.0.0.1:50102/",
-    "csv": "fixtures/szlab_s08_cap_station_ci_nodes.csv",
+    "csv": "unilabos/devices/workstation/szlab_poly_studio/s08/s08_nodes.csv",
     "timeout": 300,
     "no_subscription": true,
     "show_csv": true
