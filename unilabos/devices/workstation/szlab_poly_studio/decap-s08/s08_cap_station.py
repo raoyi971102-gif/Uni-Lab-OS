@@ -588,7 +588,6 @@ class SZLabS08CapStationDevice:
             clear_cache_on_complete=True,
         )
 
-
     @not_action
     def wait_station_ready(self, timeout: float = 300.0) -> dict[str, Any]:
         if self._wait_plc_bool(NODE_HOME, True, timeout=timeout, description="S08 原点信号（机械臂安全位）"):
