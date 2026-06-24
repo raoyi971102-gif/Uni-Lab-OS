@@ -6,6 +6,7 @@ from pathlib import Path
 
 from tests.szlab_poly_studio.pseudo_clients.s08_cap_station import SzlabS08CapStationPseudoPlcClient
 from unilabos.registry.ast_registry_scanner import scan_directory
+from scripts.workflow_ui import load_preset
 
 _s08_module = import_module("unilabos.devices.workstation.szlab_poly_studio.decap-s08.s08_cap_station")
 NODE_PARAMS_WRITTEN = _s08_module.NODE_PARAMS_WRITTEN
@@ -30,20 +31,29 @@ def test_s08_cap_station_is_ast_scannable():
 
     device = result["devices"]["szlab_s08_cap_station"]
     assert device["class_name"] == "SZLabS08CapStationDevice"
-    for action in (
-        "open_sample_vial_500ml_cap",
-        "close_sample_vial_500ml_cap",
-        "open_sample_vial_250ml_cap",
-        "close_sample_vial_250ml_cap",
-        "open_liquid_vial_100ml_cap",
-        "close_liquid_vial_100ml_cap",
-        "read_cap_storage_registry",
-        "read_cap_slot_occupancy",
-        "wait_station_ready",
-        "wait_allow_process",
-        "read_s08_status",
-    ):
-        assert action in device["actions"]
+    assert set(device["actions"]) == {
+        "process_sample_vial_500ml_cap",
+        "process_sample_vial_250ml_cap",
+        "process_liquid_vial_100ml_cap",
+    }
+
+
+def test_s08_registry_actions_only_expose_vial_type_processes():
+    preset = load_preset("s08_cap_station")
+
+    assert list(preset.actions) == [
+        "process_sample_vial_500ml_cap",
+        "process_sample_vial_250ml_cap",
+        "process_liquid_vial_100ml_cap",
+    ]
+    for action in preset.actions.values():
+        assert action.device_id == "szlab_s08_cap_station"
+        assert [param["name"] for param in action.params] == [
+            "operation",
+            "sample_id",
+            "cap_storage_slot",
+            "timeout",
+        ]
 
 
 def test_open_liquid_vial_100ml_cap_writes_sample_id_to_slot_cache():
@@ -74,6 +84,41 @@ def test_open_sample_vial_500ml_cap_uses_process_one():
     assert result["success"] is True
     assert result["process_type"] == int(S08ProcessType.OPEN_SAMPLE_VIAL_500ML)
     assert (NODE_PROCESS_SELECT, 1) in client.writes
+
+
+def test_process_sample_vial_250ml_cap_dispatches_open_and_close():
+    device = SZLabS08CapStationDevice(plc_device_id="szlab_poly_plc")
+    client = SzlabS08CapStationPseudoPlcClient()
+    _bind_pseudo_plc(device, client)
+
+    open_result = device.process_sample_vial_250ml_cap(
+        operation="open",
+        sample_id=SAMPLE_A,
+        cap_storage_slot=2,
+        timeout=1.0,
+    )
+    close_result = device.process_sample_vial_250ml_cap(
+        operation="close",
+        sample_id=SAMPLE_A,
+        timeout=1.0,
+    )
+
+    assert open_result["success"] is True
+    assert open_result["process_type"] == int(S08ProcessType.OPEN_SAMPLE_VIAL_250ML)
+    assert close_result["success"] is True
+    assert close_result["process_type"] == int(S08ProcessType.CLOSE_SAMPLE_VIAL_250ML)
+    assert (NODE_PROCESS_SELECT, int(S08ProcessType.OPEN_SAMPLE_VIAL_250ML)) in client.writes
+    assert (NODE_PROCESS_SELECT, int(S08ProcessType.CLOSE_SAMPLE_VIAL_250ML)) in client.writes
+    assert (_cap_cache_element_name(2, 0), 0) in client.writes
+
+
+def test_process_liquid_vial_100ml_cap_rejects_unknown_operation():
+    device = SZLabS08CapStationDevice(plc_device_id="szlab_poly_plc")
+
+    result = device.process_liquid_vial_100ml_cap(operation="seal", sample_id=SAMPLE_A)
+
+    assert result["success"] is False
+    assert "operation" in result["message"]
 
 
 def test_open_liquid_vial_auto_allocates_first_empty_cache_slot():

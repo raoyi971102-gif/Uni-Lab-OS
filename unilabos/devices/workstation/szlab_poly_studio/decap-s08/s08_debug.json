@@ -15,7 +15,8 @@
     "require_station_ready": true
   },
   "action": {
-    "name": "open_liquid_vial_100ml_cap",
+    "name": "process_liquid_vial_100ml_cap",
+    "operation": "open",
     "sample_id": [101, 102, 103],
     "cap_storage_slot": 3,
     "timeout": 8.0

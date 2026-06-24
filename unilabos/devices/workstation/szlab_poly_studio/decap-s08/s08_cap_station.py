@@ -463,7 +463,33 @@ class SZLabS08CapStationDevice:
             clear_cache_on_complete=True,
         )
 
-    @action(auto_prefix=True, always_free=True, description="等待机械臂回到 S08 安全位（S08原点信号）")
+    @not_action
+    def _process_cap_by_operation(
+        self,
+        operation: str,
+        open_process_type: S08ProcessType,
+        close_process_type: S08ProcessType,
+        sample_id: list[int],
+        cap_storage_slot: Optional[int] = None,
+        timeout: float = 300.0,
+    ) -> dict[str, Any]:
+        normalized_operation = operation.strip().lower()
+        if normalized_operation == "open":
+            return self._open_cap(
+                process_type=open_process_type,
+                sample_id=sample_id,
+                cap_storage_slot=cap_storage_slot,
+                timeout=timeout,
+            )
+        if normalized_operation == "close":
+            return self._close_cap(
+                process_type=close_process_type,
+                sample_id=sample_id,
+                timeout=timeout,
+            )
+        return {"success": False, "message": "operation 必须是 open 或 close"}
+
+    @not_action
     def wait_station_ready(self, timeout: float = 300.0) -> dict[str, Any]:
         if self._wait_plc_bool(NODE_HOME, True, timeout=timeout, description="S08 原点信号（机械臂安全位）"):
             return {"success": True, "message": "机械臂已在 S08 安全位"}
@@ -476,7 +502,7 @@ class SZLabS08CapStationDevice:
             for slot, node_name in CAP_STORAGE_SLOT_SENSORS.items()
         }
 
-    @action(auto_prefix=True, always_free=True, description="读取 S082 瓶盖暂存位 1-5 占用传感器")
+    @not_action
     def read_cap_slot_occupancy(self) -> dict[str, Any]:
         try:
             occupancy = self._read_cap_slot_occupancy()
@@ -489,7 +515,7 @@ class SZLabS08CapStationDevice:
             "free_slots": free_slots,
         }
 
-    @action(auto_prefix=True, always_free=True, description="读取 S082 暂存位 1-5 绑定的样品 ID（数据缓存）")
+    @not_action
     def read_cap_storage_registry(self) -> dict[str, Any]:
         try:
             registry = self._read_cap_storage_registry()
@@ -502,13 +528,13 @@ class SZLabS08CapStationDevice:
             "free_slots": free_slots,
         }
 
-    @action(auto_prefix=True, always_free=True, description="等待 S08 允许加工")
+    @not_action
     def wait_allow_process(self, timeout: float = 300.0) -> dict[str, Any]:
         if self._wait_plc_bool(NODE_ALLOW_PROCESS, True, timeout=timeout, description="S08 允许加工"):
             return {"success": True, "message": "S08 已允许加工"}
         return {"success": False, "message": "等待 S08 允许加工超时"}
 
-    @action(auto_prefix=True, always_free=True, description="读取 S08 工位 PLC 状态")
+    @not_action
     def read_s08_status(self) -> dict[str, Any]:
         try:
             status = self._read_s08_status()
@@ -516,7 +542,7 @@ class SZLabS08CapStationDevice:
             return {"success": False, "message": str(exc)}
         return {"success": True, "status": status}
 
-    @action(auto_prefix=True, always_free=True, description="复位 UniLab 写入的 S08 工艺参数（调试用）")
+    @not_action
     def reset_s08_flags(self) -> dict[str, Any]:
         try:
             self._reset_unilab_written_params()
@@ -524,7 +550,58 @@ class SZLabS08CapStationDevice:
             return {"success": False, "message": str(exc)}
         return {"success": True, "message": "S08 UniLab 侧工艺参数已复位"}
 
-    @action(auto_prefix=True, description="固定工位1 样品瓶500ml 开盖；sample_id 绑定瓶盖暂存位")
+    @action(auto_prefix=True, description="样品瓶500ml 开/关盖；operation=open 或 close")
+    def process_sample_vial_500ml_cap(
+        self,
+        operation: str,
+        sample_id: list[int],
+        cap_storage_slot: Optional[int] = None,
+        timeout: float = 300.0,
+    ) -> dict[str, Any]:
+        return self._process_cap_by_operation(
+            operation=operation,
+            open_process_type=S08ProcessType.OPEN_SAMPLE_VIAL_500ML,
+            close_process_type=S08ProcessType.CLOSE_SAMPLE_VIAL_500ML,
+            sample_id=sample_id,
+            cap_storage_slot=cap_storage_slot,
+            timeout=timeout,
+        )
+
+    @action(auto_prefix=True, description="样品瓶250ml 开/关盖；operation=open 或 close")
+    def process_sample_vial_250ml_cap(
+        self,
+        operation: str,
+        sample_id: list[int],
+        cap_storage_slot: Optional[int] = None,
+        timeout: float = 300.0,
+    ) -> dict[str, Any]:
+        return self._process_cap_by_operation(
+            operation=operation,
+            open_process_type=S08ProcessType.OPEN_SAMPLE_VIAL_250ML,
+            close_process_type=S08ProcessType.CLOSE_SAMPLE_VIAL_250ML,
+            sample_id=sample_id,
+            cap_storage_slot=cap_storage_slot,
+            timeout=timeout,
+        )
+
+    @action(auto_prefix=True, description="液体瓶100ml 开/关盖；operation=open 或 close")
+    def process_liquid_vial_100ml_cap(
+        self,
+        operation: str,
+        sample_id: list[int],
+        cap_storage_slot: Optional[int] = None,
+        timeout: float = 300.0,
+    ) -> dict[str, Any]:
+        return self._process_cap_by_operation(
+            operation=operation,
+            open_process_type=S08ProcessType.OPEN_LIQUID_VIAL_100ML,
+            close_process_type=S08ProcessType.CLOSE_LIQUID_VIAL_100ML,
+            sample_id=sample_id,
+            cap_storage_slot=cap_storage_slot,
+            timeout=timeout,
+        )
+
+    @not_action
     def open_sample_vial_500ml_cap(
         self,
         sample_id: list[int],
@@ -538,7 +615,7 @@ class SZLabS08CapStationDevice:
             timeout=timeout,
         )
 
-    @action(auto_prefix=True, description="固定工位1 样品瓶500ml 关盖；按样品 ID 查找瓶盖暂存位")
+    @not_action
     def close_sample_vial_500ml_cap(self, sample_id: list[int], timeout: float = 300.0) -> dict[str, Any]:
         return self._close_cap(
             process_type=S08ProcessType.CLOSE_SAMPLE_VIAL_500ML,
@@ -546,7 +623,7 @@ class SZLabS08CapStationDevice:
             timeout=timeout,
         )
 
-    @action(auto_prefix=True, description="固定工位1 样品瓶250ml 开盖；sample_id 绑定瓶盖暂存位")
+    @not_action
     def open_sample_vial_250ml_cap(
         self,
         sample_id: list[int],
@@ -560,7 +637,7 @@ class SZLabS08CapStationDevice:
             timeout=timeout,
         )
 
-    @action(auto_prefix=True, description="固定工位1 样品瓶250ml 关盖；按样品 ID 查找瓶盖暂存位")
+    @not_action
     def close_sample_vial_250ml_cap(self, sample_id: list[int], timeout: float = 300.0) -> dict[str, Any]:
         return self._close_cap(
             process_type=S08ProcessType.CLOSE_SAMPLE_VIAL_250ML,
@@ -568,7 +645,7 @@ class SZLabS08CapStationDevice:
             timeout=timeout,
         )
 
-    @action(auto_prefix=True, description="固定工位2 液体瓶100ml 开盖；sample_id 绑定瓶盖暂存位")
+    @not_action
     def open_liquid_vial_100ml_cap(
         self,
         sample_id: list[int],
@@ -582,7 +659,7 @@ class SZLabS08CapStationDevice:
             timeout=timeout,
         )
 
-    @action(auto_prefix=True, description="固定工位2 液体瓶100ml 关盖；按样品 ID 查找瓶盖暂存位")
+    @not_action
     def close_liquid_vial_100ml_cap(self, sample_id: list[int], timeout: float = 300.0) -> dict[str, Any]:
         return self._close_cap(
             process_type=S08ProcessType.CLOSE_LIQUID_VIAL_100ML,
