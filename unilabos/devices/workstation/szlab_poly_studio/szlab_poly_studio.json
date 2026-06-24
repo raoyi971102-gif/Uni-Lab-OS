@@ -51,7 +51,8 @@
                 "z": 0
             },
             "config": {
-                "plc_device_id": "szlab_poly_plc"
+                "url": "opc.tcp://jdht1471820.bohrium.tech:50001",
+                "timeout": 300
             },
             "data": {}
         }

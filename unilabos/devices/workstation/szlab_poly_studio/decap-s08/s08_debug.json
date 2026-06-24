@@ -10,15 +10,15 @@
     "object_name": "VirtualS08"
   },
   "device": {
-    "process_timeout": 8.0,
+    "timeout": 8.0,
     "poll_interval": 0.05,
     "require_station_ready": true
   },
   "action": {
-    "name": "process_liquid_vial_100ml_cap",
+    "name": "process_cap",
     "operation": "open",
+    "vial_type": "liquid_100ml",
     "sample_id": [101, 102, 103],
-    "cap_storage_slot": 3,
     "timeout": 8.0
   }
 }

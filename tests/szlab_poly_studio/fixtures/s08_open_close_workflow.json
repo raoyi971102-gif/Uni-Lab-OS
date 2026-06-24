@@ -15,9 +15,11 @@
     },
     {
       "uuid": "node_3",
-      "name": "open_liquid_vial_100ml_cap",
+      "name": "process_cap",
       "device_name": "szlab_s08_cap_station",
       "param": {
+        "operation": "open",
+        "vial_type": "liquid_100ml",
         "sample_id": [101, 102, 103],
         "timeout": 300
       }
@@ -30,9 +32,11 @@
     },
     {
       "uuid": "node_5",
-      "name": "close_liquid_vial_100ml_cap",
+      "name": "process_cap",
       "device_name": "szlab_s08_cap_station",
       "param": {
+        "operation": "close",
+        "vial_type": "liquid_100ml",
         "sample_id": [101, 102, 103],
         "timeout": 300
       }

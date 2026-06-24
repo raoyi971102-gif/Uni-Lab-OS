@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from importlib import import_module
 from pathlib import Path
 
-from tests.szlab_poly_studio.pseudo_clients.s08_cap_station import SzlabS08CapStationPseudoPlcClient
+from tests.szlab_poly_studio.pseudo_clients.s08_cap_station import PseudoSzlabS08OpcUaClient
+from tests.szlab_poly_studio.s08_driver_loader import load_s08_cap_station_module
 from unilabos.registry.ast_registry_scanner import scan_directory
 from scripts.workflow_ui import load_preset
 
-_s08_module = import_module("unilabos.devices.workstation.szlab_poly_studio.decap-s08.s08_cap_station")
+_s08_module = load_s08_cap_station_module()
 NODE_PARAMS_WRITTEN = _s08_module.NODE_PARAMS_WRITTEN
 NODE_PROCESS_SELECT = _s08_module.NODE_PROCESS_SELECT
 S08ProcessType = _s08_module.S08ProcessType
@@ -19,9 +19,18 @@ SAMPLE_A = [101, 102, 103]
 SAMPLE_B = [201, 202, 203]
 
 
-def _bind_pseudo_plc(device: SZLabS08CapStationDevice, client: SzlabS08CapStationPseudoPlcClient) -> None:
-    device._read_plc_variable = lambda node_name: client.read(node_name)
-    device._write_plc_variable = lambda node_name, value: client.write(node_name, value)
+def make_s08_device(
+    client: PseudoSzlabS08OpcUaClient | None = None,
+    *,
+    timeout: float = 1.0,
+) -> tuple[SZLabS08CapStationDevice, PseudoSzlabS08OpcUaClient]:
+    pseudo = client or PseudoSzlabS08OpcUaClient()
+    device = SZLabS08CapStationDevice(
+        url="opc.tcp://127.0.0.1:0/unused",
+        timeout=timeout,
+        opcua_client=pseudo,
+    )
+    return device, pseudo
 
 
 def test_s08_cap_station_is_ast_scannable():
@@ -31,37 +40,34 @@ def test_s08_cap_station_is_ast_scannable():
 
     device = result["devices"]["szlab_s08_cap_station"]
     assert device["class_name"] == "SZLabS08CapStationDevice"
-    assert set(device["actions"]) == {
-        "process_sample_vial_500ml_cap",
-        "process_sample_vial_250ml_cap",
-        "process_liquid_vial_100ml_cap",
-    }
+    assert set(device["actions"]) == {"process_cap"}
 
 
-def test_s08_registry_actions_only_expose_vial_type_processes():
+def test_s08_registry_actions_only_expose_process_cap():
     preset = load_preset("s08_cap_station")
 
-    assert list(preset.actions) == [
-        "process_sample_vial_500ml_cap",
-        "process_sample_vial_250ml_cap",
-        "process_liquid_vial_100ml_cap",
+    assert list(preset.actions) == ["process_cap"]
+    action = preset.actions["process_cap"]
+    assert action.device_id == "szlab_s08_cap_station"
+    assert [param["name"] for param in action.params] == [
+        "operation",
+        "vial_type",
+        "sample_id",
+        "timeout",
     ]
-    for action in preset.actions.values():
-        assert action.device_id == "szlab_s08_cap_station"
-        assert [param["name"] for param in action.params] == [
-            "operation",
-            "sample_id",
-            "cap_storage_slot",
-            "timeout",
-        ]
 
 
-def test_open_liquid_vial_100ml_cap_writes_sample_id_to_slot_cache():
-    device = SZLabS08CapStationDevice(plc_device_id="szlab_poly_plc")
-    client = SzlabS08CapStationPseudoPlcClient()
-    _bind_pseudo_plc(device, client)
+def test_process_cap_open_liquid_vial_writes_sample_id_to_slot_cache():
+    device, client = make_s08_device()
+    client.seed_slot_sample_id(1, SAMPLE_B)
+    client.seed_slot_sample_id(2, SAMPLE_B)
 
-    result = device.open_liquid_vial_100ml_cap(sample_id=SAMPLE_A, cap_storage_slot=3, timeout=1.0)
+    result = device.process_cap(
+        operation="open",
+        vial_type="liquid_100ml",
+        sample_id=SAMPLE_A,
+        timeout=1.0,
+    )
 
     assert result["success"] is True
     assert result["process_type"] == int(S08ProcessType.OPEN_LIQUID_VIAL_100ML)
@@ -74,37 +80,42 @@ def test_open_liquid_vial_100ml_cap_writes_sample_id_to_slot_cache():
     assert client.writes[-1] == ("S082瓶盖暂存位", 0)
 
 
-def test_open_sample_vial_500ml_cap_uses_process_one():
-    device = SZLabS08CapStationDevice(plc_device_id="szlab_poly_plc")
-    client = SzlabS08CapStationPseudoPlcClient()
-    _bind_pseudo_plc(device, client)
-
-    result = device.open_sample_vial_500ml_cap(sample_id=SAMPLE_B, cap_storage_slot=2, timeout=1.0)
+def test_process_cap_open_sample_500ml_uses_process_one():
+    device, client = make_s08_device()
+    client.seed_slot_sample_id(1, SAMPLE_A)
+    result = device.process_cap(
+        operation="open",
+        vial_type="sample_500ml",
+        sample_id=SAMPLE_B,
+        timeout=1.0,
+    )
 
     assert result["success"] is True
     assert result["process_type"] == int(S08ProcessType.OPEN_SAMPLE_VIAL_500ML)
+    assert result["cap_storage_slot"] == 2
     assert (NODE_PROCESS_SELECT, 1) in client.writes
 
 
-def test_process_sample_vial_250ml_cap_dispatches_open_and_close():
-    device = SZLabS08CapStationDevice(plc_device_id="szlab_poly_plc")
-    client = SzlabS08CapStationPseudoPlcClient()
-    _bind_pseudo_plc(device, client)
-
-    open_result = device.process_sample_vial_250ml_cap(
+def test_process_cap_sample_250ml_dispatches_open_and_close():
+    device, client = make_s08_device()
+    client.seed_slot_sample_id(1, SAMPLE_B)
+    open_result = device.process_cap(
         operation="open",
+        vial_type="sample_250ml",
         sample_id=SAMPLE_A,
-        cap_storage_slot=2,
         timeout=1.0,
     )
-    close_result = device.process_sample_vial_250ml_cap(
+    client.set_cap_storage_slot_present(open_result["cap_storage_slot"], True)
+    close_result = device.process_cap(
         operation="close",
+        vial_type="sample_250ml",
         sample_id=SAMPLE_A,
         timeout=1.0,
     )
 
     assert open_result["success"] is True
     assert open_result["process_type"] == int(S08ProcessType.OPEN_SAMPLE_VIAL_250ML)
+    assert open_result["cap_storage_slot"] == 2
     assert close_result["success"] is True
     assert close_result["process_type"] == int(S08ProcessType.CLOSE_SAMPLE_VIAL_250ML)
     assert (NODE_PROCESS_SELECT, int(S08ProcessType.OPEN_SAMPLE_VIAL_250ML)) in client.writes
@@ -112,22 +123,33 @@ def test_process_sample_vial_250ml_cap_dispatches_open_and_close():
     assert (_cap_cache_element_name(2, 0), 0) in client.writes
 
 
-def test_process_liquid_vial_100ml_cap_rejects_unknown_operation():
-    device = SZLabS08CapStationDevice(plc_device_id="szlab_poly_plc")
+def test_process_cap_rejects_unknown_operation():
+    device, _client = make_s08_device()
 
-    result = device.process_liquid_vial_100ml_cap(operation="seal", sample_id=SAMPLE_A)
+    result = device.process_cap(operation="seal", vial_type="liquid_100ml", sample_id=SAMPLE_A)
 
     assert result["success"] is False
     assert "operation" in result["message"]
 
 
-def test_open_liquid_vial_auto_allocates_first_empty_cache_slot():
-    device = SZLabS08CapStationDevice(plc_device_id="szlab_poly_plc")
-    client = SzlabS08CapStationPseudoPlcClient()
-    client.seed_slot_sample_id(1, SAMPLE_B)
-    _bind_pseudo_plc(device, client)
+def test_process_cap_rejects_unknown_vial_type():
+    device, _client = make_s08_device()
 
-    result = device.open_liquid_vial_100ml_cap(sample_id=SAMPLE_A, timeout=1.0)
+    result = device.process_cap(operation="open", vial_type="2L_flask", sample_id=SAMPLE_A)
+
+    assert result["success"] is False
+    assert "vial_type" in result["message"]
+
+
+def test_process_cap_open_auto_allocates_first_empty_cache_slot():
+    device, client = make_s08_device()
+    client.seed_slot_sample_id(1, SAMPLE_B)
+    result = device.process_cap(
+        operation="open",
+        vial_type="liquid_100ml",
+        sample_id=SAMPLE_A,
+        timeout=1.0,
+    )
 
     assert result["success"] is True
     assert result["cap_storage_slot"] == 2
@@ -135,19 +157,31 @@ def test_open_liquid_vial_auto_allocates_first_empty_cache_slot():
     assert (_cap_cache_element_name(2, 0), SAMPLE_A[0]) in client.writes
 
 
-def test_open_cap_requires_sample_id():
-    device = SZLabS08CapStationDevice(plc_device_id="szlab_poly_plc")
-    result = device.open_liquid_vial_100ml_cap(sample_id=[])
+def test_process_cap_open_requires_sample_id():
+    device, client = make_s08_device()
+    result = device.process_cap(operation="open", vial_type="liquid_100ml", sample_id=[])
+
     assert result["success"] is False
+    assert "sample_id" in result["message"]
 
 
-def test_close_liquid_vial_100ml_cap_finds_slot_by_sample_id_and_clears_cache():
-    device = SZLabS08CapStationDevice(plc_device_id="szlab_poly_plc")
-    client = SzlabS08CapStationPseudoPlcClient()
+def test_process_cap_close_requires_sample_id():
+    device, client = make_s08_device()
+    result = device.process_cap(operation="close", vial_type="liquid_100ml", sample_id=[0, 0, 0])
+    assert result["success"] is False
+    assert "sample_id" in result["message"]
+
+
+def test_process_cap_close_finds_slot_by_sample_id_and_clears_cache():
+    device, client = make_s08_device()
     client.seed_slot_sample_id(4, SAMPLE_A)
-    _bind_pseudo_plc(device, client)
-
-    result = device.close_liquid_vial_100ml_cap(sample_id=SAMPLE_A, timeout=1.0)
+    client.set_cap_storage_slot_present(4, True)
+    result = device.process_cap(
+        operation="close",
+        vial_type="liquid_100ml",
+        sample_id=SAMPLE_A,
+        timeout=1.0,
+    )
 
     assert result["success"] is True
     assert result["cap_storage_slot"] == 4
@@ -156,12 +190,85 @@ def test_close_liquid_vial_100ml_cap_finds_slot_by_sample_id_and_clears_cache():
     assert (_cap_cache_element_name(4, 0), 0) in client.writes
 
 
-def test_close_cap_fails_when_sample_not_found():
-    device = SZLabS08CapStationDevice(plc_device_id="szlab_poly_plc")
-    client = SzlabS08CapStationPseudoPlcClient()
-    _bind_pseudo_plc(device, client)
-
-    result = device.close_liquid_vial_100ml_cap(sample_id=SAMPLE_A)
+def test_process_cap_close_fails_when_sample_not_found():
+    device, client = make_s08_device()
+    result = device.process_cap(operation="close", vial_type="liquid_100ml", sample_id=SAMPLE_A)
 
     assert result["success"] is False
-    assert "未找到" in result["message"]
+    assert "尚未开盖" in result["message"]
+
+
+def test_process_cap_open_fails_when_sample_already_opened_on_storage_slot():
+    device, client = make_s08_device()
+    client.seed_slot_sample_id(1, SAMPLE_A)
+    client.set_cap_storage_slot_present(1, True)
+
+    result = device.process_cap(
+        operation="open",
+        vial_type="liquid_100ml",
+        sample_id=SAMPLE_A,
+        timeout=1.0,
+    )
+
+    assert result["success"] is False
+    assert "已开盖" in result["message"]
+    assert "不能对同一瓶重复开盖" in result["message"]
+    assert "暂存位1" in result["message"]
+
+
+def test_process_cap_open_fails_when_cap_station_has_no_bottle():
+    device, client = make_s08_device()
+    client.set_cap_station_present(1, False)
+    result = device.process_cap(
+        operation="open",
+        vial_type="sample_500ml",
+        sample_id=SAMPLE_A,
+        timeout=1.0,
+    )
+
+    assert result["success"] is False
+    assert "开盖工位1" in result["message"]
+    assert "NO[14]" in result["message"]
+
+
+def test_process_cap_open_liquid_vial_requires_station_two_sensor():
+    device, client = make_s08_device()
+    client.set_cap_station_present(2, False)
+    result = device.process_cap(
+        operation="open",
+        vial_type="liquid_100ml",
+        sample_id=SAMPLE_A,
+        timeout=1.0,
+    )
+
+    assert result["success"] is False
+    assert "开盖工位2" in result["message"]
+    assert "NO[15]" in result["message"]
+
+
+def test_process_cap_fails_when_station_status_not_ready():
+    device, client = make_s08_device()
+    client.set_station_status(1)
+    result = device.process_cap(
+        operation="open",
+        vial_type="liquid_100ml",
+        sample_id=SAMPLE_A,
+        timeout=1.0,
+    )
+
+    assert result["success"] is False
+    assert "工站未就绪" in result["message"]
+
+
+def test_process_cap_close_fails_when_cap_storage_slot_empty():
+    device, client = make_s08_device()
+    client.seed_slot_sample_id(3, SAMPLE_A)
+    result = device.process_cap(
+        operation="close",
+        vial_type="liquid_100ml",
+        sample_id=SAMPLE_A,
+        timeout=1.0,
+    )
+
+    assert result["success"] is False
+    assert "尚未开盖" in result["message"] or "无瓶盖" in result["message"]

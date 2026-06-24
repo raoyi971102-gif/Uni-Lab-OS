@@ -1,13 +1,8 @@
 {
   "device_factory": {
-    "plc_device_id": "szlab_poly_plc",
-    "target_device_id": "szlab_s08_cap_station",
-    "plc_class": "unilabos.devices.workstation.szlab_poly_studio.plc.SZLabPolyPLCDevice",
-    "target_class": "unilabos.devices.workstation.szlab_poly_studio.decap-s08.s08_cap_station.SZLabS08CapStationDevice",
-    "target_config": {
-      "plc_device_id": "szlab_poly_plc"
-    },
-    "direct_plc_command_method": "_call_plc_command"
+    "devices": {
+      "szlab_s08_cap_station": "unilabos.devices.workstation.szlab_poly_studio.decap-s08.s08_cap_station.SZLabS08CapStationDevice"
+    }
   },
   "opc_snapshot": {
     "common_variables": [
@@ -16,32 +11,22 @@
       "S08工艺选择",
       "S08参数写入完成",
       "S08工艺完成",
-      "S082瓶盖暂存位"
+      "S082瓶盖暂存位",
+      "工站状态[7]"
     ],
     "action_variables": {
-      "open_liquid_vial_100ml_cap": [
+      "process_cap": [
         "S08工艺选择",
         "S08参数写入完成",
         "S08工艺完成",
-        "S082瓶盖暂存位"
-      ],
-      "close_liquid_vial_100ml_cap": [
-        "S08工艺选择",
-        "S08参数写入完成",
-        "S08工艺完成",
-        "S082瓶盖暂存位"
-      ],
-      "open_sample_vial_500ml_cap": [
-        "S08工艺选择",
-        "S08参数写入完成",
-        "S08工艺完成",
-        "S082瓶盖暂存位"
-      ],
-      "close_sample_vial_500ml_cap": [
-        "S08工艺选择",
-        "S08参数写入完成",
-        "S08工艺完成",
-        "S082瓶盖暂存位"
+        "S082瓶盖暂存位",
+        "传感器状态_上位机[3].NO[14]",
+        "传感器状态_上位机[3].NO[15]",
+        "传感器状态_上位机[4].NO[0]",
+        "传感器状态_上位机[4].NO[1]",
+        "传感器状态_上位机[4].NO[2]",
+        "传感器状态_上位机[4].NO[3]",
+        "传感器状态_上位机[4].NO[4]"
       ],
       "read_cap_storage_registry": [
         "S082_1数据缓存[0]",

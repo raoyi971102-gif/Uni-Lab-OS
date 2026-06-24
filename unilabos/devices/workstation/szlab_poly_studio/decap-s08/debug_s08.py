@@ -23,8 +23,6 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from opcua import Client
-
 _DEVICE_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _DEVICE_DIR.parents[4]
 _DEFAULT_CONFIG = _DEVICE_DIR / "s08_debug.json"
@@ -74,33 +72,7 @@ def _load_device_class():
         raise ImportError(f"无法加载 S08 设备模块: {module_path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.SZLabS08CapStationDevice
-
-
-class S08OpcUaClient:
-    def __init__(self, url: str, object_name: str = "VirtualS08") -> None:
-        self.url = url
-        self.object_name = object_name
-        self.client = Client(url)
-        self.nodes: dict[str, Any] = {}
-
-    def connect(self) -> None:
-        self.client.connect()
-        objects = self.client.get_objects_node()
-        for child in objects.get_children():
-            if child.get_browse_name().Name == self.object_name:
-                self.nodes = {node.get_browse_name().Name: node for node in child.get_children()}
-                return
-        raise RuntimeError(f"OPC UA 中未找到对象: {self.object_name}")
-
-    def disconnect(self) -> None:
-        self.client.disconnect()
-
-    def read(self, node_name: str) -> Any:
-        return self.nodes[node_name].get_value()
-
-    def write(self, node_name: str, value: Any) -> None:
-        self.nodes[node_name].set_value(value)
+    return module.SZLabS08CapStationDevice, module.SzlabS08OpcUaClient
 
 
 def start_virtual_opcua_stack(config: dict[str, Any]) -> tuple[Any, threading.Thread, threading.Event]:
@@ -133,6 +105,9 @@ def start_virtual_opcua_stack(config: dict[str, Any]) -> tuple[Any, threading.Th
         initial_values={
             "S08原点信号": True,
             "S08允许加工": True,
+            "传感器状态_上位机[3].NO[14]": True,
+            "传感器状态_上位机[3].NO[15]": True,
+            "工站状态[7]": 2,
         },
     )
     server.start()
@@ -171,23 +146,22 @@ def run_s08_debug(
     *,
     opcua_url: str,
     object_name: str,
-    process_timeout: float,
+    timeout: float,
     poll_interval: float,
     require_station_ready: bool,
     action_cfg: dict[str, Any],
 ) -> dict[str, Any]:
-    device_cls = _load_device_class()
-    client = S08OpcUaClient(opcua_url, object_name=object_name)
-    client.connect()
+    device_cls, client_cls = _load_device_class()
+    client = client_cls(opcua_url, object_name=object_name)
     try:
         device = device_cls(
-            plc_device_id="debug_s08_plc",
-            process_timeout=process_timeout,
+            url=opcua_url,
+            timeout=timeout,
             poll_interval=poll_interval,
             require_station_ready=require_station_ready,
+            opcua_client=client,
+            opcua_object_name=object_name,
         )
-        device._read_plc_variable = client.read
-        device._write_plc_variable = client.write
 
         action_name = str(action_cfg["name"])
         action = getattr(device, action_name)
@@ -218,7 +192,7 @@ def _run_from_config(config_path: Path, *, use_production: bool) -> dict[str, An
     return run_s08_debug(
         opcua_url=config["resolved_opcua_url"],
         object_name=config["virtual_object_name"],
-        process_timeout=float(device_cfg.get("process_timeout", 300.0)),
+        timeout=float(device_cfg.get("timeout", 300.0)),
         poll_interval=float(device_cfg.get("poll_interval", 0.2)),
         require_station_ready=bool(device_cfg.get("require_station_ready", True)),
         action_cfg=action_cfg,
@@ -227,8 +201,8 @@ def _run_from_config(config_path: Path, *, use_production: bool) -> dict[str, An
 
 def reset_plc_signals(config_path: Path, *, use_production: bool) -> None:
     config = load_s08_debug_config(config_path, use_production=use_production)
-    client = S08OpcUaClient(config["resolved_opcua_url"], object_name=config["virtual_object_name"])
-    client.connect()
+    _device_cls, client_cls = _load_device_class()
+    client = client_cls(config["resolved_opcua_url"], object_name=config["virtual_object_name"])
     try:
         for name, value in (
             ("S08工艺选择", 0),

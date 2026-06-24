@@ -11,7 +11,10 @@
     "initial_value_column": "初始值",
     "initial_values": {
       "S08原点信号": true,
-      "S08允许加工": true
+      "S08允许加工": true,
+      "传感器状态_上位机[3].NO[14]": true,
+      "传感器状态_上位机[3].NO[15]": true,
+      "工站状态[7]": 2
     }
   },
   "env": {
