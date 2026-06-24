@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import os
-import time
 from typing import Any
 
 from unilabos.registry.decorators import action, device, not_action, topic_config
+from unilabos.devices.workstation.szlab_poly_studio.plc import wait_variable_true
 
 from .sensors import (
     S04_PROCESS_MODES,
@@ -132,23 +132,21 @@ class SzlabMixerMagneticStirrerDevice:
 
     @not_action
     def _wait_allow_processing(self, position: int) -> bool:
-        started_at = time.time()
         variable = s04_allow_var(position)
-        while time.time() - started_at <= self.timeout:
-            if bool(self._read_variable(variable, use_cache=False)):
-                return True
-            time.sleep(1.0)
-        return False
+        return self._wait_variable_true(variable)
 
     @not_action
     def _wait_done(self, position: int) -> bool:
-        started_at = time.time()
         variable = s04_done_var(position)
-        while time.time() - started_at <= self.timeout:
-            if bool(self._read_variable(variable, use_cache=False)):
-                return True
-            time.sleep(1.0)
-        return False
+        return self._wait_variable_true(variable)
+
+    @not_action
+    def _wait_variable_true(self, variable: str) -> bool:
+        waiter = getattr(self._plc_gateway, "wait_variable_true", None) if self._plc_gateway is not None else None
+        if callable(waiter):
+            return waiter(variable, timeout=self.timeout, interval=1.0)
+        reader = self._plc_gateway if self._plc_gateway is not None else self._client
+        return wait_variable_true(reader, variable, timeout=self.timeout, interval=1.0)
 
     @action(auto_prefix=True, description="执行 S04 磁搅加工")
     def run_stirring(
@@ -186,6 +184,10 @@ class SzlabMixerMagneticStirrerDevice:
             self._status = "Error"
             return {"success": False, "message": f"{station} 允许加工等待超时", "data": {"station": station}}
 
+        pre_reset_result = self._reset_pc_to_plc_defaults(position, include_params_written=False)
+        if not pre_reset_result.get("success", False):
+            return pre_reset_result
+
         duration_ms = int(float(duration) * 1000)
         try:
             self._write_variable(s04_process_var(position), mode)
@@ -201,6 +203,10 @@ class SzlabMixerMagneticStirrerDevice:
         if not self._wait_done(position):
             self._status = "Error"
             return {"success": False, "message": f"{station} 加工完成等待超时", "data": {"station": station}}
+
+        reset_result = self._reset_pc_to_plc_defaults(position)
+        if not reset_result.get("success", False):
+            return reset_result
 
         self._status = "Idle"
         self._last_position = position
@@ -219,11 +225,12 @@ class SzlabMixerMagneticStirrerDevice:
                 "duration_ms": duration_ms,
                 "safe_temperature": int(safe_temperature),
                 "done_variable": s04_done_var(position),
+                "reset": reset_result.get("data", {}),
             },
         }
 
     @not_action
-    def _reset_pc_to_plc_defaults(self, position: int) -> dict[str, Any]:
+    def _reset_pc_to_plc_defaults(self, position: int, include_params_written: bool = True) -> dict[str, Any]:
         station = s04_station_prefix(position)
         try:
             self._write_variable(s04_process_var(position), 0)
@@ -231,7 +238,8 @@ class SzlabMixerMagneticStirrerDevice:
             self._write_variable(s04_temperature_var(position), 0)
             self._write_variable(s04_duration_var(position), 30000)
             self._write_variable(s04_safe_temperature_var(position), 0)
-            self._write_variable(s04_params_written_var(position), False)
+            if include_params_written:
+                self._write_variable(s04_params_written_var(position), False)
         except Exception as exc:
             self._status = "Error"
             return {"success": False, "message": str(exc), "data": {"station": station, "reset": True}}

@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import json
 import os
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib import request
 
 from unilabos.registry.decorators import action, device, not_action, topic_config
+from unilabos.devices.workstation.szlab_poly_studio.plc import wait_variable_true
 
 from .sensors import (
     PHOTO_RESULT_LABELS,
@@ -227,12 +227,11 @@ class SzlabMixerPhotoShottingDevice:
 
     @not_action
     def _wait_photo_done(self) -> bool:
-        started_at = time.time()
-        while time.time() - started_at <= self.timeout:
-            if bool(self._read_variable(S05_DONE, use_cache=False)):
-                return True
-            time.sleep(1.0)
-        return False
+        waiter = getattr(self._plc_gateway, "wait_variable_true", None) if self._plc_gateway is not None else None
+        if callable(waiter):
+            return waiter(S05_DONE, timeout=self.timeout, interval=1.0)
+        reader = self._plc_gateway if self._plc_gateway is not None else self._client
+        return wait_variable_true(reader, S05_DONE, timeout=self.timeout, interval=1.0)
 
     @action(auto_prefix=True, description="执行烧杯姿势拍照检测")
     def take_photo(

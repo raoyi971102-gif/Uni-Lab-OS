@@ -28,6 +28,10 @@ def s04_done_var(position: int) -> str:
     return f"{s04_station_prefix(position)}加工完成"
 
 
+def s04_temperature_feedback_var(position: int) -> str:
+    return f"磁搅温度反馈_上位机[{int(position) - 1}]"
+
+
 def s04_temperature_var(position: int) -> str:
     return f"磁搅温度设置_上位机[{int(position) - 1}]"
 
@@ -53,6 +57,7 @@ def s04_public_variables() -> list[str]:
                 s04_process_var(position),
                 s04_params_written_var(position),
                 s04_done_var(position),
+                s04_temperature_feedback_var(position),
                 s04_speed_var(position),
                 s04_temperature_var(position),
                 s04_duration_var(position),

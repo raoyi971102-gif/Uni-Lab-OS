@@ -27,6 +27,10 @@
         },
         {
           "param": "position",
+          "template": "磁搅温度反馈_上位机[{position_minus_1}]"
+        },
+        {
+          "param": "position",
           "template": "磁搅速度设置_上位机[{position_minus_1}]"
         },
         {

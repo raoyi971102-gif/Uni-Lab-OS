@@ -8,12 +8,44 @@ from typing import Any, Dict, List, Optional
 from opcua import Client, ua
 
 from unilabos.device_comms.opcua_client.node.uniopcua import NodeType, Variable
-from unilabos.devices.workstation.post_process.post_process import BaseClient, OpcUaNode
+try:
+    from unilabos.devices.workstation.post_process.post_process import BaseClient, OpcUaNode
+except ModuleNotFoundError as exc:
+    if exc.name != "pylabrobot":
+        raise
+    BaseClient = object
+    OpcUaNode = None
 from unilabos.registry.decorators import action, device, not_action, topic_config
 from unilabos.utils.log import logger
 
 
 DEFAULT_CSV_NAME = "szlab_plc_0610.csv"
+
+
+def wait_variable_equal(
+    reader: Any,
+    variable_name: str,
+    expected: Any,
+    *,
+    timeout: float = 300.0,
+    interval: float = 1.0,
+) -> bool:
+    started_at = time.time()
+    while time.time() - started_at <= timeout:
+        if reader.read_variable(variable_name, use_cache=False) == expected:
+            return True
+        time.sleep(interval)
+    return False
+
+
+def wait_variable_true(
+    reader: Any,
+    variable_name: str,
+    *,
+    timeout: float = 300.0,
+    interval: float = 1.0,
+) -> bool:
+    return wait_variable_equal(reader, variable_name, True, timeout=timeout, interval=interval)
 
 
 S3_UNUSED_BEAKER_SENSORS: Dict[str, str] = {
@@ -207,6 +239,8 @@ class SZLabPolyPLCDevice(BaseClient):
         *args,
         **kwargs,
     ):
+        if OpcUaNode is None:
+            raise ModuleNotFoundError("SZLabPolyPLCDevice 需要可选依赖 pylabrobot，请在 unilab 环境中运行")
         super().__init__()
         self.csv_path = _resolve_csv_path(csv_path)
         self.heartbeat_node = heartbeat_node
@@ -346,12 +380,26 @@ class SZLabPolyPLCDevice(BaseClient):
         timeout: float = 300.0,
         interval: float = 0.2,
     ) -> bool:
-        start = time.time()
-        while time.time() - start < timeout:
-            if self.read(node_name) == expected:
-                return True
-            time.sleep(interval)
-        return False
+        return self.wait_variable_equal(node_name, expected, timeout=timeout, interval=interval)
+
+    @not_action
+    def wait_variable_equal(
+        self,
+        node_name: str,
+        expected: Any,
+        timeout: float = 300.0,
+        interval: float = 1.0,
+    ) -> bool:
+        return wait_variable_equal(self, node_name, expected, timeout=timeout, interval=interval)
+
+    @not_action
+    def wait_variable_true(
+        self,
+        node_name: str,
+        timeout: float = 300.0,
+        interval: float = 1.0,
+    ) -> bool:
+        return wait_variable_true(self, node_name, timeout=timeout, interval=interval)
 
     @not_action
     def wait_new_cycle_done(

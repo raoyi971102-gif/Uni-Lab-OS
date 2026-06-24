@@ -206,6 +206,7 @@ def test_magnetic_stirring_preset_uses_s04_stirrer_config():
         "S041磁搅工艺选择",
         "S041参数写入完成",
         "S041加工完成",
+        "磁搅温度反馈_上位机[0]",
         "磁搅速度设置_上位机[0]",
         "磁搅温度设置_上位机[0]",
         "磁搅时间设置_上位机[0]",
@@ -219,6 +220,10 @@ def test_magnetic_stirring_preset_uses_s04_stirrer_config():
     assert (
         stirrer_node["config"]["opcua_node_id_map"]["磁搅速度设置_上位机[0]"]
         == "ns=4;s=上位机通讯|磁搅速度设置_上位机[0]"
+    )
+    assert (
+        stirrer_node["config"]["opcua_node_id_map"]["磁搅温度反馈_上位机[0]"]
+        == "ns=4;s=上位机通讯|磁搅温度反馈_上位机[0]"
     )
     assert (
         stirrer_node["config"]["opcua_node_id_map"]["磁搅温度设置_上位机[0]"]
