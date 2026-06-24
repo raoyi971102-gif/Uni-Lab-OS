@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from importlib import import_module
 from pathlib import Path
 from typing import Any
 
@@ -10,20 +11,20 @@ import pytest
 from opcua import Client
 
 from unilabos.devices.workstation.szlab_poly_studio.plc import SZLabPolyPLCDevice
-from unilabos.devices.workstation.szlab_poly_studio.s08.s08_cap_station import (
-    NODE_PARAMS_WRITTEN,
-    NODE_PROCESS_COMPLETE,
-    NODE_PROCESS_SELECT,
-    S08ProcessType,
-    SZLabS08CapStationDevice,
-    _cap_cache_element_name,
-)
+
+_s08_module = import_module("unilabos.devices.workstation.szlab_poly_studio.decap-s08.s08_cap_station")
+NODE_PARAMS_WRITTEN = _s08_module.NODE_PARAMS_WRITTEN
+NODE_PROCESS_COMPLETE = _s08_module.NODE_PROCESS_COMPLETE
+NODE_PROCESS_SELECT = _s08_module.NODE_PROCESS_SELECT
+S08ProcessType = _s08_module.S08ProcessType
+SZLabS08CapStationDevice = _s08_module.SZLabS08CapStationDevice
+_cap_cache_element_name = _s08_module._cap_cache_element_name
 
 
 LOGGER = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-S08_CSV_PATH = REPO_ROOT / "unilabos" / "devices" / "workstation" / "szlab_poly_studio" / "s08" / "s08_nodes.csv"
+S08_CSV_PATH = REPO_ROOT / "unilabos" / "devices" / "workstation" / "szlab_poly_studio" / "decap-s08" / "s08_nodes.csv"
 SAMPLE_ID = [101, 102, 103]
 
 S08_VARIABLES = [

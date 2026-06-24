@@ -1,14 +1,14 @@
 from __future__ import annotations
 
+from importlib import import_module
 from typing import Any, Sequence
 
-from unilabos.devices.workstation.szlab_poly_studio.s08.s08_cap_station import (
-    CAP_CACHE_LENGTH,
-    NODE_PARAMS_WRITTEN,
-    NODE_PROCESS_COMPLETE,
-    NODE_PROCESS_SELECT,
-    _cap_cache_element_name,
-)
+_s08_module = import_module("unilabos.devices.workstation.szlab_poly_studio.decap-s08.s08_cap_station")
+CAP_CACHE_LENGTH = _s08_module.CAP_CACHE_LENGTH
+NODE_PARAMS_WRITTEN = _s08_module.NODE_PARAMS_WRITTEN
+NODE_PROCESS_COMPLETE = _s08_module.NODE_PROCESS_COMPLETE
+NODE_PROCESS_SELECT = _s08_module.NODE_PROCESS_SELECT
+_cap_cache_element_name = _s08_module._cap_cache_element_name
 
 
 class SzlabS08CapStationPseudoPlcClient:

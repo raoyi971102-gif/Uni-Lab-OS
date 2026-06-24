@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from importlib import import_module
 from pathlib import Path
 
 from tests.szlab_poly_studio.pseudo_clients.s08_cap_station import SzlabS08CapStationPseudoPlcClient
-from unilabos.devices.workstation.szlab_poly_studio.s08.s08_cap_station import (
-    NODE_PARAMS_WRITTEN,
-    NODE_PROCESS_SELECT,
-    S08ProcessType,
-    SZLabS08CapStationDevice,
-    _cap_cache_element_name,
-)
 from unilabos.registry.ast_registry_scanner import scan_directory
+
+_s08_module = import_module("unilabos.devices.workstation.szlab_poly_studio.decap-s08.s08_cap_station")
+NODE_PARAMS_WRITTEN = _s08_module.NODE_PARAMS_WRITTEN
+NODE_PROCESS_SELECT = _s08_module.NODE_PROCESS_SELECT
+S08ProcessType = _s08_module.S08ProcessType
+SZLabS08CapStationDevice = _s08_module.SZLabS08CapStationDevice
+_cap_cache_element_name = _s08_module._cap_cache_element_name
 
 SAMPLE_A = [101, 102, 103]
 SAMPLE_B = [201, 202, 203]

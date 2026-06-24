@@ -2,7 +2,7 @@
   "name": "szlab_s08_cap_station",
   "port": 50102,
   "object_name": "VirtualS08",
-  "csv": "unilabos/devices/workstation/szlab_poly_studio/s08/s08_nodes.csv",
+  "csv": "unilabos/devices/workstation/szlab_poly_studio/decap-s08/s08_nodes.csv",
   "daemon_flow": "tests/psuedo_devices/szlab_s08_cap_station/open_liquid_cap_flow.json",
   "pytest": "tests/szlab_poly_studio/test_s08_cap_station_opcua_ci.py",
   "server": {
