@@ -31,6 +31,18 @@ _DEFAULT_CONFIG = _DEVICE_DIR / "s08_debug.json"
 logger = logging.getLogger(__name__)
 
 
+def quiet_noisy_loggers() -> None:
+    for logger_name in (
+        "opcua",
+        "opcua.client",
+        "opcua.server",
+        "opcua.uaprotocol",
+        "pseudo-opcua-csv-server",
+        "pseudo-opcua-flow-daemon",
+    ):
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
+
+
 def resolve_repo_path(path: str | Path) -> Path:
     candidate = Path(path)
     if candidate.is_absolute():
@@ -142,6 +154,7 @@ def start_virtual_opcua_stack(config: dict[str, Any]) -> tuple[Any, threading.Th
 
 def serve_virtual_opcua(config_path: Path = _DEFAULT_CONFIG) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    quiet_noisy_loggers()
     config = load_s08_debug_config(config_path, use_production=False)
     server, daemon_thread, stop_event = start_virtual_opcua_stack(config)
     try:
@@ -230,6 +243,7 @@ def reset_plc_signals(config_path: Path, *, use_production: bool) -> None:
 
 
 def main() -> int:
+    quiet_noisy_loggers()
     parser = argparse.ArgumentParser(description="SZLab S08 开关盖工位单独调试")
     parser.add_argument(
         "--mode",
@@ -254,6 +268,7 @@ def main() -> int:
     virtual_stack: tuple[Any, threading.Thread, threading.Event] | None = None
     if args.mode == "all" and not args.production:
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+        quiet_noisy_loggers()
         config = load_s08_debug_config(args.config, use_production=False)
         virtual_stack = start_virtual_opcua_stack(config)
 
@@ -266,6 +281,9 @@ def main() -> int:
             daemon_thread.join(timeout=2.0)
             server.stop()
 
+    print("S08 debug result:")
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    print(f"S08 debug success: {bool(result.get('success'))}")
     return 0 if result.get("success") else 1
 
 
