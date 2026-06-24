@@ -300,6 +300,8 @@ def _run_node_with_live_opc_sampling(
 
     if snapshot_client is None or not snapshot_variables:
         return run_nodes([node], devices, logger=logger, runtime_config=runtime_config)
+    if default_plc is None and runtime_config.device_factory.devices and snapshot_client is device:
+        return run_nodes([node], devices, logger=logger, runtime_config=runtime_config)
 
     stop_event = threading.Event()
 
@@ -747,7 +749,7 @@ def create_app(preset_name: str = "ai4c", runtime_config: RuntimeConfig | None =
 
     @app.get("/api/actions", response_class=JSONResponse)
     async def list_actions() -> dict[str, Any]:
-        return {"actions": [_action_to_dict(action) for action in active_preset.actions.values()]}
+        return {"actions": [_action_to_dict(action, runtime_config) for action in active_preset.actions.values()]}
 
     @app.get("/api/preset", response_class=JSONResponse)
     async def get_preset() -> dict[str, Any]:
@@ -757,7 +759,7 @@ def create_app(preset_name: str = "ai4c", runtime_config: RuntimeConfig | None =
             "runtime_config": preset.runtime_config,
             "default_workflow_name": active_preset.default_workflow_name,
             "default_config": active_preset.default_config,
-            "actions": [_action_to_dict(action) for action in active_preset.actions.values()],
+            "actions": [_action_to_dict(action, runtime_config) for action in active_preset.actions.values()],
         }
 
     @app.post("/api/workflow/build", response_class=JSONResponse)
@@ -964,8 +966,8 @@ def _disconnect_devices(devices: dict[str, Any], log: Any | None = None) -> None
                 log(f"断开设备 {device_id} 连接时出错: {exc}")
 
 
-def _action_to_dict(action: ActionSpec) -> dict[str, Any]:
-    return {
+def _action_to_dict(action: ActionSpec, runtime_config: RuntimeConfig | None = None) -> dict[str, Any]:
+    data = {
         "method": action.method,
         "label": action.label,
         "description": action.description,
@@ -973,6 +975,9 @@ def _action_to_dict(action: ActionSpec) -> dict[str, Any]:
         "params": action.params,
         "device_id": action.device_id,
     }
+    if runtime_config is not None:
+        data["opc_variables"] = collect_snapshot_variables(action.method, {}, runtime_config)
+    return data
 
 
 def _record_to_dict(record: RunRecord) -> dict[str, Any]:

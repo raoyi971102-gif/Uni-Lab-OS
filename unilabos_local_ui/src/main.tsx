@@ -29,6 +29,7 @@ type ActionSpec = {
   device_id?: string;
   needs_position: boolean;
   params?: Array<Record<string, unknown>>;
+  opc_variables?: string[];
 };
 
 type PresetPayload = {
@@ -74,6 +75,7 @@ type ActionNodeData = {
   label: string;
   description: string;
   params: { position?: number };
+  opcVariables?: string[];
   runStatus?: NodeRunStatus;
   onPositionChange?: (nodeId: string, value: number) => void;
 };
@@ -192,6 +194,7 @@ function App() {
           label: action.label,
           description: action.description,
           params: action.needs_position ? { position: 1 } : {},
+          opcVariables: action.opc_variables || [],
           runStatus: 'idle',
         },
       },
@@ -449,6 +452,12 @@ function App() {
               <code>{editingNode.id}</code>
               <span>动作方法</span>
               <code>{editingNode.data.method}</code>
+              {editingNode.data.opcVariables?.length ? (
+                <>
+                  <span>变量名</span>
+                  <code>{editingNode.data.opcVariables.join('、')}</code>
+                </>
+              ) : null}
             </div>
             {'position' in editingNode.data.params ? (
               <label>

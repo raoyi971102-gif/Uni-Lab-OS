@@ -17,6 +17,7 @@ from scripts.workflow_ui import (
     WorkflowRunManager,
     _load_preset_runtime_config,
     _resolve_ui_path,
+    _action_to_dict,
     _runtime_supported_actions,
     _record_to_dict,
     _register_shutdown_handler,
@@ -139,6 +140,45 @@ def test_ai4c_preset_uses_formal_device_class():
         == "unilabos.devices.workstation.AI4C.AI4C_robot_arm.AI4CRobotArmDevice"
     )
     assert "pick_well_plate_from_loading_rack" in preset.actions
+
+
+def test_photoshotting_preset_uses_s05_camera_config():
+    preset = load_preset("photoshotting")
+    runtime_config = _load_preset_runtime_config(preset)
+    csv_path = _resolve_ui_path(preset.default_config["csv"], preset)
+    graph = build_local_device_graph(
+        opcua_url="opc.tcp://127.0.0.1:48405/",
+        csv_path=str(csv_path),
+        preset=preset,
+    )
+
+    assert preset.id == "photoshotting"
+    assert csv_path.exists()
+    assert preset.target_device_ids == ["szlab_mixer_photoshotting"]
+    assert list(preset.actions) == ["take_photo"]
+    assert runtime_config.device_factory.devices == {
+        "szlab_mixer_photoshotting": (
+            "unilabos.devices.workstation.szlab_poly_studio.photoshotting.photoshotting."
+            "SzlabMixerPhotoShottingDevice"
+        )
+    }
+    assert collect_snapshot_variables("take_photo", {}, runtime_config) == [
+        "S05加工完成",
+        "S05拍照结果",
+    ]
+
+    camera_node = next(node for node in graph["nodes"] if node["id"] == "szlab_mixer_photoshotting")
+    assert camera_node["config"]["url"] == "opc.tcp://127.0.0.1:48405/"
+    assert camera_node["config"]["csv_path"].endswith("photoshotting/photoshotting_nodes.csv")
+    assert camera_node["config"]["save_dir"] == "unilabos_data/szlab_poly_studio/photoshotting/photos"
+    assert camera_node["config"]["opcua_node_id_map"] == {
+        "S05加工完成": "ns=4;s=上位机通讯|S05加工完成",
+        "S05拍照结果": "ns=4;s=上位机通讯|S05拍照结果",
+    }
+    assert _action_to_dict(preset.actions["take_photo"], runtime_config)["opc_variables"] == [
+        "S05加工完成",
+        "S05拍照结果",
+    ]
 
 
 def test_szlab_mixer_ui_preset_uses_0622_csv_and_s04_s05_actions():
@@ -630,6 +670,58 @@ def test_run_node_with_live_opc_sampling_logs_changes_during_action(tmp_path):
     live_events = [event for event in events if event["message"].startswith("OPC实时变化:")]
     assert live_events
     assert live_events[-1]["detail"]["changes"][0]["after"] == {"success": True, "value": 2}
+
+
+def test_run_node_with_live_opc_sampling_skips_parallel_sampling_for_direct_device(tmp_path):
+    config_path = tmp_path / "runtime.json"
+    config_path.write_text(
+        """
+        {
+          "device_factory": {
+            "devices": {
+              "camera": "example.Camera"
+            }
+          },
+          "opc_snapshot": {
+            "action_variables": {
+              "take_photo": ["S05加工完成", "S05拍照结果"]
+            }
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    class FakeCamera:
+        def __init__(self):
+            self.reading = False
+
+        def get_variables(self, variable_names, use_cache=False):
+            if self.reading:
+                raise AssertionError("不应并发读取同一个 OPC 客户端")
+            return {name: {"success": True, "value": 1} for name in variable_names}
+
+        def take_photo(self):
+            self.reading = True
+            time.sleep(0.03)
+            self.reading = False
+            return {"success": True}
+
+    events = []
+
+    def write_event(message, *, level="info", detail=None):
+        events.append({"message": message, "level": level, "detail": detail})
+
+    results = _run_node_with_live_opc_sampling(
+        WorkflowNode(uuid="node_1", name="auto-take_photo", device_name="camera", param={}),
+        {"camera": FakeCamera()},
+        logger=WorkflowLogger(writer=write_event),
+        runtime_config=load_runtime_config(config_path),
+        sample_interval=0.01,
+    )
+
+    assert results[0]["result"] == {"success": True}
+    assert not [event for event in events if event["message"].startswith("OPC实时变化:")]
 
 
 def test_run_nodes_logs_opc_summary_with_detail_instead_of_full_snapshots():

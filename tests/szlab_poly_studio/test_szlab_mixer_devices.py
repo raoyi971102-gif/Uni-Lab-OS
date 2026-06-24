@@ -1,5 +1,8 @@
+import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+import pytest
 
 from unilabos.registry.ast_registry_scanner import scan_directory
 from unilabos.devices.workstation.szlab_poly_studio.pump.sensors import (
@@ -7,6 +10,7 @@ from unilabos.devices.workstation.szlab_poly_studio.pump.sensors import (
     default_s06_pipeline_routes,
     s06_pump_valve_var,
 )
+from unilabos.devices.workstation.szlab_poly_studio.photoshotting.photoshotting import SzlabMixerPhotoShottingDevice
 from scripts.run_workflow_local import create_local_devices, load_runtime_config
 from scripts.run_workflow_local import WorkflowLogger, WorkflowNode, run_nodes
 from scripts.workflow_ui import _load_preset_runtime_config, build_graph_workflow, load_preset
@@ -20,6 +24,147 @@ def test_szlab_mixer_devices_are_ast_scannable():
     assert set(result["devices"]) == {"szlab_mixer_pump"}
     assert "run_solvent_addition" in result["devices"]["szlab_mixer_pump"]["actions"]
     assert "transfer_liquid" in result["devices"]["szlab_mixer_pump"]["actions"]
+
+
+def test_szlab_photoshotting_device_is_ast_scannable_from_own_package():
+    root = Path("unilabos/devices/workstation/szlab_poly_studio/photoshotting")
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        result = scan_directory(root, python_path=Path(".").resolve(), executor=executor)
+
+    assert set(result["devices"]) == {"szlab_mixer_photoshotting"}
+    actions = result["devices"]["szlab_mixer_photoshotting"]["actions"]
+    assert list(actions) == ["take_photo"]
+
+
+def test_szlab_photoshotting_debug_assets_use_0623_s05_variables():
+    device_dir = Path("unilabos/devices/workstation/szlab_poly_studio/photoshotting")
+    latest_csv = Path("unilabos/devices/workstation/szlab_poly_studio/szlab_plc_0623.csv")
+    nodes_csv = device_dir / "photoshotting_nodes.csv"
+    flow_path = device_dir / "photoshotting_flow.json"
+    config_path = device_dir / "photoshotting_debug.json"
+    expected_names = {
+        "S05加工完成",
+        "S05拍照结果",
+    }
+
+    latest_text = latest_csv.read_text(encoding="utf-16")
+    for name in expected_names:
+        assert name in latest_text
+
+    node_names = {
+        line.split(",", 2)[1]
+        for line in nodes_csv.read_text(encoding="utf-8").splitlines()[1:]
+        if line.strip()
+    }
+    assert node_names == expected_names
+
+    flow = json.loads(flow_path.read_text(encoding="utf-8"))
+    assert flow["rules"] == []
+
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    assert config["virtual_opcua"]["csv"].endswith("photoshotting/photoshotting_nodes.csv")
+    assert config["device"]["csv_path"] == "photoshotting/photoshotting_nodes.csv"
+    assert config["device"]["opcua_node_id_map"] == {
+        "S05加工完成": "ns=4;s=上位机通讯|S05加工完成",
+        "S05拍照结果": "ns=4;s=上位机通讯|S05拍照结果",
+    }
+    assert config["action"]["name"] == "take_photo"
+
+
+def test_szlab_photoshotting_take_photo_only_checks_done_and_result():
+    class FakePlcGateway:
+        def __init__(self):
+            self.reads = []
+
+        def read_variable(self, name, use_cache=False):
+            self.reads.append(name)
+            values = {
+                "S05加工完成": True,
+                "S05拍照结果": 1,
+            }
+            return values[name]
+
+    gateway = FakePlcGateway()
+    device = SzlabMixerPhotoShottingDevice(
+        url="opc.tcp://127.0.0.1:0/",
+        use_plc_gateway=True,
+    )
+    device.set_plc_gateway(gateway)
+
+    result = device.take_photo(sample_id="sample-1", require_material=True)
+
+    assert result["success"] is True
+    assert result["data"]["result"] == "OK"
+    assert result["data"]["photo_url"] == ""
+    assert gateway.reads == ["S05加工完成", "S05拍照结果"]
+
+
+def test_szlab_photoshotting_take_photo_fails_when_result_is_ng():
+    class FakePlcGateway:
+        def __init__(self):
+            self.reads = []
+
+        def read_variable(self, name, use_cache=False):
+            self.reads.append(name)
+            values = {
+                "S05加工完成": True,
+                "S05拍照结果": 2,
+            }
+            return values[name]
+
+    gateway = FakePlcGateway()
+    device = SzlabMixerPhotoShottingDevice(
+        url="opc.tcp://127.0.0.1:0/",
+        use_plc_gateway=True,
+    )
+    device.set_plc_gateway(gateway)
+
+    result = device.take_photo(sample_id="sample-1")
+
+    assert result["success"] is False
+    assert result["message"] == "S05 拍照检测 NG"
+    assert result["data"]["result"] == "NG"
+    assert gateway.reads == ["S05加工完成", "S05拍照结果"]
+
+
+def test_szlab_poly_plc_uses_node_id_map_without_browsing(monkeypatch, tmp_path):
+    pytest.importorskip("pylabrobot")
+    from unilabos.devices.workstation.szlab_poly_studio.plc import SZLabPolyPLCDevice
+
+    csv_path = tmp_path / "s05.csv"
+    csv_path.write_text(
+        "序号,变量名,数据类型\n"
+        "1,S05加工完成,BOOL\n"
+        "2,S05拍照结果,INT\n",
+        encoding="utf-8",
+    )
+
+    class FakeClient:
+        def __init__(self, url):
+            self.url = url
+            self.connected = False
+
+        def connect(self):
+            self.connected = True
+
+    def fail_find_nodes(self):
+        raise AssertionError("已提供 NodeId map 时不应浏览 OPC UA 地址空间")
+
+    monkeypatch.setattr("unilabos.devices.workstation.szlab_poly_studio.plc.Client", FakeClient)
+    monkeypatch.setattr(SZLabPolyPLCDevice, "_find_nodes", fail_find_nodes)
+
+    device = SZLabPolyPLCDevice(
+        url="opc.tcp://127.0.0.1:4840/",
+        csv_path=str(csv_path),
+        opcua_node_id_map={
+            "S05加工完成": "ns=4;s=上位机通讯|S05加工完成",
+            "S05拍照结果": "ns=4;s=上位机通讯|S05拍照结果",
+        },
+    )
+
+    assert device.client.connected is True
+    assert device.use_node("S05加工完成").node_id == "ns=4;s=上位机通讯|S05加工完成"
+    assert device.use_node("S05拍照结果").node_id == "ns=4;s=上位机通讯|S05拍照结果"
 
 
 def test_szlab_mixer_keeps_pipeline_route_helpers():

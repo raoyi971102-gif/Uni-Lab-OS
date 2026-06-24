@@ -1,44 +1,45 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib import request
 
 from unilabos.registry.decorators import action, device, not_action, topic_config
-from unilabos.devices.workstation.szlab_poly_studio.plc import SZLabPolyPLCDevice
 
+from .sensors import (
+    PHOTO_RESULT_LABELS,
+    S05_DONE,
+    S05_RESULT,
+)
 
-S05_READY_SIGNAL = "S05准备信号"
-S05_MATERIAL_SENSOR = "传感器状态_上位机[3].NO[0]"
-S05_RESULT = "S05拍照结果"
-S05_DONE = "S05加工完成"
-
-PHOTO_RESULT_LABELS = {
-    1: "OK",
-    2: "NG",
-}
+DEFAULT_OPCUA_URL = os.environ.get(
+    "UNILABOS_SZLAB_MIXER_OPCUA_URL",
+    "opc.tcp://jdht1471820.bohrium.tech:50001",
+)
 
 
 @device(
     id="szlab_mixer_photoshotting",
     display_name="SZLab 拍照检测",
     category=["camera"],
-    description="SZLab VirtualMixer S05 拍照检测工位设备",
+    description="SZLab Poly Studio S05 拍照检测工位设备",
 )
 class SzlabMixerPhotoShottingDevice:
     def __init__(
         self,
-        url: str,
+        url: str = DEFAULT_OPCUA_URL,
         username: str | None = None,
         password: str | None = None,
-        csv_path: str | None = None,
+        csv_path: str | None = "szlab_plc_0623.csv",
         timeout: float = 300.0,
-        save_dir: str = "unilabos_data/szlab_mixer/photos",
+        save_dir: str = "unilabos_data/szlab_poly_studio/photoshotting/photos",
         auto_connect: bool = True,
         plc_device_id: str = "szlab_poly_plc",
         use_plc_gateway: bool = False,
+        opcua_node_id_map: dict[str, str] | None = None,
         **kwargs,
     ):
         self.url = url
@@ -55,7 +56,14 @@ class SzlabMixerPhotoShottingDevice:
         }
         if csv_path is not None:
             client_kwargs["csv_path"] = csv_path
-        self._client = None if use_plc_gateway else SZLabPolyPLCDevice(**client_kwargs)
+        if opcua_node_id_map is not None:
+            client_kwargs["opcua_node_id_map"] = opcua_node_id_map
+        if use_plc_gateway:
+            self._client = None
+        else:
+            from unilabos.devices.workstation.szlab_poly_studio.plc import SZLabPolyPLCDevice
+
+            self._client = SZLabPolyPLCDevice(**client_kwargs)
         self._status = "Idle"
         self._last_photo_path = ""
         self._last_result = "UNKNOWN"
@@ -108,14 +116,6 @@ class SzlabMixerPhotoShottingDevice:
         if getattr(self, "_plc_gateway", None) is not None:
             return self._plc_gateway.read_variable(name, use_cache=use_cache)
         return self._client.read(name)
-
-    @not_action
-    def _wait_new_cycle_done(self, name: str) -> bool:
-        if getattr(self, "_plc_gateway", None) is not None and hasattr(self._plc_gateway, "wait_new_cycle_done"):
-            return self._plc_gateway.wait_new_cycle_done(name, timeout=self.timeout)
-        if self._client is not None:
-            return self._client.wait_new_cycle_done(name, timeout=self.timeout)
-        return bool(self._read_variable(name, use_cache=False))
 
     @not_action
     def _build_photo_path(self, sample_id: str = "", view: str = "photo") -> str:
@@ -184,13 +184,7 @@ class SzlabMixerPhotoShottingDevice:
     ) -> dict[str, Any]:
         if inspection_result:
             normalized = self._normalize_algorithm_result(inspection_result)
-            return {
-                "success": True,
-                "status": "provided",
-                "result": inspection_result,
-                "photo_path": photo_path,
-                **normalized,
-            }
+            return {"success": True, "status": "provided", "result": inspection_result, "photo_path": photo_path, **normalized}
         if algorithm_url:
             payload = {"photo_path": photo_path}
             if extra_payload:
@@ -225,6 +219,11 @@ class SzlabMixerPhotoShottingDevice:
         except (TypeError, ValueError):
             return "UNKNOWN"
 
+    @not_action
+    def _fetch_photo_url(self, sample_id: str = "") -> str:
+        del sample_id
+        return ""
+
     @action(auto_prefix=True, description="执行烧杯姿势拍照检测")
     def take_photo(
         self,
@@ -236,70 +235,42 @@ class SzlabMixerPhotoShottingDevice:
         """
         Args:
             sample_id[样品ID]: 用于生成照片文件名和结果记录的样品标识。
-            photo_path[照片路径]: 外部相机或算法保存照片后的路径；为空时自动生成预留路径。
-            inspection_result[算法结果]: 算法尚未接入时可手动传入的结果记录。
-            require_material[要求有料]: 是否检查拍照有料检测传感器，联调阶段默认不强制检查。
+            photo_path[照片路径]: 保留参数；相机照片链接接口接入后由设备侧获取。
+            inspection_result[算法结果]: 保留参数；S05 当前按 PLC 拍照结果判断。
+            require_material[要求有料]: 兼容旧工作流参数；S05 最新变量表不再提供物料检测，当前不使用。
         """
-        if not bool(self._read_variable(S05_READY_SIGNAL, use_cache=False)):
-            return {"success": False, "message": "S05 拍照工位未准备就绪"}
-        if require_material and not bool(self._read_variable(S05_MATERIAL_SENSOR, use_cache=False)):
-            return {"success": False, "message": "S05 拍照工位未检测到物料"}
+        del inspection_result, require_material
+        if not bool(self._read_variable(S05_DONE, use_cache=False)):
+            return {"success": False, "message": "S05 拍照尚未完成"}
 
         self._status = "Running"
-        photo_path = photo_path or self._build_photo_path(sample_id)
-        capture_result = self._capture_photo(photo_path=photo_path, sample_id=sample_id)
-        if not capture_result.get("success", False):
-            self._status = "Error"
-            return {
-                "success": False,
-                "message": capture_result.get("message", "拍照失败"),
-                "data": capture_result,
-            }
-
-        algorithm_result = self._run_inspection(photo_path=photo_path, inspection_result=inspection_result)
-        if not algorithm_result.get("success", False):
-            self._status = "Error"
-            return {
-                "success": False,
-                "message": algorithm_result.get("message", "算法检测失败"),
-                "data": {
-                    "photo_path": photo_path,
-                    "capture": capture_result,
-                    "inspection_result": algorithm_result,
-                },
-            }
-
-        if not self._wait_new_cycle_done(S05_DONE):
-            self._status = "Error"
-            return {
-                "success": False,
-                "message": "S05 拍照完成等待超时",
-                "data": {
-                    "photo_path": photo_path,
-                    "capture": capture_result,
-                    "inspection_result": algorithm_result,
-                },
-            }
-
         result_code = self._read_variable(S05_RESULT, use_cache=False)
         result_label = self._result_label(result_code)
+        photo_url = self._fetch_photo_url(sample_id) if result_label == "OK" else ""
         self._status = "Idle"
         self._last_photo_path = photo_path
         self._last_result = result_label
+        data = {
+            "sample_id": sample_id,
+            "photo_path": photo_path,
+            "photo_url": photo_url,
+            "result_code": result_code,
+            "result": result_label,
+        }
+        if result_label != "OK":
+            self._status = "Error"
+            return {
+                "success": False,
+                "message": f"S05 拍照检测 {result_label}",
+                "data": data,
+            }
         return {
             "success": True,
             "message": f"S05 拍照检测完成，结果 {result_label}",
-            "data": {
-                "sample_id": sample_id,
-                "photo_path": photo_path,
-                "result_code": result_code,
-                "result": result_label,
-                "capture": capture_result,
-                "inspection_result": algorithm_result,
-            },
+            "data": data,
         }
 
-    @action(auto_prefix=True, description="执行顶面和侧面双视角拍照检测")
+    @not_action
     def take_dual_view_photos(
         self,
         sample_id: str = "",
@@ -309,10 +280,8 @@ class SzlabMixerPhotoShottingDevice:
         algorithm_timeout: float = 10.0,
         require_material: bool = False,
     ) -> dict[str, Any]:
-        if not bool(self._read_variable(S05_READY_SIGNAL, use_cache=False)):
-            return {"success": False, "message": "S05 拍照工位未准备就绪"}
-        if require_material and not bool(self._read_variable(S05_MATERIAL_SENSOR, use_cache=False)):
-            return {"success": False, "message": "S05 拍照工位未检测到物料"}
+        if not bool(self._read_variable(S05_DONE, use_cache=False)):
+            return {"success": False, "message": "S05 拍照尚未完成"}
 
         self._status = "Running"
         top_photo_path = top_photo_path or self._build_photo_path(sample_id, view="top")
@@ -337,32 +306,14 @@ class SzlabMixerPhotoShottingDevice:
             photo_path=top_photo_path,
             algorithm_url=algorithm_url,
             algorithm_timeout=algorithm_timeout,
-            extra_payload={
-                "sample_id": sample_id,
-                "top_photo_path": top_photo_path,
-                "side_photo_path": side_photo_path,
-            },
+            extra_payload={"sample_id": sample_id, "top_photo_path": top_photo_path,
+                           "side_photo_path": side_photo_path},
         )
         if not algorithm_result.get("success", False):
             self._status = "Error"
             return {
                 "success": False,
                 "message": algorithm_result.get("message", "溶解性算法检测失败"),
-                "data": {
-                    "sample_id": sample_id,
-                    "top_photo_path": top_photo_path,
-                    "side_photo_path": side_photo_path,
-                    "top_capture": top_capture,
-                    "side_capture": side_capture,
-                    "dissolution": algorithm_result,
-                },
-            }
-
-        if not self._wait_new_cycle_done(S05_DONE):
-            self._status = "Error"
-            return {
-                "success": False,
-                "message": "S05 拍照完成等待超时",
                 "data": {
                     "sample_id": sample_id,
                     "top_photo_path": top_photo_path,
@@ -396,12 +347,9 @@ class SzlabMixerPhotoShottingDevice:
         self._last_result = result_label
         return result
 
-    @action(auto_prefix=True, description="读取拍照工位占用状态")
-    def photo_station_occupied(self) -> dict[str, Any]:
-        try:
-            return {
-                "success": True,
-                "occupied": bool(self._read_variable(S05_MATERIAL_SENSOR, use_cache=False)),
-            }
-        except Exception as exc:
-            return {"success": False, "message": str(exc)}
+
+if __name__ == "__main__":
+    import runpy
+
+    runpy.run_module("unilabos.devices.workstation.szlab_poly_studio.photoshotting.debug_photoshotting",
+                     run_name="__main__")

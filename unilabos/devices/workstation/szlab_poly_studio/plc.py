@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from opcua import Client
 
-from unilabos.device_comms.opcua_client.node.uniopcua import NodeType
+from unilabos.device_comms.opcua_client.node.uniopcua import NodeType, Variable
 from unilabos.devices.workstation.post_process.post_process import BaseClient, OpcUaNode
 from unilabos.registry.decorators import action, device, not_action, topic_config
 from unilabos.utils.log import logger
@@ -161,23 +161,27 @@ def load_variable_names_from_csv(csv_path: str) -> List[str]:
     names: List[str] = []
     seen = set()
     last_error: Optional[UnicodeDecodeError] = None
-    for encoding in ("utf-8-sig", "gb18030", "gbk"):
-        try:
-            with open(csv_path, newline="", encoding=encoding) as csv_file:
-                reader = csv.DictReader(csv_file)
-                if "变量名" not in (reader.fieldnames or []):
-                    raise ValueError("CSV 文件缺少 '变量名' 列")
-                for row in reader:
-                    name = (row.get("变量名") or "").strip()
-                    if not name or name in seen:
+    for encoding in ("utf-8-sig", "utf-16", "utf-16-le", "gb18030", "gbk"):
+        for delimiter in (",", "\t"):
+            try:
+                with open(csv_path, newline="", encoding=encoding) as csv_file:
+                    reader = csv.DictReader(csv_file, delimiter=delimiter)
+                    if "变量名" not in (reader.fieldnames or []):
+                        names.clear()
+                        seen.clear()
                         continue
-                    seen.add(name)
-                    names.append(name)
-            return names
-        except UnicodeDecodeError as exc:
-            names.clear()
-            seen.clear()
-            last_error = exc
+                    for row in reader:
+                        name = (row.get("变量名") or "").strip()
+                        if not name or name in seen:
+                            continue
+                        seen.add(name)
+                        names.append(name)
+                return names
+            except UnicodeDecodeError as exc:
+                names.clear()
+                seen.clear()
+                last_error = exc
+                break
     if last_error:
         raise last_error
     return names
@@ -199,6 +203,7 @@ class SZLabPolyPLCDevice(BaseClient):
         heartbeat_node: str = "Heart_Beat",
         auto_connect: bool = True,
         opcua_log_level: str = "WARNING",
+        opcua_node_id_map: Optional[Dict[str, str]] = None,
         *args,
         **kwargs,
     ):
@@ -207,6 +212,7 @@ class SZLabPolyPLCDevice(BaseClient):
         self.heartbeat_node = heartbeat_node
         self.heartbeat_on = False
         self._heartbeat_timer: Optional[threading.Timer] = None
+        self._direct_node_id_map = dict(opcua_node_id_map or {})
 
         nodes = [
             OpcUaNode(name=name, node_type=NodeType.VARIABLE, data_type=None)
@@ -220,8 +226,48 @@ class SZLabPolyPLCDevice(BaseClient):
             client.set_user(username)
             client.set_password(password)
         self._set_client(client)
+        if self._direct_node_id_map:
+            self._register_direct_node_ids(nodes)
         if auto_connect:
             self._connect()
+
+    @not_action
+    def _connect(self) -> None:
+        if not self._direct_node_id_map:
+            return super()._connect()
+        logger.info("try to connect client...")
+        if not self.client:
+            raise ValueError("client is not initialized")
+        try:
+            self.client.connect()
+            logger.info("client connected!")
+            missing = sorted(set(self._variables_to_find) - set(self._node_registry))
+            if missing:
+                logger.warning(f"以下节点缺少 NodeId 映射，未执行自动浏览: {', '.join(missing)}")
+        except Exception as exc:
+            logger.error(f"client connect failed: {exc}")
+            raise
+
+    @not_action
+    def _register_direct_node_ids(self, nodes: List[OpcUaNode]) -> None:
+        if not self.client:
+            raise ValueError("client is not initialized")
+        nodes_by_name = {node.name: node for node in nodes}
+        for name, node_id in self._direct_node_id_map.items():
+            node = nodes_by_name.get(name)
+            if node is None:
+                continue
+            if node.node_type != NodeType.VARIABLE:
+                continue
+            self._node_registry[name] = Variable(self.client, name, node_id, node.data_type)
+            self._variables_to_find.setdefault(
+                name,
+                {
+                    "node_type": node.node_type,
+                    "data_type": node.data_type,
+                    "node_id": node_id,
+                },
+            )
 
     @not_action
     def read_variable(self, node_name: str, use_cache: bool = True) -> Any:
