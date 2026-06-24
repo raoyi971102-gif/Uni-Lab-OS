@@ -28,8 +28,18 @@ type ActionSpec = {
   description: string;
   device_id?: string;
   needs_position: boolean;
-  params?: Array<Record<string, unknown>>;
+  params?: ParamSpec[];
   opc_variables?: string[];
+};
+
+type ParamSpec = {
+  name?: string;
+  label?: string;
+  description?: string;
+  type?: string;
+  min?: number;
+  max?: number;
+  default?: unknown;
 };
 
 type PresetPayload = {
@@ -74,7 +84,8 @@ type ActionNodeData = {
   method: string;
   label: string;
   description: string;
-  params: { position?: number };
+  params: Record<string, unknown>;
+  paramSpecs?: ParamSpec[];
   opcVariables?: string[];
   runStatus?: NodeRunStatus;
   onPositionChange?: (nodeId: string, value: number) => void;
@@ -88,6 +99,23 @@ const DEFAULT_CONFIG = {
   no_subscription: true,
   show_csv: false,
 };
+
+function buildDefaultParams(params: ParamSpec[]) {
+  return params.reduce<Record<string, unknown>>((defaults, param) => {
+    const name = param.name || '';
+    if (!name) return defaults;
+    if ('default' in param) {
+      defaults[name] = param.default;
+    } else if (param.type === 'boolean') {
+      defaults[name] = false;
+    } else if (param.type === 'integer' || param.type === 'number') {
+      defaults[name] = param.min ?? 0;
+    } else {
+      defaults[name] = '';
+    }
+    return defaults;
+  }, {});
+}
 
 function App() {
   const [title, setTitle] = useState('szlab 本地调试工具');
@@ -193,7 +221,8 @@ function App() {
           method: action.method,
           label: action.label,
           description: action.description,
-          params: action.needs_position ? { position: 1 } : {},
+          params: buildDefaultParams(action.params || []),
+          paramSpecs: action.params || [],
           opcVariables: action.opc_variables || [],
           runStatus: 'idle',
         },
@@ -201,11 +230,11 @@ function App() {
     ]);
   };
 
-  const updatePosition = (nodeId: string, value: number) => {
+  const updateNodeParam = (nodeId: string, name: string, value: unknown) => {
     setNodes((current) =>
       current.map((node) =>
         node.id === nodeId
-          ? { ...node, data: { ...node.data, params: { ...node.data.params, position: value } } }
+          ? { ...node, data: { ...node.data, params: { ...node.data.params, [name]: value } } }
           : node,
       ),
     );
@@ -388,7 +417,10 @@ function App() {
             <ReactFlow
               nodes={nodes.map((node) => ({
                 ...node,
-                data: { ...node.data, onPositionChange: updatePosition },
+                data: {
+                  ...node.data,
+                  onPositionChange: (nodeId: string, value: number) => updateNodeParam(nodeId, 'position', value),
+                },
               }))}
               edges={edges}
               nodeTypes={nodeTypes}
@@ -459,17 +491,34 @@ function App() {
                 </>
               ) : null}
             </div>
-            {'position' in editingNode.data.params ? (
-              <label>
-                料架位置
-                <input
-                  type="number"
-                  min={1}
-                  max={8}
-                  value={editingNode.data.params.position || 1}
-                  onChange={(event) => updatePosition(editingNode.id, Number(event.target.value))}
-                />
-              </label>
+            {editingNode.data.paramSpecs?.length ? (
+              <div className="param-grid">
+                {editingNode.data.paramSpecs.map((param) => {
+                  const name = param.name || '';
+                  if (!name) return null;
+                  return (
+                    <label key={name}>
+                      {param.label || name}
+                      <input
+                        type={param.type === 'boolean' ? 'checkbox' : param.type === 'string' ? 'text' : 'number'}
+                        min={param.min}
+                        max={param.max}
+                        checked={param.type === 'boolean' ? Boolean(editingNode.data.params[name]) : undefined}
+                        value={param.type === 'boolean' ? undefined : String(editingNode.data.params[name] ?? '')}
+                        onChange={(event) => {
+                          const value = param.type === 'boolean'
+                            ? event.currentTarget.checked
+                            : param.type === 'string'
+                              ? event.currentTarget.value
+                              : Number(event.currentTarget.value);
+                          updateNodeParam(editingNode.id, name, value);
+                        }}
+                      />
+                      {param.description ? <small>{param.description}</small> : null}
+                    </label>
+                  );
+                })}
+              </div>
             ) : (
               <div className="empty-state">该动作没有可编辑参数。</div>
             )}

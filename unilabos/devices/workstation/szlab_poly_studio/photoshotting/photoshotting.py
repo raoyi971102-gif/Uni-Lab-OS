@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -224,6 +225,15 @@ class SzlabMixerPhotoShottingDevice:
         del sample_id
         return ""
 
+    @not_action
+    def _wait_photo_done(self) -> bool:
+        started_at = time.time()
+        while time.time() - started_at <= self.timeout:
+            if bool(self._read_variable(S05_DONE, use_cache=False)):
+                return True
+            time.sleep(1.0)
+        return False
+
     @action(auto_prefix=True, description="执行烧杯姿势拍照检测")
     def take_photo(
         self,
@@ -240,10 +250,11 @@ class SzlabMixerPhotoShottingDevice:
             require_material[要求有料]: 兼容旧工作流参数；S05 最新变量表不再提供物料检测，当前不使用。
         """
         del inspection_result, require_material
-        if not bool(self._read_variable(S05_DONE, use_cache=False)):
-            return {"success": False, "message": "S05 拍照尚未完成"}
-
         self._status = "Running"
+        if not self._wait_photo_done():
+            self._status = "Error"
+            return {"success": False, "message": "S05 拍照完成等待超时"}
+
         result_code = self._read_variable(S05_RESULT, use_cache=False)
         result_label = self._result_label(result_code)
         photo_url = self._fetch_photo_url(sample_id) if result_label == "OK" else ""
@@ -280,10 +291,11 @@ class SzlabMixerPhotoShottingDevice:
         algorithm_timeout: float = 10.0,
         require_material: bool = False,
     ) -> dict[str, Any]:
-        if not bool(self._read_variable(S05_DONE, use_cache=False)):
-            return {"success": False, "message": "S05 拍照尚未完成"}
-
         self._status = "Running"
+        if not self._wait_photo_done():
+            self._status = "Error"
+            return {"success": False, "message": "S05 拍照完成等待超时"}
+
         top_photo_path = top_photo_path or self._build_photo_path(sample_id, view="top")
         side_photo_path = side_photo_path or self._build_photo_path(sample_id, view="side")
         top_capture = self._capture_photo(photo_path=top_photo_path, sample_id=sample_id)

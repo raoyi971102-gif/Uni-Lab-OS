@@ -181,6 +181,52 @@ def test_photoshotting_preset_uses_s05_camera_config():
     ]
 
 
+def test_magnetic_stirring_preset_uses_s04_stirrer_config():
+    preset = load_preset("magnetic_stirring")
+    runtime_config = _load_preset_runtime_config(preset)
+    csv_path = _resolve_ui_path(preset.default_config["csv"], preset)
+    graph = build_local_device_graph(
+        opcua_url="opc.tcp://127.0.0.1:48405/",
+        csv_path=str(csv_path),
+        preset=preset,
+    )
+
+    assert preset.id == "magnetic_stirring"
+    assert csv_path.exists()
+    assert preset.target_device_ids == ["szlab_mixer_stirrer"]
+    assert list(preset.actions) == ["run_stirring"]
+    assert runtime_config.device_factory.devices == {
+        "szlab_mixer_stirrer": (
+            "unilabos.devices.workstation.szlab_poly_studio.magnetic_stirring."
+            "magnetic_stirring.SzlabMixerMagneticStirrerDevice"
+        )
+    }
+    assert collect_snapshot_variables("run_stirring", {"position": 1}, runtime_config) == [
+        "S041允许加工",
+        "S041磁搅工艺选择",
+        "S041参数写入完成",
+        "S041加工完成",
+        "磁搅速度设置_上位机[0]",
+        "磁搅温度设置_上位机[0]",
+        "磁搅时间设置_上位机[0]",
+        "磁搅安全温度设置_上位机[0]",
+    ]
+
+    stirrer_node = next(node for node in graph["nodes"] if node["id"] == "szlab_mixer_stirrer")
+    assert stirrer_node["config"]["url"] == "opc.tcp://127.0.0.1:48405/"
+    assert stirrer_node["config"]["csv_path"].endswith("magnetic_stirring/magnetic_stirring_nodes.csv")
+    assert stirrer_node["config"]["opcua_node_id_map"]["S041允许加工"] == "ns=4;s=上位机通讯|S041允许加工"
+    assert (
+        stirrer_node["config"]["opcua_node_id_map"]["磁搅速度设置_上位机[0]"]
+        == "ns=4;s=上位机通讯|磁搅速度设置_上位机[0]"
+    )
+    assert (
+        stirrer_node["config"]["opcua_node_id_map"]["磁搅温度设置_上位机[0]"]
+        == "ns=4;s=上位机通讯|磁搅温度设置_上位机[0]"
+    )
+    assert _action_to_dict(preset.actions["run_stirring"], runtime_config)["opc_variables"] == []
+
+
 def test_szlab_mixer_ui_preset_uses_0622_csv_and_s04_s05_actions():
     preset = load_preset("szlab_mixer")
     runtime_config = _load_preset_runtime_config(preset)

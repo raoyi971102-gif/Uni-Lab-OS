@@ -5,7 +5,7 @@ import threading
 import time
 from typing import Any, Dict, List, Optional
 
-from opcua import Client
+from opcua import Client, ua
 
 from unilabos.device_comms.opcua_client.node.uniopcua import NodeType, Variable
 from unilabos.devices.workstation.post_process.post_process import BaseClient, OpcUaNode
@@ -279,10 +279,35 @@ class SZLabPolyPLCDevice(BaseClient):
 
     @not_action
     def write_variable(self, node_name: str, value: Any) -> bool:
-        error = self.use_node(node_name).write(value)
-        if error:
-            raise RuntimeError(f"写入 PLC 变量失败: {node_name}")
+        node = self.use_node(node_name)
+        try:
+            self._write_value_only(node, value)
+        except Exception as exc:
+            raise RuntimeError(f"写入 PLC 变量失败: {node_name}") from exc
         return True
+
+    @not_action
+    def _write_value_only(self, node: Any, value: Any) -> None:
+        opc_node = node._get_node()
+        variant_type = opc_node.get_data_type_as_variant_type()
+        data_value = ua.DataValue()
+        data_value.Value = ua.Variant(value, variant_type)
+        data_value.StatusCode = None
+        data_value.SourceTimestamp = None
+        data_value.ServerTimestamp = None
+        data_value.SourcePicoseconds = None
+        data_value.ServerPicoseconds = None
+
+        write_value = ua.WriteValue()
+        write_value.NodeId = opc_node.nodeid
+        write_value.AttributeId = ua.AttributeIds.Value
+        write_value.Value = data_value
+
+        params = ua.WriteParameters()
+        params.NodesToWrite = [write_value]
+        results = self.client.uaclient.write(params)
+        if results and not results[0].is_good():
+            raise RuntimeError(str(results[0]))
 
     @not_action
     def disconnect(self) -> None:

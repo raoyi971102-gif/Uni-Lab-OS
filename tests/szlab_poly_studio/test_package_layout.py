@@ -12,6 +12,7 @@ def test_szlab_poly_studio_imports_from_device_workstation_package():
     assert "SZLabPolyStudioDeck" in szlab_poly_studio.__all__
     assert "SzlabMixerPumpDevice" in szlab_poly_studio.__all__
     assert "SzlabMixerPhotoShottingDevice" in szlab_poly_studio.__all__
+    assert "SzlabMixerMagneticStirrerDevice" in szlab_poly_studio.__all__
 
 
 def test_szlab_poly_studio_default_csv_resolves_inside_workstation_package():

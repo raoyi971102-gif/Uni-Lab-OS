@@ -26,16 +26,12 @@ from scripts.run_workflow_local import (
     RuntimeConfig,
     WorkflowLogger,
     WorkflowNode,
-    build_snapshot_diff_detail,
     build_execution_order,
     collect_snapshot_variables,
     create_local_devices,
     load_workflow_nodes,
     load_runtime_config,
-    method_name_from_template,
     run_nodes,
-    route_node_device,
-    snapshot_opc_state,
 )
 
 
@@ -291,43 +287,8 @@ def _run_node_with_live_opc_sampling(
     runtime_config: RuntimeConfig,
     sample_interval: float = 0.5,
 ) -> list[dict[str, Any]]:
-    method_name = method_name_from_template(node.name)
-    snapshot_variables = collect_snapshot_variables(method_name, node.param, runtime_config)
-    default_plc = devices.get(runtime_config.device_factory.plc_device_id)
-    device_name = route_node_device(node, runtime_config)
-    device = devices.get(device_name)
-    snapshot_client = default_plc or (device if hasattr(device, "get_variables") else None)
-
-    if snapshot_client is None or not snapshot_variables:
-        return run_nodes([node], devices, logger=logger, runtime_config=runtime_config)
-    if default_plc is None and runtime_config.device_factory.devices and snapshot_client is device:
-        return run_nodes([node], devices, logger=logger, runtime_config=runtime_config)
-
-    stop_event = threading.Event()
-
-    def sample_loop() -> None:
-        previous = snapshot_opc_state(snapshot_client, snapshot_variables)
-        while not stop_event.wait(sample_interval):
-            current = snapshot_opc_state(snapshot_client, snapshot_variables)
-            diff_detail = build_snapshot_diff_detail(previous, current, plc=snapshot_client)
-            if diff_detail["changes"]:
-                logger.log(
-                    f"OPC实时变化: {len(diff_detail['changes'])} 个变量变化",
-                    detail=diff_detail,
-                )
-            previous = current
-
-    sampler = threading.Thread(
-        target=sample_loop,
-        daemon=True,
-        name=f"szlab-opc-sampler-{node.uuid[:8]}",
-    )
-    sampler.start()
-    try:
-        return run_nodes([node], devices, logger=logger, runtime_config=runtime_config)
-    finally:
-        stop_event.set()
-        sampler.join(timeout=max(sample_interval * 2, 0.2))
+    del sample_interval
+    return run_nodes([node], devices, logger=logger, runtime_config=runtime_config)
 
 
 class WorkflowRunManager:
@@ -976,8 +937,15 @@ def _action_to_dict(action: ActionSpec, runtime_config: RuntimeConfig | None = N
         "device_id": action.device_id,
     }
     if runtime_config is not None:
-        data["opc_variables"] = collect_snapshot_variables(action.method, {}, runtime_config)
+        data["opc_variables"] = _collect_action_level_opc_variables(action.method, runtime_config)
     return data
+
+
+def _collect_action_level_opc_variables(method: str, runtime_config: RuntimeConfig) -> list[str]:
+    snapshot_config = runtime_config.opc_snapshot
+    variables = list(snapshot_config.common_variables)
+    variables.extend(snapshot_config.action_variables.get(method, []))
+    return list(dict.fromkeys(variables))
 
 
 def _record_to_dict(record: RunRecord) -> dict[str, Any]:

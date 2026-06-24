@@ -10,6 +10,10 @@ from unilabos.devices.workstation.szlab_poly_studio.pump.sensors import (
     default_s06_pipeline_routes,
     s06_pump_valve_var,
 )
+from unilabos.devices.workstation.szlab_poly_studio.magnetic_stirring.magnetic_stirring import (
+    SzlabMixerMagneticStirrerDevice,
+)
+import unilabos.devices.workstation.szlab_poly_studio.photoshotting.photoshotting as photoshotting_module
 from unilabos.devices.workstation.szlab_poly_studio.photoshotting.photoshotting import SzlabMixerPhotoShottingDevice
 from scripts.run_workflow_local import create_local_devices, load_runtime_config
 from scripts.run_workflow_local import WorkflowLogger, WorkflowNode, run_nodes
@@ -34,6 +38,173 @@ def test_szlab_photoshotting_device_is_ast_scannable_from_own_package():
     assert set(result["devices"]) == {"szlab_mixer_photoshotting"}
     actions = result["devices"]["szlab_mixer_photoshotting"]["actions"]
     assert list(actions) == ["take_photo"]
+
+
+def test_szlab_magnetic_stirrer_device_is_ast_scannable_from_own_package():
+    root = Path("unilabos/devices/workstation/szlab_poly_studio/magnetic_stirring")
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        result = scan_directory(root, python_path=Path(".").resolve(), executor=executor)
+
+    assert set(result["devices"]) == {"szlab_mixer_stirrer"}
+    actions = result["devices"]["szlab_mixer_stirrer"]["actions"]
+    assert list(actions) == ["run_stirring"]
+
+
+def test_szlab_magnetic_stirrer_run_stirring_writes_s041_parameters():
+    class FakePlcGateway:
+        def __init__(self):
+            self.reads = []
+            self.writes = []
+            self.done_values = [False, False, True]
+
+        def read_variable(self, name, use_cache=False):
+            self.reads.append(name)
+            if name == "S041允许加工":
+                return True
+            if name == "S041加工完成":
+                return self.done_values.pop(0)
+            raise KeyError(name)
+
+        def write_variable(self, name, value):
+            self.writes.append((name, value))
+            return True
+
+    gateway = FakePlcGateway()
+    device = SzlabMixerMagneticStirrerDevice(
+        url="opc.tcp://127.0.0.1:0/",
+        use_plc_gateway=True,
+    )
+    device.set_plc_gateway(gateway)
+
+    result = device.run_stirring(
+        position=1,
+        mode=3,
+        speed=300,
+        temperature=60,
+        duration=30,
+        safe_temperature=80,
+    )
+
+    assert result["success"] is True
+    assert result["data"]["station"] == "S041"
+    assert gateway.reads == ["S041允许加工", "S041加工完成", "S041加工完成", "S041加工完成"]
+    assert gateway.writes == [
+        ("S041磁搅工艺选择", 3),
+        ("磁搅速度设置_上位机[0]", 300),
+        ("磁搅温度设置_上位机[0]", 60),
+        ("磁搅时间设置_上位机[0]", 30000),
+        ("磁搅安全温度设置_上位机[0]", 80),
+        ("S041参数写入完成", True),
+    ]
+
+
+def test_szlab_magnetic_stirrer_waits_for_done_timeout(monkeypatch):
+    class FakePlcGateway:
+        def __init__(self):
+            self.reads = []
+
+        def read_variable(self, name, use_cache=False):
+            self.reads.append(name)
+            values = {
+                "S041允许加工": True,
+                "S041加工完成": False,
+            }
+            return values[name]
+
+        def write_variable(self, name, value):
+            return True
+
+    sleeps = []
+    ticks = iter([0.0, 0.0, 0.0, 0.0, 1.1])
+    monkeypatch.setattr(
+        "unilabos.devices.workstation.szlab_poly_studio.magnetic_stirring.magnetic_stirring.time.time", lambda: next(ticks))
+    monkeypatch.setattr("unilabos.devices.workstation.szlab_poly_studio.magnetic_stirring.magnetic_stirring.time.sleep",
+                        lambda seconds: sleeps.append(seconds))
+    gateway = FakePlcGateway()
+    device = SzlabMixerMagneticStirrerDevice(
+        url="opc.tcp://127.0.0.1:0/",
+        timeout=1.0,
+        use_plc_gateway=True,
+    )
+    device.set_plc_gateway(gateway)
+
+    result = device.run_stirring(position=1, mode=3)
+
+    assert result["success"] is False
+    assert result["message"] == "S041 加工完成等待超时"
+    assert "S041加工完成" in gateway.reads
+
+
+def test_szlab_magnetic_stirrer_does_not_mark_params_written_after_write_failure():
+    class FakePlcGateway:
+        def __init__(self):
+            self.writes = []
+
+        def read_variable(self, name, use_cache=False):
+            return True
+
+        def write_variable(self, name, value):
+            self.writes.append((name, value))
+            if name == "S041磁搅工艺选择":
+                raise RuntimeError("写入 PLC 变量失败: S041磁搅工艺选择")
+            return True
+
+    gateway = FakePlcGateway()
+    device = SzlabMixerMagneticStirrerDevice(
+        url="opc.tcp://127.0.0.1:0/",
+        use_plc_gateway=True,
+    )
+    device.set_plc_gateway(gateway)
+
+    result = device.run_stirring(position=1, mode=3)
+
+    assert result["success"] is False
+    assert result["message"] == "写入 PLC 变量失败: S041磁搅工艺选择"
+    assert ("S041参数写入完成", True) not in gateway.writes
+
+
+def test_szlab_magnetic_stirrer_reset_restores_pc_to_plc_defaults():
+    class FakePlcGateway:
+        def __init__(self):
+            self.writes = []
+
+        def read_variable(self, name, use_cache=False):
+            raise AssertionError("reset 不需要等待允许加工")
+
+        def write_variable(self, name, value):
+            self.writes.append((name, value))
+            return True
+
+    gateway = FakePlcGateway()
+    device = SzlabMixerMagneticStirrerDevice(
+        url="opc.tcp://127.0.0.1:0/",
+        use_plc_gateway=True,
+    )
+    device.set_plc_gateway(gateway)
+
+    result = device.run_stirring(position=1, reset=True)
+
+    assert result["success"] is True
+    assert result["message"] == "S041 磁搅 PC->PLC 参数已恢复初始值"
+    assert gateway.writes == [
+        ("S041磁搅工艺选择", 0),
+        ("磁搅速度设置_上位机[0]", 0),
+        ("磁搅温度设置_上位机[0]", 0),
+        ("磁搅时间设置_上位机[0]", 30000),
+        ("磁搅安全温度设置_上位机[0]", 0),
+        ("S041参数写入完成", False),
+    ]
+
+
+def test_szlab_magnetic_stirrer_rejects_invalid_mode():
+    device = SzlabMixerMagneticStirrerDevice(
+        url="opc.tcp://127.0.0.1:0/",
+        use_plc_gateway=True,
+    )
+
+    result = device.run_stirring(position=1, mode=4)
+
+    assert result == {"success": False, "message": "磁搅工艺选择必须是 1(搅拌)、2(加热)、3(搅拌+加热)"}
 
 
 def test_szlab_photoshotting_debug_assets_use_0623_s05_variables():
@@ -71,22 +242,25 @@ def test_szlab_photoshotting_debug_assets_use_0623_s05_variables():
     assert config["action"]["name"] == "take_photo"
 
 
-def test_szlab_photoshotting_take_photo_only_checks_done_and_result():
+def test_szlab_photoshotting_take_photo_polls_done_every_second_until_complete(monkeypatch):
     class FakePlcGateway:
         def __init__(self):
             self.reads = []
+            self.done_values = [False, False, True]
 
         def read_variable(self, name, use_cache=False):
             self.reads.append(name)
-            values = {
-                "S05加工完成": True,
-                "S05拍照结果": 1,
-            }
+            if name == "S05加工完成":
+                return self.done_values.pop(0)
+            values = {"S05拍照结果": 1}
             return values[name]
 
+    sleeps = []
+    monkeypatch.setattr(photoshotting_module.time, "sleep", lambda seconds: sleeps.append(seconds))
     gateway = FakePlcGateway()
     device = SzlabMixerPhotoShottingDevice(
         url="opc.tcp://127.0.0.1:0/",
+        timeout=5.0,
         use_plc_gateway=True,
     )
     device.set_plc_gateway(gateway)
@@ -96,7 +270,8 @@ def test_szlab_photoshotting_take_photo_only_checks_done_and_result():
     assert result["success"] is True
     assert result["data"]["result"] == "OK"
     assert result["data"]["photo_url"] == ""
-    assert gateway.reads == ["S05加工完成", "S05拍照结果"]
+    assert gateway.reads == ["S05加工完成", "S05加工完成", "S05加工完成", "S05拍照结果"]
+    assert sleeps == [1.0, 1.0]
 
 
 def test_szlab_photoshotting_take_photo_fails_when_result_is_ng():

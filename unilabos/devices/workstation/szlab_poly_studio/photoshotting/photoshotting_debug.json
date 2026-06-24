@@ -6,7 +6,7 @@
   "virtual_opcua": {
     "csv": "unilabos/devices/workstation/szlab_poly_studio/photoshotting/photoshotting_nodes.csv",
     "flow": "unilabos/devices/workstation/szlab_poly_studio/photoshotting/photoshotting_flow.json",
-    "endpoint": "opc.tcp://127.0.0.1:48405/"
+    "endpoint": "opc.tcp://127.0.0.1:48505/"
   },
   "device": {
     "timeout": 300.0,

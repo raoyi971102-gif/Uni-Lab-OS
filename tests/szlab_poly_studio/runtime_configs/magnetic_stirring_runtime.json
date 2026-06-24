@@ -1,0 +1,47 @@
+{
+  "device_factory": {
+    "devices": {
+      "szlab_mixer_stirrer": "unilabos.devices.workstation.szlab_poly_studio.magnetic_stirring.magnetic_stirring.SzlabMixerMagneticStirrerDevice"
+    }
+  },
+  "opc_snapshot": {
+    "common_variables": [],
+    "action_variables": {},
+    "param_variables": {
+      "run_stirring": [
+        {
+          "param": "position",
+          "template": "S04{position}允许加工"
+        },
+        {
+          "param": "position",
+          "template": "S04{position}磁搅工艺选择"
+        },
+        {
+          "param": "position",
+          "template": "S04{position}参数写入完成"
+        },
+        {
+          "param": "position",
+          "template": "S04{position}加工完成"
+        },
+        {
+          "param": "position",
+          "template": "磁搅速度设置_上位机[{position_minus_1}]"
+        },
+        {
+          "param": "position",
+          "template": "磁搅温度设置_上位机[{position_minus_1}]"
+        },
+        {
+          "param": "position",
+          "template": "磁搅时间设置_上位机[{position_minus_1}]"
+        },
+        {
+          "param": "position",
+          "template": "磁搅安全温度设置_上位机[{position_minus_1}]"
+        }
+      ]
+    }
+  }
+}
