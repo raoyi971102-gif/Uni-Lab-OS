@@ -3,7 +3,7 @@
     "plc_device_id": "szlab_poly_plc",
     "target_device_id": "szlab_s08_cap_station",
     "plc_class": "unilabos.devices.workstation.szlab_poly_studio.plc.SZLabPolyPLCDevice",
-    "target_class": "unilabos.devices.workstation.szlab_poly_studio.s08_cap_station.SZLabS08CapStationDevice",
+    "target_class": "unilabos.devices.workstation.szlab_poly_studio.s08.s08_cap_station.SZLabS08CapStationDevice",
     "target_config": {
       "plc_device_id": "szlab_poly_plc"
     },

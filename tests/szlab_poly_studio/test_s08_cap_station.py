@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from tests.szlab_poly_studio.pseudo_clients.s08_cap_station import SzlabS08CapStationPseudoPlcClient
-from unilabos.devices.workstation.szlab_poly_studio.s08_cap_station import (
+from unilabos.devices.workstation.szlab_poly_studio.s08.s08_cap_station import (
     NODE_PARAMS_WRITTEN,
     NODE_PROCESS_SELECT,
     S08ProcessType,

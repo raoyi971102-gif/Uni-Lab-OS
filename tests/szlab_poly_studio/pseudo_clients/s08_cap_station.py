@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Sequence
 
-from unilabos.devices.workstation.szlab_poly_studio.s08_cap_station import (
+from unilabos.devices.workstation.szlab_poly_studio.s08.s08_cap_station import (
     CAP_CACHE_LENGTH,
     NODE_PARAMS_WRITTEN,
     NODE_PROCESS_COMPLETE,

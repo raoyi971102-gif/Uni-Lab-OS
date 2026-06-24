@@ -10,7 +10,7 @@ import pytest
 from opcua import Client
 
 from unilabos.devices.workstation.szlab_poly_studio.plc import SZLabPolyPLCDevice
-from unilabos.devices.workstation.szlab_poly_studio.s08_cap_station import (
+from unilabos.devices.workstation.szlab_poly_studio.s08.s08_cap_station import (
     NODE_PARAMS_WRITTEN,
     NODE_PROCESS_COMPLETE,
     NODE_PROCESS_SELECT,
