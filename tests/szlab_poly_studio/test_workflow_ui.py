@@ -1,6 +1,8 @@
 import csv
+import json
 import time
 from importlib.util import find_spec
+from pathlib import Path
 
 import pytest
 
@@ -472,12 +474,11 @@ def test_build_local_device_graph_keeps_csv_when_explicitly_configured():
 
 
 def test_szlab_mixer_pump_runtime_snapshot_variables_are_mapped_for_production_opcua():
-    preset = load_preset("szlab_mixer")
     runtime_config = load_runtime_config("tests/szlab_poly_studio/runtime_configs/szlab_mixer_pump_runtime.json")
-    graph = build_local_device_graph(
-        opcua_url="opc.tcp://192.168.1.10:4840/",
-        use_subscription=False,
-        preset=preset,
+    graph = json.loads(
+        Path("tests/szlab_poly_studio/fixtures/szlab_mixer_pump_production_graph.json").read_text(
+            encoding="utf-8"
+        )
     )
     pump_node = next(node for node in graph["nodes"] if node["id"] == "szlab_mixer_pump")
     node_id_map = pump_node["config"]["opcua_node_id_map"]
@@ -494,8 +495,7 @@ def test_pump_runtime_only_exposes_pump_actions():
 
     actions = _runtime_supported_actions(preset, runtime_config)
 
-    assert "run_solvent_addition" in actions
-    assert "transfer_liquid" in actions
+    assert actions == {}
     assert "run_stirring" not in actions
 
 

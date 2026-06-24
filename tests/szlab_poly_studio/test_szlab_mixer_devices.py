@@ -457,21 +457,21 @@ def test_szlab_mixer_keeps_pipeline_route_helpers():
     assert (1, "aspirate") in routes
 
 
-def test_szlab_mixer_registry_actions_only_expose_s06_pump():
+def test_szlab_mixer_registry_actions_expose_s04_s05_robot_actions():
     preset = load_preset("szlab_mixer")
 
-    assert list(preset.actions) == ["transfer_liquid", "run_solvent_addition"]
-    assert preset.actions["transfer_liquid"].device_id == "szlab_mixer_pump"
-    assert preset.actions["run_solvent_addition"].device_id == "szlab_mixer_pump"
+    assert preset.actions["run_stirring"].device_id == "szlab_mixer_stirrer"
+    assert preset.actions["take_photo"].device_id == "szlab_mixer_photoshotting"
+    assert preset.actions["submit_pick_from_magnetic_stirrer"].device_id == "szlab_mixer_robot"
 
     workflow = build_graph_workflow(
         flow_nodes=[
             {
-                "id": "pump",
+                "id": "stir",
                 "data": {
-                    "device_id": "szlab_mixer_pump",
-                    "method": "run_solvent_addition",
-                    "params": {"pump": 1, "volume": 1, "skip_robot": True},
+                    "device_id": "szlab_mixer_stirrer",
+                    "method": "run_stirring",
+                    "params": {"position": 1, "mode": 3, "speed": 300, "temperature": 60, "duration": 30},
                 },
             },
         ],
@@ -481,17 +481,17 @@ def test_szlab_mixer_registry_actions_only_expose_s06_pump():
 
     assert workflow["nodes"] == [
         {
-            "uuid": "pump",
-            "name": "auto-run_solvent_addition",
-            "device_name": "szlab_mixer_pump",
+            "uuid": "stir",
+            "name": "auto-run_stirring",
+            "device_name": "szlab_mixer_stirrer",
             "param": {
-                "pump": 1,
-                "volume": 1,
-                "volume_pump_1": 0,
-                "volume_pump_2": 0,
-                "skip_level_check": False,
-                "skip_robot": True,
-                "beaker_true_means_present": True,
+                "position": 1,
+                "mode": 3,
+                "speed": 300,
+                "temperature": 60,
+                "duration": 30,
+                "safe_temperature": 80,
+                "reset": False,
             },
         },
     ]
@@ -525,7 +525,7 @@ def test_szlab_mixer_device_creation_ignores_csv_path(monkeypatch, tmp_path):
     devices = create_local_devices(
         graph_file=graph_path,
         csv_path=Path("/tmp/invalid.csv"),
-        runtime_config=load_runtime_config("tests/szlab_poly_studio/runtime_configs/szlab_mixer_runtime.json"),
+        runtime_config=load_runtime_config("tests/szlab_poly_studio/runtime_configs/szlab_mixer_pump_runtime.json"),
     )
 
     assert set(devices) == {"szlab_mixer_pump"}
@@ -548,7 +548,7 @@ def test_production_graph_passes_robot_and_pipeline_specs(monkeypatch):
 
     create_local_devices(
         graph_file=Path("tests/szlab_poly_studio/fixtures/szlab_mixer_pump_production_graph.json"),
-        runtime_config=load_runtime_config("tests/szlab_poly_studio/runtime_configs/szlab_mixer_runtime.json"),
+        runtime_config=load_runtime_config("tests/szlab_poly_studio/runtime_configs/szlab_mixer_pump_runtime.json"),
     )
 
     assert created["pump"]["robot_addition_position"] == 7
@@ -560,9 +560,12 @@ def test_szlab_mixer_preset_loads_own_runtime_config():
     runtime_config = _load_preset_runtime_config(load_preset("szlab_mixer"))
 
     assert runtime_config.device_factory.devices == {
-        "szlab_mixer_pump": "unilabos.devices.workstation.szlab_poly_studio.pump.pump.SzlabMixerPumpDevice",
+        "szlab_poly_plc": "unilabos.devices.workstation.szlab_poly_studio.plc.SZLabPolyPLCDevice",
+        "szlab_mixer_stirrer": "unilabos.devices.workstation.szlab_poly_studio.magnetic_stirring.magnetic_stirring.SzlabMixerMagneticStirrerDevice",
+        "szlab_mixer_photoshotting": "unilabos.devices.workstation.szlab_poly_studio.photoshotting.photoshotting.SzlabMixerPhotoShottingDevice",
+        "szlab_mixer_robot": "unilabos.devices.workstation.szlab_poly_studio.szlab_mixer.robot.SzlabMixerRobotDevice",
     }
-    assert runtime_config.device_factory.plc_class == ""
+    assert runtime_config.device_factory.plc_device_id == "szlab_poly_plc"
 
 
 def test_szlab_mixer_run_nodes_samples_current_device_variables():
@@ -582,7 +585,7 @@ def test_szlab_mixer_run_nodes_samples_current_device_variables():
 
     pump = FakePump()
     events = []
-    runtime_config = load_runtime_config("tests/szlab_poly_studio/runtime_configs/szlab_mixer_runtime.json")
+    runtime_config = load_runtime_config("tests/szlab_poly_studio/runtime_configs/szlab_mixer_pump_runtime.json")
 
     run_nodes(
         [

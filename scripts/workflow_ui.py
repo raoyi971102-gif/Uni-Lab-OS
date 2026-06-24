@@ -27,11 +27,16 @@ from scripts.run_workflow_local import (
     WorkflowLogger,
     WorkflowNode,
     build_execution_order,
+    build_snapshot_diff_detail,
     collect_snapshot_variables,
     create_local_devices,
+    format_snapshot_detail,
     load_workflow_nodes,
     load_runtime_config,
+    method_name_from_template,
+    route_node_device,
     run_nodes,
+    snapshot_opc_state,
 )
 
 
@@ -287,8 +292,90 @@ def _run_node_with_live_opc_sampling(
     runtime_config: RuntimeConfig,
     sample_interval: float = 0.5,
 ) -> list[dict[str, Any]]:
-    del sample_interval
-    return run_nodes([node], devices, logger=logger, runtime_config=runtime_config)
+    device_name = route_node_device(node, runtime_config)
+    device = devices.get(device_name)
+    if device is None:
+        raise KeyError(f"未创建本地设备实例: {device_name}")
+
+    method_name = method_name_from_template(node.name)
+    snapshot_variables = collect_snapshot_variables(method_name, node.param, runtime_config)
+    default_plc = devices.get(runtime_config.device_factory.plc_device_id)
+    snapshot_client = default_plc or (device if hasattr(device, "get_variables") else None)
+    if not snapshot_variables or snapshot_client is None or not hasattr(snapshot_client, "get_variables"):
+        return run_nodes([node], devices, logger=logger, runtime_config=runtime_config)
+
+    if not hasattr(device, method_name):
+        raise AttributeError(f"{device_name} 不存在动作方法: {method_name}")
+    before = snapshot_opc_state(snapshot_client, snapshot_variables) if snapshot_client is not None else {}
+
+    logger.log(
+        f"[1/1] {device_name}.{method_name}({node.param})",
+        detail={"device_name": device_name, "method": method_name, "param": node.param},
+    )
+    if before:
+        logger.log(
+            f"OPC状态采样: {len(before)} 个变量",
+            detail={"before": format_snapshot_detail(before, snapshot_client)},
+        )
+
+    stop_sampling = threading.Event()
+    last_snapshot = dict(before)
+    sampling_errors: list[Exception] = []
+    skip_parallel_sampling = bool(runtime_config.device_factory.devices) and snapshot_client is device
+
+    def sample_live_changes() -> None:
+        nonlocal last_snapshot
+        while not stop_sampling.wait(sample_interval):
+            current = snapshot_opc_state(snapshot_client, snapshot_variables)
+            diff_detail = build_snapshot_diff_detail(last_snapshot, current, plc=snapshot_client)
+            last_snapshot = current
+            if diff_detail["changes"]:
+                logger.log(
+                    f"OPC实时变化: {len(diff_detail['changes'])}/{len(current)} 个变量变化",
+                    detail=diff_detail,
+                )
+
+    sampler: threading.Thread | None = None
+    if snapshot_client is not None and snapshot_variables and not skip_parallel_sampling:
+        sampler = threading.Thread(target=sample_live_changes, name="SzlabLiveOpcSampler", daemon=True)
+        sampler.start()
+
+    try:
+        result = getattr(device, method_name)(**node.param)
+    finally:
+        stop_sampling.set()
+        if sampler is not None:
+            sampler.join(timeout=max(sample_interval * 2, 0.1))
+
+    after = snapshot_opc_state(snapshot_client, snapshot_variables) if snapshot_client is not None else {}
+    if after:
+        final_live_diff = build_snapshot_diff_detail(last_snapshot, after, plc=snapshot_client)
+        if sampler is not None and final_live_diff["changes"]:
+            logger.log(
+                f"OPC实时变化: {len(final_live_diff['changes'])}/{len(after)} 个变量变化",
+                detail=final_live_diff,
+            )
+        diff_detail = build_snapshot_diff_detail(before, after, plc=snapshot_client)
+        logger.log(
+            f"OPC状态变化: {len(diff_detail['changes'])}/{len(before)} 个变量变化",
+            detail=diff_detail,
+        )
+    if sampling_errors:
+        logger.log(f"OPC实时采样异常: {sampling_errors[-1]}", level="warning")
+    logger.log(f"动作结果: {result}", detail={"result": result})
+
+    output = {
+        "uuid": node.uuid,
+        "device_name": device_name,
+        "method": method_name,
+        "param": node.param,
+        "opc_before": before,
+        "opc_after": after,
+        "result": result,
+    }
+    if isinstance(result, dict) and result.get("success") is False:
+        raise RuntimeError(f"动作失败: {device_name}.{method_name}: {result}")
+    return [output]
 
 
 class WorkflowRunManager:
