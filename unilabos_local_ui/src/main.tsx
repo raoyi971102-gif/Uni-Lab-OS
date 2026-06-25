@@ -435,7 +435,7 @@ function App() {
           </div>
           <div className="demo-tabbar left" role="tablist" aria-label="联调入口切换">
             <button className={leftTab === 'devices' ? 'active' : ''} onClick={() => setLeftTab('devices')} type="button">设备动作</button>
-            <button className={leftTab === 'stacks' ? 'active' : ''} onClick={() => setLeftTab('stacks')} type="button">堆栈资源</button>
+            <button className={leftTab === 'stacks' ? 'active' : ''} onClick={() => setLeftTab('stacks')} type="button">堆栈</button>
           </div>
           <div className="demo-left-sections">
             {leftTab === 'devices' && (
@@ -470,8 +470,8 @@ function App() {
             {leftTab === 'stacks' && (
               <section className="demo-left-section stack-entry">
                 <div className="demo-left-section-head">
-                  <strong>堆栈资源</strong>
-                  <span>Stack resources</span>
+                  <strong>堆栈</strong>
+                  <span>Stack</span>
                 </div>
                 <table className="demo-stack-resource-table">
                   <thead>
@@ -512,7 +512,6 @@ function App() {
           <div className="demo-canvas-toolbar">
             <div>
               <strong>{workflowName}</strong>
-              <span>物料状态校验 + 传感器快照保存 + 机械臂搬运</span>
             </div>
             <div className="demo-toolbar-actions">
               <button onClick={() => buildWorkflow().catch((error) => setMessage(error.message))}>校验流程</button>
@@ -598,8 +597,7 @@ function App() {
           {sideTab === 'materials' && (
             <section className="demo-material-section demo-side-tab-panel">
               <div className="demo-panel-title">
-                <h2>物料 / 堆栈</h2>
-                <span>Compact ledger</span>
+                <h2>物料</h2>
               </div>
               <table className="demo-material-table">
                 <thead>

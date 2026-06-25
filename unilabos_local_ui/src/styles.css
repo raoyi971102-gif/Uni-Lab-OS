@@ -1771,6 +1771,7 @@ code {
 
 .demo-tabbar.side {
   border: 1px solid #e2e8f0;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .demo-tabbar.left {
