@@ -1,0 +1,20 @@
+{
+  "opcua": {
+    "virtual_url": "opc.tcp://127.0.0.1:48507/",
+    "production_url": "opc.tcp://192.168.1.10:4840/"
+  },
+  "virtual_opcua": {
+    "csv": "unilabos/devices/workstation/szlab_poly_studio/solid_addition-s07/s07_nodes.csv",
+    "flow": "unilabos/devices/workstation/szlab_poly_studio/solid_addition-s07/s07_flow.json",
+    "endpoint": "opc.tcp://127.0.0.1:48507/"
+  },
+  "device": {
+    "process_timeout": 8.0,
+    "poll_interval": 0.05,
+    "require_station_ready": true
+  },
+  "action": {
+    "name": "scan_powder_cartridges",
+    "timeout": 8.0
+  }
+}
