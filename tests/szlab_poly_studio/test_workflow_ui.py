@@ -234,6 +234,56 @@ def test_magnetic_stirring_preset_uses_s04_stirrer_config():
     assert _action_to_dict(preset.actions["run_stirring"], runtime_config)["opc_variables"] == []
 
 
+def test_s07_solid_addition_preset_uses_registry_actions_and_plc_gateway():
+    preset = load_preset("solid_addition_s07")
+    runtime_config = _load_preset_runtime_config(preset)
+    csv_path = _resolve_ui_path(preset.default_config["csv"], preset)
+    graph = build_local_device_graph(
+        opcua_url="opc.tcp://127.0.0.1:48507/",
+        csv_path=str(csv_path),
+        preset=preset,
+    )
+
+    assert preset.id == "solid_addition_s07"
+    assert csv_path.exists()
+    assert preset.target_device_ids == ["szlab_s07_solid_addition"]
+    assert list(preset.actions) == [
+        "scan_powder_cartridges",
+        "rotate_powder_cartridge_to_feed",
+        "dose_powder",
+    ]
+    assert runtime_config.device_factory.plc_device_id == "szlab_poly_plc"
+    assert runtime_config.device_factory.devices["szlab_s07_solid_addition"] == (
+        "unilabos.devices.workstation.szlab_poly_studio.solid_addition-s07.s07."
+        "SZLabS07SolidAdditionDevice"
+    )
+    assert collect_snapshot_variables("dose_powder", {}, runtime_config) == [
+        "S07原点信号",
+        "S07允许加工",
+        "S07工艺选择",
+        "S07参数写入完成",
+        "S07工艺完成",
+        "S07粗注粉位置号",
+        "S07精注粉位置号",
+        "S07注粉重量",
+    ]
+
+    nodes = {node["id"]: node for node in graph["nodes"]}
+    assert nodes["szlab_poly_plc"]["config"]["url"] == "opc.tcp://127.0.0.1:48507/"
+    assert nodes["szlab_poly_plc"]["config"]["csv_path"].endswith("solid_addition-s07/s07_nodes.csv")
+    assert nodes["szlab_s07_solid_addition"]["config"]["plc_device_id"] == "szlab_poly_plc"
+    assert _action_to_dict(preset.actions["dose_powder"], runtime_config)["opc_variables"] == [
+        "S07原点信号",
+        "S07允许加工",
+        "S07工艺选择",
+        "S07参数写入完成",
+        "S07工艺完成",
+        "S07粗注粉位置号",
+        "S07精注粉位置号",
+        "S07注粉重量",
+    ]
+
+
 def test_szlab_mixer_ui_preset_uses_0622_csv_and_s04_s05_actions():
     preset = load_preset("szlab_mixer")
     runtime_config = _load_preset_runtime_config(preset)
