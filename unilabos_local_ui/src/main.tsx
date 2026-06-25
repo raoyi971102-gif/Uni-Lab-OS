@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import ReactFlow, {
   Background,
@@ -20,7 +20,10 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import './styles.css';
 import { collectOpcChanges, formatOpcValue, type LogEvent, type OpcChange } from './opcChanges';
+import { buildWorkspaceSummary, groupActionsByDevice } from './uiState';
 import { createWorkflowRequest, workflowDraftKey } from './workflowDraft';
+import { createPseudoFlowJson } from './workflowExport';
+import { WorkstationDemo } from './WorkstationDemo';
 
 type ActionSpec = {
   method: string;
@@ -63,11 +66,6 @@ type WorkflowJson = {
   edges: Array<Record<string, unknown>>;
 };
 
-type PseudoFlowJson = {
-  name: string;
-  rules: Array<Record<string, unknown>>;
-};
-
 type RunStatus = {
   run_id: string;
   status: string;
@@ -100,6 +98,31 @@ const DEFAULT_CONFIG = {
   show_csv: false,
 };
 
+const DEFAULT_STACK_RESOURCES = [
+  { id: 'loading_a', title: '上料堆栈 A', role: '输入', used: 3, total: 8, nextSlot: 'A01' },
+  { id: 'unload_b', title: '下料堆栈 B', role: '输出', used: 0, total: 8, nextSlot: 'B01' },
+  { id: 'buffer_c', title: '缓存堆栈 C', role: '缓存', used: 2, total: 4, nextSlot: 'C02' },
+];
+
+const DEFAULT_STATION_SUMMARY = [
+  { label: '上料堆栈 A', value: '8 槽 / 2 已占用', status: 'ok' },
+  { label: '机械臂夹爪', value: '等待动作', status: 'empty' },
+  { label: 'S04 磁搅位 1', value: '等待预约', status: 'empty' },
+  { label: 'S05 拍照站', value: '等待 S04 完成', status: 'empty' },
+  { label: '下料堆栈 B', value: '8 槽空闲', status: 'ok' },
+];
+
+const DEFAULT_STACK_SLOTS = [
+  { id: 'A01', material: 'plate-001', status: 'reserved' },
+  { id: 'A02', material: 'plate-002', status: 'occupied' },
+  { id: 'A03', material: 'plate-003', status: 'occupied' },
+  { id: 'A04', material: '', status: 'empty' },
+  { id: 'A05', material: '', status: 'empty' },
+  { id: 'A06', material: '', status: 'empty' },
+  { id: 'A07', material: '', status: 'empty' },
+  { id: 'A08', material: '', status: 'empty' },
+];
+
 function buildDefaultParams(params: ParamSpec[]) {
   return params.reduce<Record<string, unknown>>((defaults, param) => {
     const name = param.name || '';
@@ -131,8 +154,11 @@ function App() {
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
   const [selectedLogNodeId, setSelectedLogNodeId] = useState<string | null>(null);
-  const [opcPanelHeight, setOpcPanelHeight] = useState(150);
-  const opcResizeRef = useRef({ startY: 0, startHeight: 150 });
+  const [leftTab, setLeftTab] = useState<'devices' | 'stacks'>('devices');
+  const [mainTab, setMainTab] = useState<'workflow' | 'sensors'>('workflow');
+  const [sideTab, setSideTab] = useState<'control' | 'materials' | 'logs'>('control');
+  const [selectedStackId, setSelectedStackId] = useState(DEFAULT_STACK_RESOURCES[0].id);
+  const [showStackModal, setShowStackModal] = useState(false);
   const [config, setConfig] = useState({
     graph: DEFAULT_CONFIG.graph,
     url: DEFAULT_CONFIG.url,
@@ -150,6 +176,20 @@ function App() {
   const logEvents = useMemo(() => normalizeLogEvents(runStatus), [runStatus]);
   const opcChanges = useMemo(() => collectOpcChanges(logEvents), [logEvents]);
   const draftKey = useMemo(() => workflowDraftKey(workflowName, nodes, edges), [workflowName, nodes, edges]);
+  const actionGroups = useMemo(() => groupActionsByDevice(actions), [actions]);
+  const selectedStack = useMemo(
+    () => DEFAULT_STACK_RESOURCES.find((stack) => stack.id === selectedStackId) || DEFAULT_STACK_RESOURCES[0],
+    [selectedStackId],
+  );
+  const workspaceSummary = useMemo(
+    () => buildWorkspaceSummary({
+      nodes,
+      edges,
+      opcChangeCount: opcChanges.length,
+      runStatus: runStatus?.status,
+    }),
+    [edges, nodes, opcChanges.length, runStatus?.status],
+  );
 
   useEffect(() => {
     if (selectedLogNodeId && !nodes.some((node) => node.id === selectedLogNodeId)) {
@@ -361,113 +401,272 @@ function App() {
     });
   };
 
-  const startOpcPanelResize = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    opcResizeRef.current = { startY: event.clientY, startHeight: opcPanelHeight };
-
-    const handlePointerMove = (moveEvent: PointerEvent) => {
-      const delta = opcResizeRef.current.startY - moveEvent.clientY;
-      const nextHeight = opcResizeRef.current.startHeight + delta;
-      setOpcPanelHeight(Math.min(Math.max(nextHeight, 96), 360));
-    };
-
-    const stopResize = () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', stopResize);
-      window.removeEventListener('pointercancel', stopResize);
-    };
-
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', stopResize);
-    window.addEventListener('pointercancel', stopResize);
-  }, [opcPanelHeight]);
-
   return (
-    <div className="app">
-      <header className="header">
+    <div className="demo-shell demo-tool-shell">
+      <header className="demo-tool-header">
         <div>
           <h1>{title}</h1>
         </div>
-        <div className={`badge ${runStatus?.status || 'idle'}`}>{statusText(runStatus?.status)}</div>
+        <dl className="demo-header-metrics" aria-label="联调状态摘要">
+          <div>
+            <dt>状态</dt>
+            <dd>{workspaceSummary.runStatusText}</dd>
+          </div>
+          <div>
+            <dt>节点</dt>
+            <dd>{workspaceSummary.totalNodes}</dd>
+          </div>
+          <div>
+            <dt>设备</dt>
+            <dd>{workspaceSummary.deviceCount}</dd>
+          </div>
+          <div>
+            <dt>OPC</dt>
+            <dd>{workspaceSummary.opcChangeCount}</dd>
+          </div>
+        </dl>
       </header>
 
-      <div className="layout">
-        <aside className="panel palette">
-          <h2>动作面板</h2>
-          <div className="palette-actions">
-            {actions.map((action) => (
-              <button key={action.method} className="action-card" onClick={() => addActionNode(action)}>
-                <strong>{action.label}</strong>
-                <span>{action.description}</span>
-              </button>
-            ))}
+      <main className="demo-workbench">
+        <aside className="demo-card demo-action-panel">
+          <div className="demo-panel-title">
+            <h2>联调入口</h2>
+            <span>Device / Stack</span>
           </div>
-        </aside>
-
-        <main className="canvas-panel" style={{ gridTemplateRows: `minmax(0, 1fr) 8px ${opcPanelHeight}px` }}>
-          <div className="flow-canvas">
-            <div className="canvas-toolbar">
-              {workflow && (
-                <div className="canvas-summary">
-                  已生成流程：{workflow.nodes.length} 个节点，{workflow.edges.length} 条连线
+          <div className="demo-tabbar left" role="tablist" aria-label="联调入口切换">
+            <button className={leftTab === 'devices' ? 'active' : ''} onClick={() => setLeftTab('devices')} type="button">设备动作</button>
+            <button className={leftTab === 'stacks' ? 'active' : ''} onClick={() => setLeftTab('stacks')} type="button">堆栈资源</button>
+          </div>
+          <div className="demo-left-sections">
+            {leftTab === 'devices' && (
+              <section className="demo-left-section">
+                <div className="demo-left-section-head">
+                  <strong>设备动作</strong>
+                  <span>Device actions</span>
                 </div>
-              )}
-              <button onClick={exportPseudoFlow} disabled={!nodes.length}>导出 Flow JSON</button>
-            </div>
-            <ReactFlow
-              nodes={nodes.map((node) => ({
-                ...node,
-                data: {
-                  ...node.data,
-                  onPositionChange: (nodeId: string, value: number) => updateNodeParam(nodeId, 'position', value),
-                },
-              }))}
-              edges={edges}
-              nodeTypes={nodeTypes}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              onConnect={onConnect}
-              onNodeClick={(_, node) => setEditingNodeId(node.id)}
-              defaultEdgeOptions={{ type: 'smoothstep', animated: true }}
-            >
-              <Background />
-              <MiniMap />
-              <Controls />
-            </ReactFlow>
+                <div className="demo-action-tree">
+                  {actionGroups.map((group) => (
+                    <section className="demo-action-tree-group" key={group.id}>
+                      <div className="demo-action-tree-parent">
+                        <strong>{group.title}</strong>
+                        <code>{group.device}</code>
+                        <span>{group.actions.length} 项</span>
+                      </div>
+                      <div className="demo-action-tree-children">
+                        {group.actions.map((action) => (
+                          <button className="demo-action-row" key={action.method} onClick={() => addActionNode(action)} type="button">
+                            <span title={action.label}>{action.label}</span>
+                            <code title={action.method}>{action.method}</code>
+                            <em>可用</em>
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {leftTab === 'stacks' && (
+              <section className="demo-left-section stack-entry">
+                <div className="demo-left-section-head">
+                  <strong>堆栈资源</strong>
+                  <span>Stack resources</span>
+                </div>
+                <table className="demo-stack-resource-table">
+                  <thead>
+                    <tr>
+                      <th>堆栈</th>
+                      <th>占用</th>
+                      <th>下一槽</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {DEFAULT_STACK_RESOURCES.map((stack) => (
+                      <tr
+                        className={selectedStack.id === stack.id ? 'active' : ''}
+                        key={stack.id}
+                        onClick={() => setSelectedStackId(stack.id)}
+                        onDoubleClick={() => setShowStackModal(true)}
+                      >
+                        <td>
+                          <strong>{stack.title}</strong>
+                          <span>{stack.role}</span>
+                        </td>
+                        <td>{stack.used}/{stack.total}</td>
+                        <td>{stack.nextSlot}</td>
+                        <td>
+                          <button className="demo-table-action" onClick={() => setShowStackModal(true)} type="button">详情</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </section>
+            )}
           </div>
-          <div
-            className="opc-resizer"
-            role="separator"
-            aria-label="调整 OPC 变量变化面板高度"
-            aria-orientation="horizontal"
-            onPointerDown={startOpcPanelResize}
-          />
-          <OpcChangePanel changes={opcChanges} nodes={nodes} />
-        </main>
-
-        <aside className="panel inspector">
-          <section className="inspector-section">
-            <h2>流程控制</h2>
-            <div className="buttons">
-              <button onClick={() => setShowConfigModal(true)}>运行配置</button>
-              <button onClick={() => buildWorkflow().catch((error) => setMessage(error.message))}>校验流程</button>
-              <button className="primary" onClick={runWorkflow} disabled={isRunning || !workflow}>运行</button>
-              <button className="danger" onClick={cancelWorkflow} disabled={!activeRunId}>终止</button>
-            </div>
-            {message && <div className="message">{message}</div>}
-          </section>
-
-          <section className="inspector-section logs">
-            <h2>运行日志</h2>
-            <LogPanel
-              events={logEvents}
-              nodes={nodes}
-              selectedNodeId={selectedLogNodeId}
-              onSelectNode={setSelectedLogNodeId}
-            />
-          </section>
         </aside>
-      </div>
+
+        <section className="demo-card demo-main-panel">
+          <div className="demo-canvas-toolbar">
+            <div>
+              <strong>{workflowName}</strong>
+              <span>物料状态校验 + 传感器快照保存 + 机械臂搬运</span>
+            </div>
+            <div className="demo-toolbar-actions">
+              <button onClick={() => buildWorkflow().catch((error) => setMessage(error.message))}>校验流程</button>
+              <button onClick={exportPseudoFlow} disabled={!nodes.length}>导出 Flow JSON</button>
+              <button className="primary" onClick={runWorkflow} disabled={isRunning || !workflow}>运行</button>
+            </div>
+          </div>
+
+          <div className="demo-tabbar" role="tablist" aria-label="主工作区切换">
+            <button className={mainTab === 'workflow' ? 'active' : ''} onClick={() => setMainTab('workflow')} type="button">流程画布</button>
+            <button className={mainTab === 'sensors' ? 'active' : ''} onClick={() => setMainTab('sensors')} type="button">传感器快照</button>
+          </div>
+
+          {mainTab === 'workflow' && (
+            <div className="demo-canvas real-flow-canvas">
+              <ReactFlow
+                nodes={nodes.map((node) => ({
+                  ...node,
+                  data: {
+                    ...node.data,
+                    onPositionChange: (nodeId: string, value: number) => updateNodeParam(nodeId, 'position', value),
+                  },
+                }))}
+                edges={edges}
+                nodeTypes={nodeTypes}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
+                onConnect={onConnect}
+                onNodeClick={(_, node) => setEditingNodeId(node.id)}
+                defaultEdgeOptions={{ type: 'smoothstep', animated: true }}
+              >
+                <Background />
+                <MiniMap />
+                <Controls />
+              </ReactFlow>
+            </div>
+          )}
+
+          {mainTab === 'sensors' && (
+            <div className="demo-opc-dock tabbed">
+              <OpcChangePanel changes={opcChanges} nodes={nodes} />
+            </div>
+          )}
+        </section>
+
+        <aside className="demo-card demo-right-panel">
+          <div className="demo-tabbar side" role="tablist" aria-label="右侧信息切换">
+            <button className={sideTab === 'control' ? 'active' : ''} onClick={() => setSideTab('control')} type="button">控制</button>
+            <button className={sideTab === 'materials' ? 'active' : ''} onClick={() => setSideTab('materials')} type="button">物料</button>
+            <button className={sideTab === 'logs' ? 'active' : ''} onClick={() => setSideTab('logs')} type="button">日志</button>
+          </div>
+
+          {sideTab === 'control' && (
+            <section className="demo-side-tab-panel">
+              <div className="demo-panel-title">
+                <h2>流程控制</h2>
+                <span>Run manager</span>
+              </div>
+              <div className="demo-run-buttons">
+                <button onClick={() => setShowConfigModal(true)}>运行配置</button>
+                <button onClick={() => buildWorkflow().catch((error) => setMessage(error.message))}>校验流程</button>
+                <button className="primary" onClick={runWorkflow} disabled={isRunning || !workflow}>运行</button>
+                <button className="danger" onClick={cancelWorkflow} disabled={!activeRunId}>终止</button>
+              </div>
+              {message && <div className="message">{message}</div>}
+              <div className="demo-control-summary">
+                <div className="demo-panel-title compact">
+                  <h2>站位摘要</h2>
+                  <span>Station state</span>
+                </div>
+                <div className="demo-station-list">
+                  {DEFAULT_STATION_SUMMARY.map((station) => (
+                    <article className={`demo-station-mini ${station.status}`} key={station.label}>
+                      <span>{station.label}</span>
+                      <strong>{station.value}</strong>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            </section>
+          )}
+
+          {sideTab === 'materials' && (
+            <section className="demo-material-section demo-side-tab-panel">
+              <div className="demo-panel-title">
+                <h2>物料 / 堆栈</h2>
+                <span>Compact ledger</span>
+              </div>
+              <table className="demo-material-table">
+                <thead>
+                  <tr>
+                    <th>物料</th>
+                    <th>当前位置</th>
+                    <th>下一步</th>
+                    <th>状态</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {nodes.map((node, index) => (
+                    <tr key={node.id}>
+                      <td>
+                        <strong>{`node-${index + 1}`}</strong>
+                        <span>{node.data.deviceId || '-'}</span>
+                      </td>
+                      <td>{node.data.method}</td>
+                      <td>{node.data.label}</td>
+                      <td>{nodeStatusText(node.data.runStatus || 'idle')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+          )}
+
+          {sideTab === 'logs' && (
+            <section className="demo-log-section demo-side-tab-panel">
+              <div className="demo-panel-title">
+                <h2>运行日志</h2>
+                <span>Timeline</span>
+              </div>
+              <LogPanel
+                events={logEvents}
+                nodes={nodes}
+                selectedNodeId={selectedLogNodeId}
+                onSelectNode={setSelectedLogNodeId}
+              />
+            </section>
+          )}
+        </aside>
+      </main>
+
+      {showStackModal && (
+        <div className="demo-modal-backdrop" onMouseDown={() => setShowStackModal(false)}>
+          <section className="demo-stack-modal" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="demo-modal-head">
+              <div>
+                <p>Stack detail</p>
+                <h2>{selectedStack.title}</h2>
+                <span>{selectedStack.role}</span>
+              </div>
+              <button onClick={() => setShowStackModal(false)} type="button">关闭</button>
+            </div>
+            <div className="demo-stack-modal-grid">
+              {DEFAULT_STACK_SLOTS.map((slot) => (
+                <article className={`demo-stack-modal-slot ${slot.status}`} key={slot.id}>
+                  <strong>{slot.id}</strong>
+                  <small>{slot.status === 'empty' ? '空闲' : '占用'}</small>
+                  <p>{slot.material || '空槽'}</p>
+                </article>
+              ))}
+            </div>
+          </section>
+        </div>
+      )}
 
       {editingNode && (
         <div className="modal-backdrop" onMouseDown={() => setEditingNodeId(null)}>
@@ -579,71 +778,6 @@ function App() {
   );
 }
 
-function createPseudoFlowJson(
-  name: string,
-  nodes: Node<ActionNodeData>[],
-  edges: Edge[],
-): PseudoFlowJson {
-  const orderedNodes = orderFlowNodes(nodes, edges);
-  const flowName = name || 'pseudo_flow';
-  return {
-    name: flowName,
-    rules: [
-      {
-        name: flowName,
-        trigger: {
-          node: orderedNodes[0]?.data.label || flowName,
-          value: true,
-          edge: 'rising',
-        },
-        log_nodes: orderedNodes.map((node) => node.data.label),
-        actions: orderedNodes.map((node, index) => ({
-          action: {
-            index: index + 1,
-            node: node.data.label,
-            workflow_node_id: node.id,
-            device_id: node.data.deviceId,
-            method: node.data.method,
-            params: node.data.params,
-          },
-        })),
-      },
-    ],
-  };
-}
-
-function orderFlowNodes(nodes: Node<ActionNodeData>[], edges: Edge[]) {
-  const nodesById = new Map(nodes.map((node) => [node.id, node]));
-  const originalIndex = new Map(nodes.map((node, index) => [node.id, index]));
-  const incoming = new Map(nodes.map((node) => [node.id, 0]));
-  const outgoing = new Map(nodes.map((node) => [node.id, [] as string[]]));
-
-  edges.forEach((edge) => {
-    if (!nodesById.has(edge.source) || !nodesById.has(edge.target)) return;
-    outgoing.get(edge.source)?.push(edge.target);
-    incoming.set(edge.target, (incoming.get(edge.target) || 0) + 1);
-  });
-
-  const ready = nodes
-    .filter((node) => (incoming.get(node.id) || 0) === 0)
-    .map((node) => node.id);
-  const orderedIds: string[] = [];
-  while (ready.length) {
-    ready.sort((left, right) => (originalIndex.get(left) || 0) - (originalIndex.get(right) || 0));
-    const current = ready.shift()!;
-    orderedIds.push(current);
-    (outgoing.get(current) || []).forEach((target) => {
-      incoming.set(target, (incoming.get(target) || 0) - 1);
-      if ((incoming.get(target) || 0) === 0) ready.push(target);
-    });
-  }
-
-  if (orderedIds.length !== nodes.length) {
-    throw new Error('当前画布存在循环连线，无法导出线性 flow.json');
-  }
-  return orderedIds.map((id) => nodesById.get(id)!);
-}
-
 function downloadJson(filename: string, data: unknown) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -652,17 +786,6 @@ function downloadJson(filename: string, data: unknown) {
   anchor.download = filename;
   anchor.click();
   URL.revokeObjectURL(url);
-}
-
-function statusText(status?: string) {
-  if (status === 'pending') return '等待中';
-  if (status === 'preparing') return '准备中';
-  if (status === 'running') return '运行中';
-  if (status === 'completed') return '已完成';
-  if (status === 'failed') return '失败';
-  if (status === 'cancelling') return '终止中';
-  if (status === 'cancelled') return '已终止';
-  return '未运行';
 }
 
 function ActionNode({ id, data, selected }: NodeProps<ActionNodeData>) {
@@ -857,8 +980,12 @@ function groupLogEvents(events: LogEvent[]) {
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <ReactFlowProvider>
-      <App />
-    </ReactFlowProvider>
+    {window.location.pathname === '/demo' ? (
+      <WorkstationDemo />
+    ) : (
+      <ReactFlowProvider>
+        <App />
+      </ReactFlowProvider>
+    )}
   </React.StrictMode>,
 );
