@@ -94,13 +94,13 @@ def opcua_pseudo_stack():
 class TestSzlabS08CapStationOpcUaDevice:
     def test_open_and_close_liquid_vial_100ml_cap_against_virtual_opcua(self, opcua_pseudo_stack):
         url, _server, _stop_event, _daemon_thread = opcua_pseudo_stack
-        device = SZLabS08CapStationDevice(url=url, timeout=8.0)
+        device = SZLabS08CapStationDevice(url=url, timeout=30.0)
         try:
             open_result = device.process_cap(
                 operation="open",
                 vial_type="liquid_100ml",
                 sample_id=SAMPLE_ID,
-                timeout=8.0,
+                timeout=30.0,
             )
             assert open_result["success"] is True
             assert open_result["cap_storage_slot"] == 1
@@ -109,7 +109,7 @@ class TestSzlabS08CapStationOpcUaDevice:
                 operation="close",
                 vial_type="liquid_100ml",
                 sample_id=SAMPLE_ID,
-                timeout=8.0,
+                timeout=30.0,
             )
             assert close_result["success"] is True
             assert close_result["cap_storage_slot"] == 1

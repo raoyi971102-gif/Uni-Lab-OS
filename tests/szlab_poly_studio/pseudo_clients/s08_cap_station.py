@@ -54,8 +54,18 @@ class PseudoSzlabS08OpcUaClient:
         if name == NODE_PROCESS_COMPLETE:
             if self.values.get(NODE_PARAMS_WRITTEN):
                 return int(self.values.get(NODE_PROCESS_SELECT, 0))
-            return 0
+            return int(self.values.get(NODE_PROCESS_COMPLETE, 0))
         return self.values[name]
+
+    def wait_equal(self, name: str, expected: Any, timeout: float = 300.0, interval: float = 0.2) -> bool:
+        import time
+
+        start = time.time()
+        while time.time() - start < timeout:
+            if self.read(name) == expected:
+                return True
+            time.sleep(interval)
+        return False
 
     def write(self, name: str, value: Any) -> None:
         self.values[name] = value

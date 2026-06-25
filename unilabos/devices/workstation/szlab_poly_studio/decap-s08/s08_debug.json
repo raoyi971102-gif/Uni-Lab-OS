@@ -12,7 +12,10 @@
   "device": {
     "timeout": 8.0,
     "poll_interval": 0.05,
-    "require_station_ready": true
+    "require_station_ready": true,
+    "require_station_status": false,
+    "validate_cap_constraints": false,
+    "opcua_uplink_comm_prefix": "ns=4;s=上位机通讯"
   },
   "action": {
     "name": "process_cap",

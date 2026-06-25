@@ -17,8 +17,17 @@ S08 开盖/关盖工位子设备。
 ``S08取放料产品`` / ``S08取放料编号`` 为机械臂取放料协调写点，由 workflow 写入；
 本驱动提供读写辅助方法，``process_cap`` 不自动写入。``工站状态[7]`` 在工艺前校验工站就绪。
 
-复位原则：UniLab 写入的变量由 UniLab 在工艺结束（成功或失败）后复位；
-S08工艺完成 由 PLC 提供并由 PLC 复位，UniLab 只读。
+总原则：谁写入谁复位。初始化及启动前仅复位 UniLab 负责写入的变量；对端写入、UniLab 只读的变量
+（S08工艺完成、S08允许加工、S08原点信号、传感器等）不在启动前等待或干预其取值。
+
+握手时序（实机，一轮工艺）：
+1. UniLab 写入工艺参数并置位「S08参数写入完成」→ 对端开始动作；
+2. UniLab 读取「S08工艺完成」，直到等于工艺号；
+3. UniLab 复位本侧握手参数（写入，不等）；
+4. UniLab 读取「S08工艺完成」为 0，表示对端已响应本侧复位、本轮结束。
+
+UniLab 写入、对端读取：S08工艺选择、S08参数写入完成、S082瓶盖暂存位、数据缓存等。
+对端写入、UniLab 读取：S08工艺完成、S08允许加工、S08原点信号、传感器等。
 
 分步读状态、等待就绪等辅助方法为 ``@not_action``，供调试脚本与单元测试使用。
 """
@@ -199,6 +208,58 @@ def _resolve_process_type(operation: str, vial_type: str) -> S08ProcessType:
     return open_type if normalized_operation == "open" else close_type
 
 
+DEFAULT_UPLINK_COMM_PREFIX = "ns=4;s=上位机通讯"
+
+
+def _is_virtual_test_opcua_url(url: str) -> bool:
+    lowered = url.lower()
+    return "127.0.0.1" in lowered or "localhost" in lowered or ":50102" in lowered
+
+
+def _coerce_opcua_int(value: Any, *, field_name: str) -> int:
+    if value is None:
+        return 0
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} 无法解析为整数，OPC UA 返回值={value!r}") from exc
+
+
+def _format_driver_error(exc: BaseException) -> str:
+    message = str(exc).strip()
+    if message:
+        return message
+    return f"{type(exc).__name__}（无详细消息）"
+
+
+def build_opcua_node_id_map_for_uplink_comm(prefix: str = DEFAULT_UPLINK_COMM_PREFIX) -> dict[str, str]:
+    """为真机 OPC UA「上位机通讯」命名空间生成 S08 变量 NodeId 映射。"""
+    prefix = prefix.rstrip("|")
+    variable_names = [
+        NODE_HOME,
+        NODE_ALLOW_PROCESS,
+        NODE_PROCESS_SELECT,
+        NODE_PARAMS_WRITTEN,
+        NODE_PROCESS_COMPLETE,
+        NODE_CAP_STORAGE_SLOT,
+        NODE_STATION_STATUS,
+        NODE_PICK_PLACE_PRODUCT,
+        NODE_PICK_PLACE_NUMBER,
+        *SENSOR_CAP_STATION.values(),
+        *CAP_STORAGE_SLOT_SENSORS.values(),
+    ]
+    for slot in CAP_STORAGE_SLOTS:
+        for index in range(CAP_CACHE_LENGTH):
+            variable_names.append(_cap_cache_element_name(slot, index))
+    return {name: f"{prefix}|{name}" for name in variable_names}
+
+
 @device(
     id="szlab_s08_cap_station",
     display_name="S08 开盖工位",
@@ -214,10 +275,13 @@ class SZLabS08CapStationDevice:
         timeout: float = 300.0,
         poll_interval: float = 0.2,
         require_station_ready: bool = True,
+        require_station_status: bool = False,
+        validate_cap_constraints: bool = False,
         opcua_client: SzlabS08OpcUaClient | None = None,
         opcua_browse_depth: int = 8,
         opcua_browse_limit: int = 5000,
         opcua_node_id_map: dict[str, str] | None = None,
+        opcua_uplink_comm_prefix: str | None = None,
         opcua_allow_recursive_browse: bool = False,
         opcua_object_name: str = "VirtualS08",
         **kwargs,
@@ -227,17 +291,31 @@ class SZLabS08CapStationDevice:
         self.timeout = timeout
         self.poll_interval = poll_interval
         self.require_station_ready = require_station_ready
+        # 工站状态字 / 瓶盖业务约束：默认关闭；暂不从 device graph 或 workflow UI 透传。
+        self.require_station_status = False
+        self.validate_cap_constraints = False
+        resolved_node_id_map = opcua_node_id_map
+        if resolved_node_id_map is None:
+            uplink_prefix = opcua_uplink_comm_prefix
+            if uplink_prefix is None and not _is_virtual_test_opcua_url(url):
+                uplink_prefix = DEFAULT_UPLINK_COMM_PREFIX
+                logger.info(
+                    f"检测到非虚拟 OPC UA 地址，自动使用上位机通讯 NodeId 映射: {DEFAULT_UPLINK_COMM_PREFIX}"
+                )
+            if uplink_prefix:
+                resolved_node_id_map = build_opcua_node_id_map_for_uplink_comm(uplink_prefix)
         self._client = opcua_client or SzlabS08OpcUaClient(
             url=url,
             username=username,
             password=password,
             browse_depth=opcua_browse_depth,
             browse_limit=opcua_browse_limit,
-            node_id_map=opcua_node_id_map,
+            node_id_map=resolved_node_id_map,
             allow_recursive_browse=opcua_allow_recursive_browse,
             object_name=opcua_object_name,
         )
         self._last_status: dict[str, Any] = {}
+        self._init_unilab_written_state()
 
     @not_action
     def disconnect(self) -> None:
@@ -250,6 +328,14 @@ class SZLabS08CapStationDevice:
     @not_action
     def get_opc_variable_metadata(self, variable_name: str) -> tuple[str, str | None]:
         return self._client.get_opc_variable_metadata(variable_name)
+
+    @not_action
+    def _format_opc_variable_ref(self, node_name: str) -> str:
+        """返回带 OPC UA 变量名与 NodeId 的引用，便于实机排障。"""
+        _, node_id = self.get_opc_variable_metadata(node_name)
+        if node_id:
+            return f"{node_name}（OPC UA NodeId={node_id}）"
+        return f"{node_name}（OPC UA 变量名）"
 
     @not_action
     def _read_variable(self, node_name: str) -> Any:
@@ -280,24 +366,119 @@ class SZLabS08CapStationDevice:
         return False
 
     @not_action
+    def _read_process_complete_int(self) -> int:
+        return _coerce_opcua_int(
+            self._read_variable(NODE_PROCESS_COMPLETE),
+            field_name=self._format_opc_variable_ref(NODE_PROCESS_COMPLETE),
+        )
+
+    @not_action
+    def _read_handshake_int(self, node_name: str) -> int:
+        return _coerce_opcua_int(self._read_variable(node_name), field_name=node_name)
+
+    @not_action
+    def _unilab_handshake_is_dirty(self) -> bool:
+        return (
+            self._read_handshake_int(NODE_PROCESS_SELECT) != 0
+            or bool(self._read_variable(NODE_PARAMS_WRITTEN))
+            or int(self._read_variable(NODE_CAP_STORAGE_SLOT) or 0) != 0
+        )
+
+    @not_action
     def _wait_process_complete(
         self,
         expected: int,
         timeout: Optional[float] = None,
         description: Optional[str] = None,
     ) -> bool:
+        """轮询读取对端「S08工艺完成」，直到等于期望值。"""
         timeout = self.timeout if timeout is None else timeout
         desc = description or f"{NODE_PROCESS_COMPLETE} == {expected}"
+        var_ref = self._format_opc_variable_ref(NODE_PROCESS_COMPLETE)
         logger.info(f"等待 {desc}")
+        interval = self.poll_interval
+
+        if hasattr(self._client, "wait_equal"):
+            ok = self._client.wait_equal(
+                NODE_PROCESS_COMPLETE,
+                expected,
+                timeout=timeout,
+                interval=interval,
+            )
+            if ok:
+                logger.info(f"✓ {desc}")
+            else:
+                try:
+                    self._last_process_complete_seen = self._read_process_complete_int()
+                except Exception:
+                    self._last_process_complete_seen = None
+                logger.error(
+                    f"✗ 等待 {desc} 超时 ({timeout}s)，"
+                    f"最后读取 {var_ref}={self._last_process_complete_seen!r}"
+                )
+            return ok
+
         start = time.time()
+        last_seen: int | None = None
         while time.time() - start < timeout:
-            current = int(self._read_variable(NODE_PROCESS_COMPLETE) or 0)
-            if current == expected:
+            try:
+                last_seen = self._read_process_complete_int()
+            except Exception as exc:
+                logger.warning(f"读取 {var_ref} 失败，继续等待: {_format_driver_error(exc)}")
+                time.sleep(interval)
+                continue
+            if last_seen == expected:
                 logger.info(f"✓ {desc}")
                 return True
-            time.sleep(self.poll_interval)
-        logger.error(f"✗ 等待 {desc} 超时 ({timeout}s)")
+            time.sleep(interval)
+
+        logger.error(
+            f"✗ 等待 {desc} 超时 ({timeout}s)，最后读取 {var_ref}={last_seen!r}"
+        )
+        self._last_process_complete_seen = last_seen
         return False
+
+    @not_action
+    def _process_complete_timeout_message(self, expected: int, task_label: str) -> str:
+        var_ref = self._format_opc_variable_ref(NODE_PROCESS_COMPLETE)
+        last_seen = getattr(self, "_last_process_complete_seen", None)
+        suffix = f"，当前 {var_ref}={last_seen!r}" if last_seen is not None else ""
+        return (
+            f"S08 {task_label} 等待工艺完成超时（期望 {var_ref}={expected}{suffix}）"
+        )
+
+    @not_action
+    def _complete_handshake_teardown(self, timeout: Optional[float] = None) -> bool:
+        """步骤 3–4：复位本侧握手，再读取对端是否已将 S08工艺完成 置 0。"""
+        timeout = self.timeout if timeout is None else timeout
+        try:
+            self._reset_unilab_written_params()
+        except Exception as exc:
+            logger.warning(f"复位握手参数失败，尝试 OPC 重连后重试: {_format_driver_error(exc)}")
+            if hasattr(self._client, "reconnect"):
+                self._client.reconnect()
+            self._reset_unilab_written_params()
+
+        if _is_virtual_test_opcua_url(self.url):
+            return True
+
+        var_ref = self._format_opc_variable_ref(NODE_PROCESS_COMPLETE)
+        return self._wait_process_complete(
+            0,
+            timeout=timeout,
+            description=f"{var_ref} == 0",
+        )
+
+    @not_action
+    def _reset_unilab_written_params_if_dirty(self) -> None:
+        if self._unilab_handshake_is_dirty():
+            self._reset_unilab_written_params()
+
+    @not_action
+    def _reset_unilab_written_params(self) -> None:
+        self._write_variable(NODE_PROCESS_SELECT, 0)
+        self._write_variable(NODE_PARAMS_WRITTEN, False)
+        self._write_variable(NODE_CAP_STORAGE_SLOT, 0)
 
     @not_action
     def _read_s08_status(self) -> dict[str, Any]:
@@ -306,17 +487,20 @@ class SZLabS08CapStationDevice:
             "allow_process": bool(self._read_variable(NODE_ALLOW_PROCESS)),
             "process_select": int(self._read_variable(NODE_PROCESS_SELECT) or 0),
             "params_written": bool(self._read_variable(NODE_PARAMS_WRITTEN)),
-            "process_complete": int(self._read_variable(NODE_PROCESS_COMPLETE) or 0),
+            "process_complete": self._read_process_complete_int(),
             "cap_storage_slot": int(self._read_variable(NODE_CAP_STORAGE_SLOT) or 0),
         }
         self._last_status = status
         return status
 
     @not_action
-    def _reset_unilab_written_params(self) -> None:
-        self._write_variable(NODE_PROCESS_SELECT, 0)
-        self._write_variable(NODE_PARAMS_WRITTEN, False)
-        self._write_variable(NODE_CAP_STORAGE_SLOT, 0)
+    def _init_unilab_written_state(self) -> None:
+        """连接后复位本侧握手参数，不写入对端负责的变量（工艺完成、允许加工、原点信号等）。"""
+        try:
+            self._reset_unilab_written_params()
+            logger.info("S08 本侧握手参数已在连接时复位")
+        except Exception as exc:
+            logger.warning(f"S08 连接时复位本侧参数失败: {exc}")
 
     @not_action
     def _read_sample_id_from_plc(self, slot: int) -> list[int]:
@@ -360,9 +544,20 @@ class SZLabS08CapStationDevice:
     def _find_free_cap_slot(self) -> Optional[int]:
         for slot in CAP_STORAGE_SLOTS:
             cached = self._try_read_sample_id_from_plc(slot)
-            if cached is not None and _sample_id_is_empty(cached) and not self._read_cap_slot_sensor(slot):
-                return slot
+            cache_empty = cached is not None and _sample_id_is_empty(cached)
+            if not cache_empty:
+                continue
+            if self.validate_cap_constraints and self._read_cap_slot_sensor(slot):
+                continue
+            return slot
         return None
+
+    @not_action
+    def _find_free_cap_slot_relaxed(self) -> int:
+        free_slot = self._find_free_cap_slot()
+        if free_slot is not None:
+            return free_slot
+        return CAP_STORAGE_SLOTS[0]
 
     @not_action
     def _find_cap_slot_by_sample_id(self, sample_id: Sequence[int]) -> Optional[int]:
@@ -419,6 +614,12 @@ class SZLabS08CapStationDevice:
 
     @not_action
     def _resolve_open_cap_storage_slot(self, sample_id: Sequence[int]) -> int:
+        if not self.validate_cap_constraints:
+            existing_slot = self._find_cap_slot_by_sample_id(sample_id)
+            if existing_slot is not None:
+                return existing_slot
+            return self._find_free_cap_slot_relaxed()
+
         existing_slot = self._find_cap_slot_by_sample_id(sample_id)
         if existing_slot is not None:
             if self._read_cap_slot_sensor(existing_slot):
@@ -440,8 +641,14 @@ class SZLabS08CapStationDevice:
     def _resolve_close_cap_storage_slot(self, sample_id: Sequence[int]) -> int:
         slot = self._find_cap_slot_by_sample_id(sample_id)
         if slot is None:
+            if not self.validate_cap_constraints:
+                plc_slot = int(self._read_variable(NODE_CAP_STORAGE_SLOT) or 0)
+                if plc_slot in CAP_STORAGE_SLOTS:
+                    return plc_slot
+                return CAP_STORAGE_SLOTS[0]
             raise ValueError("未找到该样品 ID 对应的瓶盖暂存位，或该瓶尚未开盖，无法关盖")
-        self._validate_cap_storage_slot_has_cap(slot)
+        if self.validate_cap_constraints:
+            self._validate_cap_storage_slot_has_cap(slot)
         return slot
 
     @not_action
@@ -453,7 +660,12 @@ class SZLabS08CapStationDevice:
         status_code = self._read_s08_station_status_code()
         if status_code not in S08_STATION_STATUS_READY_VALUES:
             label = S08_STATION_STATUS_LABELS.get(status_code, f"未知状态{status_code}")
-            raise ValueError(f"S08 工站未就绪（{NODE_STATION_STATUS}={status_code}，{label}）")
+            var_ref = self._format_opc_variable_ref(NODE_STATION_STATUS)
+            raise ValueError(
+                f"S08 工站未就绪：PLC 状态字 {var_ref}={status_code}（{label}）。"
+                f"允许值为 2–6（准备好/运行中/单循环/寸动/初始化），0=报警、1=未准备好；"
+                "请在 PLC/HMI 消除报警并使工站进入就绪后再执行 process_cap。"
+            )
 
     @not_action
     def _require_sample_id(self, sample_id: Sequence[int] | None) -> list[int]:
@@ -495,7 +707,12 @@ class SZLabS08CapStationDevice:
 
         if self.require_station_ready:
             if not self._wait_plc_bool(NODE_HOME, True, timeout=timeout, description="S08 原点信号（机械臂安全位）"):
-                return {"success": False, "message": "机械臂未回到 S08 安全位（S08原点信号为 False）"}
+                return {
+                    "success": False,
+                    "message": (
+                        f"机械臂未回到 S08 安全位：{self._format_opc_variable_ref(NODE_HOME)} 当前为 False"
+                    ),
+                }
 
         if not self._wait_plc_bool(
             NODE_ALLOW_PROCESS,
@@ -503,17 +720,15 @@ class SZLabS08CapStationDevice:
             timeout=timeout,
             description="S08 允许加工",
         ):
-            return {"success": False, "message": "等待 S08 允许加工超时"}
+            return {
+                "success": False,
+                "message": f"等待 {self._format_opc_variable_ref(NODE_ALLOW_PROCESS)} 置 True 超时",
+            }
 
-        if int(self._read_variable(NODE_PROCESS_COMPLETE) or 0) != 0:
-            if not self._wait_process_complete(
-                0,
-                timeout=min(10.0, timeout),
-                description=f"{NODE_PROCESS_COMPLETE} 清零（PLC 复位）",
-            ):
-                return {"success": False, "message": "上一轮 S08工艺完成 尚未由 PLC 清零"}
+        self._reset_unilab_written_params_if_dirty()
 
         params_written = False
+        handshake_teardown_done = False
         try:
             if is_open:
                 self._write_sample_id_to_slot_cache(cap_storage_slot, normalized_sample_id)
@@ -525,8 +740,18 @@ class SZLabS08CapStationDevice:
             if not self._wait_process_complete(process_id, timeout=timeout):
                 return {
                     "success": False,
-                    "message": f"S08 {task_label} 等待工艺完成超时（期望 {NODE_PROCESS_COMPLETE}={process_id}）",
+                    "message": self._process_complete_timeout_message(process_id, task_label),
                 }
+
+            if not self._complete_handshake_teardown(timeout=timeout):
+                return {
+                    "success": False,
+                    "message": (
+                        f"握手收尾失败：对端 {self._format_opc_variable_ref(NODE_PROCESS_COMPLETE)} "
+                        "在复位本侧参数后未清零"
+                    ),
+                }
+            handshake_teardown_done = True
 
             if clear_cache_on_complete:
                 self._clear_slot_cache(cap_storage_slot)
@@ -541,13 +766,13 @@ class SZLabS08CapStationDevice:
             }
         except Exception as exc:
             logger.exception(f"S08 {task_label} 失败: {exc}")
-            return {"success": False, "message": str(exc)}
+            return {"success": False, "message": _format_driver_error(exc)}
         finally:
-            if params_written:
+            if params_written and not handshake_teardown_done:
                 try:
-                    self._reset_unilab_written_params()
-                except Exception:
-                    pass
+                    self._complete_handshake_teardown(timeout=min(10.0, timeout))
+                except Exception as exc:
+                    logger.warning(f"S08 异常退出时握手收尾失败: {_format_driver_error(exc)}")
 
     @not_action
     def _open_cap(
@@ -612,6 +837,7 @@ class SZLabS08CapStationDevice:
             "status_code": status_code,
             "status_label": S08_STATION_STATUS_LABELS.get(status_code, f"未知状态{status_code}"),
             "node_name": NODE_STATION_STATUS,
+            "opcua_ref": self._format_opc_variable_ref(NODE_STATION_STATUS),
         }
 
     @not_action
@@ -703,7 +929,7 @@ class SZLabS08CapStationDevice:
             self._reset_unilab_written_params()
         except Exception as exc:
             return {"success": False, "message": str(exc)}
-        return {"success": True, "message": "S08 UniLab 侧工艺参数已复位"}
+        return {"success": True, "message": "S08 握手参数已复位"}
 
     @action(
         auto_prefix=True,
@@ -719,8 +945,10 @@ class SZLabS08CapStationDevice:
         try:
             process_type = _resolve_process_type(operation, vial_type)
             normalized_sample_id = self._require_sample_id(sample_id)
-            self._validate_s08_station_status_ready()
-            self._validate_cap_station_has_bottle(vial_type, operation)
+            if self.require_station_status:
+                self._validate_s08_station_status_ready()
+            if self.validate_cap_constraints:
+                self._validate_cap_station_has_bottle(vial_type, operation)
         except ValueError as exc:
             return {"success": False, "message": str(exc)}
 

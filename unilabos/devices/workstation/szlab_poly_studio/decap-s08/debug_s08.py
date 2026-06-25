@@ -72,7 +72,20 @@ def _load_device_class():
         raise ImportError(f"无法加载 S08 设备模块: {module_path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.SZLabS08CapStationDevice, module.SzlabS08OpcUaClient
+    return (
+        module.SZLabS08CapStationDevice,
+        module.SzlabS08OpcUaClient,
+        module.build_opcua_node_id_map_for_uplink_comm,
+    )
+
+
+def _client_kwargs_for_config(device_cfg: dict[str, Any], object_name: str) -> dict[str, Any]:
+    prefix = device_cfg.get("opcua_uplink_comm_prefix")
+    if prefix:
+        _device_cls, client_cls, build_map = _load_device_class()
+        del _device_cls, client_cls
+        return {"node_id_map": build_map(str(prefix))}
+    return {"object_name": object_name}
 
 
 def start_virtual_opcua_stack(config: dict[str, Any]) -> tuple[Any, threading.Thread, threading.Event]:
@@ -149,10 +162,14 @@ def run_s08_debug(
     timeout: float,
     poll_interval: float,
     require_station_ready: bool,
+    opcua_uplink_comm_prefix: str | None,
     action_cfg: dict[str, Any],
 ) -> dict[str, Any]:
-    device_cls, client_cls = _load_device_class()
-    client = client_cls(opcua_url, object_name=object_name)
+    device_cls, client_cls, _build_map = _load_device_class()
+    client = client_cls(opcua_url, **_client_kwargs_for_config(
+        {"opcua_uplink_comm_prefix": opcua_uplink_comm_prefix} if opcua_uplink_comm_prefix else {},
+        object_name,
+    ))
     try:
         device = device_cls(
             url=opcua_url,
@@ -161,6 +178,7 @@ def run_s08_debug(
             require_station_ready=require_station_ready,
             opcua_client=client,
             opcua_object_name=object_name,
+            opcua_uplink_comm_prefix=opcua_uplink_comm_prefix,
         )
 
         action_name = str(action_cfg["name"])
@@ -195,20 +213,26 @@ def _run_from_config(config_path: Path, *, use_production: bool) -> dict[str, An
         timeout=float(device_cfg.get("timeout", 300.0)),
         poll_interval=float(device_cfg.get("poll_interval", 0.2)),
         require_station_ready=bool(device_cfg.get("require_station_ready", True)),
+        opcua_uplink_comm_prefix=(
+            str(device_cfg["opcua_uplink_comm_prefix"]) if use_production and device_cfg.get("opcua_uplink_comm_prefix") else None
+        ),
         action_cfg=action_cfg,
     )
 
 
 def reset_plc_signals(config_path: Path, *, use_production: bool) -> None:
     config = load_s08_debug_config(config_path, use_production=use_production)
-    _device_cls, client_cls = _load_device_class()
-    client = client_cls(config["resolved_opcua_url"], object_name=config["virtual_object_name"])
+    device_cfg = config["device"]
+    _device_cls, client_cls, _build_map = _load_device_class()
+    client = client_cls(
+        config["resolved_opcua_url"],
+        **_client_kwargs_for_config(device_cfg if use_production else {}, config["virtual_object_name"]),
+    )
     try:
         for name, value in (
             ("S08工艺选择", 0),
             ("S08参数写入完成", False),
             ("S082瓶盖暂存位", 0),
-            ("S08工艺完成", 0),
         ):
             client.write(name, value)
             print(f"已清除 {name} = {value!r}")

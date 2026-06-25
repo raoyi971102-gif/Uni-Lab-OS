@@ -30,7 +30,8 @@
         "position": {"x": 0, "y": 0, "z": 0},
         "config": {
           "url": "${opcua_url}",
-          "timeout": "${timeout}"
+          "timeout": "${timeout}",
+          "opcua_uplink_comm_prefix": "ns=4;s=上位机通讯"
         },
         "data": {}
       }
