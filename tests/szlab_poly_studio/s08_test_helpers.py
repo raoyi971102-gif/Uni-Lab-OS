@@ -1,4 +1,4 @@
-"""S08 测试共用 fixture，供 CI 与 local 手动测试复用。"""
+"""S08 测试共用 fixture。"""
 
 from __future__ import annotations
 

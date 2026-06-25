@@ -13,8 +13,6 @@ NODE_PARAMS_WRITTEN = _s08_module.NODE_PARAMS_WRITTEN
 NODE_PROCESS_COMPLETE = _s08_module.NODE_PROCESS_COMPLETE
 NODE_PROCESS_SELECT = _s08_module.NODE_PROCESS_SELECT
 NODE_STATION_STATUS = _s08_module.NODE_STATION_STATUS
-NODE_PICK_PLACE_PRODUCT = _s08_module.NODE_PICK_PLACE_PRODUCT
-NODE_PICK_PLACE_NUMBER = _s08_module.NODE_PICK_PLACE_NUMBER
 SENSOR_CAP_STATION = _s08_module.SENSOR_CAP_STATION
 _cap_cache_element_name = _s08_module._cap_cache_element_name
 
@@ -37,8 +35,6 @@ class PseudoSzlabS08OpcUaClient:
             "S08工艺完成": 0,
             "S082瓶盖暂存位": 0,
             NODE_STATION_STATUS: 2,
-            NODE_PICK_PLACE_PRODUCT: 0,
-            NODE_PICK_PLACE_NUMBER: 0,
             **{node_name: True for node_name in SENSOR_CAP_STATION.values()},
             **{node_name: False for node_name in CAP_STORAGE_SLOT_SENSORS.values()},
             **(initial_values or {}),

@@ -11,9 +11,6 @@ import pytest
 from tests.szlab_poly_studio.s08_driver_loader import load_s08_cap_station_module
 
 _s08_module = load_s08_cap_station_module()
-NODE_PARAMS_WRITTEN = _s08_module.NODE_PARAMS_WRITTEN
-NODE_PROCESS_COMPLETE = _s08_module.NODE_PROCESS_COMPLETE
-NODE_PROCESS_SELECT = _s08_module.NODE_PROCESS_SELECT
 SZLabS08CapStationDevice = _s08_module.SZLabS08CapStationDevice
 _cap_cache_element_name = _s08_module._cap_cache_element_name
 
@@ -22,15 +19,6 @@ S08_CSV_PATH = REPO_ROOT / "unilabos" / "devices" / "workstation" / "szlab_poly_
 S08_FLOW_PATH = REPO_ROOT / "tests" / "psuedo_devices" / "szlab_s08_cap_station" / "open_liquid_cap_flow.json"
 DEFAULT_ENDPOINT = "opc.tcp://127.0.0.1:50102/"
 SAMPLE_ID = [101, 102, 103]
-
-S08_VARIABLES = [
-    "S08原点信号",
-    "S08允许加工",
-    NODE_PROCESS_SELECT,
-    NODE_PARAMS_WRITTEN,
-    NODE_PROCESS_COMPLETE,
-    "S082瓶盖暂存位",
-] + [_cap_cache_element_name(1, index) for index in range(3)]
 
 
 @pytest.fixture(scope="module")
@@ -114,9 +102,9 @@ class TestSzlabS08CapStationOpcUaDevice:
             assert close_result["success"] is True
             assert close_result["cap_storage_slot"] == 1
 
-            after_close = device.get_variables(S08_VARIABLES)
-            assert after_close[NODE_PROCESS_SELECT]["value"] == 0
-            assert after_close[_cap_cache_element_name(1, 0)]["value"] == 0
-            assert after_close[NODE_PARAMS_WRITTEN]["value"] is False
+            status = close_result["status"]
+            assert status["process_select"] == 0
+            assert status["params_written"] is False
+            assert int(device._client.read(_cap_cache_element_name(1, 0)) or 0) == 0
         finally:
-            device.disconnect()
+            device._client.disconnect()

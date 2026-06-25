@@ -14,8 +14,7 @@ S08 开盖/关盖工位子设备。
 若对应工位无瓶（传感器为 False）则直接返回错误。开盖分配暂存位时同时要求瓶盖暂存位传感器
 （NO[0-4]）为 False；关盖前要求目标暂存位传感器为 True（有盖可取）。
 
-``S08取放料产品`` / ``S08取放料编号`` 为机械臂取放料协调写点，由 workflow 写入；
-本驱动提供读写辅助方法，``process_cap`` 不自动写入。``工站状态[7]`` 在工艺前校验工站就绪。
+``S08取放料产品`` / ``S08取放料编号`` 由 workflow 写入，本驱动不读写。
 
 总原则：谁写入谁复位。初始化及启动前仅复位 UniLab 负责写入的变量；对端写入、UniLab 只读的变量
 （S08工艺完成、S08允许加工、S08原点信号、传感器等）不在启动前等待或干预其取值。
@@ -28,8 +27,6 @@ S08 开盖/关盖工位子设备。
 
 UniLab 写入、对端读取：S08工艺选择、S08参数写入完成、S082瓶盖暂存位、数据缓存等。
 对端写入、UniLab 读取：S08工艺完成、S08允许加工、S08原点信号、传感器等。
-
-分步读状态、等待就绪等辅助方法为 ``@not_action``，供调试脚本与单元测试使用。
 """
 
 from __future__ import annotations
@@ -75,8 +72,6 @@ NODE_PARAMS_WRITTEN = "S08参数写入完成"
 NODE_PROCESS_COMPLETE = "S08工艺完成"
 NODE_CAP_STORAGE_SLOT = "S082瓶盖暂存位"
 NODE_STATION_STATUS = "工站状态[7]"
-NODE_PICK_PLACE_PRODUCT = "S08取放料产品"
-NODE_PICK_PLACE_NUMBER = "S08取放料编号"
 
 # 工站状态[7]：0报警 1未准备好 2准备好 3运行中 4单循环 5寸动 6初始化
 S08_STATION_STATUS_LABELS: dict[int, str] = {
@@ -249,8 +244,6 @@ def build_opcua_node_id_map_for_uplink_comm(prefix: str = DEFAULT_UPLINK_COMM_PR
         NODE_PROCESS_COMPLETE,
         NODE_CAP_STORAGE_SLOT,
         NODE_STATION_STATUS,
-        NODE_PICK_PLACE_PRODUCT,
-        NODE_PICK_PLACE_NUMBER,
         *SENSOR_CAP_STATION.values(),
         *CAP_STORAGE_SLOT_SENSORS.values(),
     ]
@@ -316,14 +309,6 @@ class SZLabS08CapStationDevice:
         )
         self._last_status: dict[str, Any] = {}
         self._init_unilab_written_state()
-
-    @not_action
-    def disconnect(self) -> None:
-        self._client.disconnect()
-
-    @not_action
-    def get_variables(self, variable_names: list[str], use_cache: bool = False) -> dict[str, dict[str, Any]]:
-        return self._client.get_variables(variable_names, use_cache=use_cache)
 
     @not_action
     def get_opc_variable_metadata(self, variable_name: str) -> tuple[str, str | None]:
@@ -520,14 +505,6 @@ class SZLabS08CapStationDevice:
         self._write_sample_id_to_slot_cache(slot, [0] * CAP_CACHE_LENGTH)
 
     @not_action
-    def _read_cap_storage_registry(self) -> dict[int, list[int]]:
-        registry: dict[int, list[int]] = {}
-        for slot in CAP_STORAGE_SLOTS:
-            cached = self._try_read_sample_id_from_plc(slot)
-            registry[slot] = cached if cached is not None else [0] * CAP_CACHE_LENGTH
-        return registry
-
-    @not_action
     def _try_read_sample_id_from_plc(self, slot: int) -> Optional[list[int]]:
         try:
             return self._read_sample_id_from_plc(slot=slot)
@@ -569,18 +546,6 @@ class SZLabS08CapStationDevice:
             if cached is not None and _sample_ids_match(cached, normalized):
                 return slot
         return None
-
-    @not_action
-    def _cap_station_for_vial_type(self, vial_type: str) -> int:
-        normalized = _normalize_vial_type(vial_type)
-        return VIAL_TYPE_TO_CAP_STATION[normalized]
-
-    @not_action
-    def _read_cap_station_occupancy(self) -> dict[int, bool]:
-        return {
-            station_id: bool(self._read_variable(sensor_node))
-            for station_id, sensor_node in SENSOR_CAP_STATION.items()
-        }
 
     @not_action
     def _validate_cap_station_has_bottle(self, vial_type: str, operation: str) -> None:
@@ -675,14 +640,6 @@ class SZLabS08CapStationDevice:
         if _sample_id_is_empty(normalized):
             raise ValueError("sample_id 不能全为 0")
         return normalized
-
-    @not_action
-    def _resolve_cap_storage_slot_for_open(self, sample_id: Sequence[int]) -> int:
-        return self._resolve_open_cap_storage_slot(sample_id)
-
-    @not_action
-    def _resolve_cap_storage_slot_for_close(self, sample_id: Sequence[int]) -> int:
-        return self._resolve_close_cap_storage_slot(sample_id)
 
     @not_action
     def _run_cap_process(
@@ -812,124 +769,6 @@ class SZLabS08CapStationDevice:
             timeout=timeout,
             clear_cache_on_complete=True,
         )
-
-    @not_action
-    def wait_station_ready(self, timeout: float = 300.0) -> dict[str, Any]:
-        if self._wait_plc_bool(NODE_HOME, True, timeout=timeout, description="S08 原点信号（机械臂安全位）"):
-            return {"success": True, "message": "机械臂已在 S08 安全位"}
-        return {"success": False, "message": "等待机械臂回到 S08 安全位超时"}
-
-    @not_action
-    def _read_cap_slot_occupancy(self) -> dict[int, bool]:
-        return {
-            slot: bool(self._read_variable(node_name))
-            for slot, node_name in CAP_STORAGE_SLOT_SENSORS.items()
-        }
-
-    @not_action
-    def read_s08_station_status(self) -> dict[str, Any]:
-        try:
-            status_code = self._read_s08_station_status_code()
-        except Exception as exc:
-            return {"success": False, "message": str(exc)}
-        return {
-            "success": True,
-            "status_code": status_code,
-            "status_label": S08_STATION_STATUS_LABELS.get(status_code, f"未知状态{status_code}"),
-            "node_name": NODE_STATION_STATUS,
-            "opcua_ref": self._format_opc_variable_ref(NODE_STATION_STATUS),
-        }
-
-    @not_action
-    def read_s08_pick_place_params(self) -> dict[str, Any]:
-        try:
-            product = int(self._read_variable(NODE_PICK_PLACE_PRODUCT) or 0)
-            place_number = int(self._read_variable(NODE_PICK_PLACE_NUMBER) or 0)
-        except Exception as exc:
-            return {"success": False, "message": str(exc)}
-        return {
-            "success": True,
-            "product": product,
-            "place_number": place_number,
-            "nodes": {
-                "product": NODE_PICK_PLACE_PRODUCT,
-                "place_number": NODE_PICK_PLACE_NUMBER,
-            },
-        }
-
-    @not_action
-    def write_s08_pick_place_params(self, product: int, place_number: int) -> dict[str, Any]:
-        try:
-            self._write_variable(NODE_PICK_PLACE_PRODUCT, int(product))
-            self._write_variable(NODE_PICK_PLACE_NUMBER, int(place_number))
-        except Exception as exc:
-            return {"success": False, "message": str(exc)}
-        return {
-            "success": True,
-            "message": "S08 取放料参数已写入",
-            "product": int(product),
-            "place_number": int(place_number),
-        }
-
-    @not_action
-    def read_cap_station_occupancy(self) -> dict[str, Any]:
-        try:
-            occupancy = self._read_cap_station_occupancy()
-        except Exception as exc:
-            return {"success": False, "message": str(exc)}
-        return {
-            "success": True,
-            "occupancy": occupancy,
-            "sensor_nodes": dict(SENSOR_CAP_STATION),
-        }
-
-    @not_action
-    def read_cap_slot_occupancy(self) -> dict[str, Any]:
-        try:
-            occupancy = self._read_cap_slot_occupancy()
-        except Exception as exc:
-            return {"success": False, "message": str(exc)}
-        free_slots = [slot for slot, occupied in occupancy.items() if not occupied]
-        return {
-            "success": True,
-            "occupancy": occupancy,
-            "free_slots": free_slots,
-        }
-
-    @not_action
-    def read_cap_storage_registry(self) -> dict[str, Any]:
-        try:
-            registry = self._read_cap_storage_registry()
-        except Exception as exc:
-            return {"success": False, "message": str(exc)}
-        free_slots = [slot for slot, sample in registry.items() if _sample_id_is_empty(sample)]
-        return {
-            "success": True,
-            "registry": registry,
-            "free_slots": free_slots,
-        }
-
-    @not_action
-    def wait_allow_process(self, timeout: float = 300.0) -> dict[str, Any]:
-        if self._wait_plc_bool(NODE_ALLOW_PROCESS, True, timeout=timeout, description="S08 允许加工"):
-            return {"success": True, "message": "S08 已允许加工"}
-        return {"success": False, "message": "等待 S08 允许加工超时"}
-
-    @not_action
-    def read_s08_status(self) -> dict[str, Any]:
-        try:
-            status = self._read_s08_status()
-        except Exception as exc:
-            return {"success": False, "message": str(exc)}
-        return {"success": True, "status": status}
-
-    @not_action
-    def reset_s08_flags(self) -> dict[str, Any]:
-        try:
-            self._reset_unilab_written_params()
-        except Exception as exc:
-            return {"success": False, "message": str(exc)}
-        return {"success": True, "message": "S08 握手参数已复位"}
 
     @action(
         auto_prefix=True,
