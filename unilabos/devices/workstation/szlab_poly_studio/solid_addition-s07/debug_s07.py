@@ -15,8 +15,6 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from opcua import Client
-
 _DEVICE_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _DEVICE_DIR.parents[4]
 _DEFAULT_CONFIG = _DEVICE_DIR / "s07_debug.json"
@@ -79,44 +77,26 @@ def serve_virtual_opcua(config_path: Path = _DEFAULT_CONFIG) -> None:
         server.stop()
 
 
-class S07OpcUaClient:
-    def __init__(self, url: str) -> None:
-        self.client = Client(url)
-        self.nodes: dict[str, Any] = {}
-
-    def connect(self) -> None:
-        self.client.connect()
-        objects = self.client.get_objects_node()
-        for child in objects.get_children():
-            if child.get_browse_name().Name == "VirtualMixer":
-                self.nodes = {node.get_browse_name().Name: node for node in child.get_children()}
-                return
-        raise RuntimeError("OPC UA 中未找到 VirtualMixer 对象")
-
-    def disconnect(self) -> None:
-        self.client.disconnect()
-
-    def read(self, node_name: str) -> Any:
-        return self.nodes[node_name].get_value()
-
-    def write(self, node_name: str, value: Any) -> None:
-        self.nodes[node_name].set_value(value)
-
-
 def run_s07_debug(config_path: Path, *, use_production: bool) -> dict[str, Any]:
     config = load_s07_debug_config(config_path, use_production=use_production)
     device_cfg = config["device"]
     action_cfg = dict(config["action"])
     action_name = action_cfg.pop("name")
     module = importlib.import_module("unilabos.devices.workstation.szlab_poly_studio.solid_addition-s07.s07")
+    opcua_module = importlib.import_module(
+        "unilabos.devices.workstation.szlab_poly_studio.solid_addition-s07.opcua_client"
+    )
     device = module.SZLabS07SolidAdditionDevice(
         plc_device_id="debug_s07_plc",
         process_timeout=float(device_cfg.get("process_timeout", 300.0)),
         poll_interval=float(device_cfg.get("poll_interval", 0.2)),
         require_station_ready=bool(device_cfg.get("require_station_ready", True)),
     )
-    client = S07OpcUaClient(config["resolved_opcua_url"])
-    client.connect()
+    client = opcua_module.S07OpcUaClient(
+        config["resolved_opcua_url"],
+        node_id_map=dict(device_cfg.get("opcua_node_id_map", {})) if use_production else {},
+        allow_recursive_browse=bool(device_cfg.get("opcua_allow_recursive_browse", False)) if use_production else False,
+    )
     try:
         device._read_plc_variable = client.read
         device._write_plc_variable = client.write
@@ -138,8 +118,15 @@ def reset_plc_signals(config_path: Path, *, use_production: bool) -> None:
     )
 
     config = load_s07_debug_config(config_path, use_production=use_production)
-    client = S07OpcUaClient(config["resolved_opcua_url"])
-    client.connect()
+    device_cfg = config["device"]
+    opcua_module = importlib.import_module(
+        "unilabos.devices.workstation.szlab_poly_studio.solid_addition-s07.opcua_client"
+    )
+    client = opcua_module.S07OpcUaClient(
+        config["resolved_opcua_url"],
+        node_id_map=dict(device_cfg.get("opcua_node_id_map", {})) if use_production else {},
+        allow_recursive_browse=bool(device_cfg.get("opcua_allow_recursive_browse", False)) if use_production else False,
+    )
     try:
         for name, value in (
             (sensors.NODE_PROCESS_SELECT, 0),
