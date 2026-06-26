@@ -25,7 +25,11 @@
     }
   },
   "action": {
-    "name": "scan_powder_cartridges",
+    "name": "dose_powder",
+    "coarse_position": 1,
+    "fine_position": 2,
+    "target_weight": 1.0,
+    "recipe_name": "default",
     "timeout": 300.0
   }
 }
