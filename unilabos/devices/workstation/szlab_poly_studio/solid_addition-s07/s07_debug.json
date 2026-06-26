@@ -9,9 +9,11 @@
     "endpoint": "opc.tcp://127.0.0.1:48507/"
   },
   "device": {
-    "process_timeout": 8.0,
+    "process_timeout": 300.0,
     "poll_interval": 0.05,
     "require_station_ready": true,
+    "opcua_timeout": 30.0,
+    "opcua_ignore_token_time_check": true,
     "opcua_allow_recursive_browse": false,
     "opcua_node_id_map": {
       "S07原点信号": "ns=4;s=上位机通讯|S07原点信号",
@@ -23,6 +25,6 @@
   },
   "action": {
     "name": "scan_powder_cartridges",
-    "timeout": 8.0
+    "timeout": 300.0
   }
 }

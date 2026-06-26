@@ -86,6 +86,9 @@ def test_s07_scan_powder_cartridges_writes_process_and_reads_qr_codes():
     assert result["success"] is True
     assert result["process_type"] == sensors.PROCESS_SCAN_CARTRIDGES
     assert set(result["qr_codes"]) == set(sensors.POSITION_RANGE)
+    assert plc.writes.index((sensors.NODE_PROCESS_SELECT, 0)) < plc.writes.index(
+        (sensors.NODE_PROCESS_SELECT, sensors.PROCESS_SCAN_CARTRIDGES)
+    )
     assert (sensors.NODE_PROCESS_SELECT, sensors.PROCESS_SCAN_CARTRIDGES) in plc.writes
     assert (sensors.NODE_PARAMS_WRITTEN, True) in plc.writes
     assert (sensors.NODE_PARAMS_WRITTEN, False) in plc.writes
@@ -125,3 +128,21 @@ def test_s07_dose_powder_writes_positions_weight_and_powder_params():
     assert (sensors.NODE_COARSE_SHAKE_MAX_SPEED, 80) in plc.writes
     assert (sensors.s07_powder_param_var("精注粉", "落粉匀速", 1), 0.2) in plc.writes
     assert (sensors.NODE_PROCESS_SELECT, sensors.PROCESS_DOSE_POWDER) in plc.writes
+
+
+def test_s07_resets_all_unilab_written_params_before_dose():
+    plc = FakeS07Plc()
+    device = make_s07_device(plc)
+
+    device.dose_powder(coarse_position=2, fine_position=5, target_weight=12.5, timeout=0.05)
+
+    first_process_write = plc.writes.index((sensors.NODE_PROCESS_SELECT, sensors.PROCESS_DOSE_POWDER))
+    initial_writes = plc.writes[:first_process_write]
+    assert (sensors.NODE_LOAD_POSITION, 0) in initial_writes
+    assert (sensors.NODE_COARSE_POSITION, 0) in initial_writes
+    assert (sensors.NODE_FINE_POSITION, 0) in initial_writes
+    assert (sensors.NODE_TARGET_WEIGHT, 0.0) in initial_writes
+    assert (sensors.s07_powder_param_var("粗注粉", "开口量", 0), 0) in initial_writes
+    assert (sensors.s07_powder_param_var("精注粉", "落粉匀速", 0), 0.0) in initial_writes
+    assert (sensors.NODE_COARSE_SHAKE_MAX_SPEED, 0) in initial_writes
+    assert (sensors.NODE_FINE_SHAKE_MAX_SPEED, 0) in initial_writes

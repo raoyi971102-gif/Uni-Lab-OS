@@ -96,6 +96,8 @@ def run_s07_debug(config_path: Path, *, use_production: bool) -> dict[str, Any]:
         config["resolved_opcua_url"],
         node_id_map=dict(device_cfg.get("opcua_node_id_map", {})) if use_production else {},
         allow_recursive_browse=bool(device_cfg.get("opcua_allow_recursive_browse", False)) if use_production else False,
+        timeout=float(device_cfg.get("opcua_timeout", 30.0)),
+        ignore_token_time_check=bool(device_cfg.get("opcua_ignore_token_time_check", False)),
     )
     try:
         device._read_plc_variable = client.read
@@ -126,14 +128,21 @@ def reset_plc_signals(config_path: Path, *, use_production: bool) -> None:
         config["resolved_opcua_url"],
         node_id_map=dict(device_cfg.get("opcua_node_id_map", {})) if use_production else {},
         allow_recursive_browse=bool(device_cfg.get("opcua_allow_recursive_browse", False)) if use_production else False,
+        timeout=float(device_cfg.get("opcua_timeout", 30.0)),
+        ignore_token_time_check=bool(device_cfg.get("opcua_ignore_token_time_check", False)),
     )
     try:
         for name, value in (
             (sensors.NODE_PROCESS_SELECT, 0),
             (sensors.NODE_PARAMS_WRITTEN, False),
             (sensors.NODE_LOAD_POSITION, 0),
-            (sensors.NODE_PROCESS_COMPLETE, 0),
+            (sensors.NODE_COARSE_POSITION, 0),
+            (sensors.NODE_FINE_POSITION, 0),
+            (sensors.NODE_TARGET_WEIGHT, 0.0),
         ):
+            client.write(name, value)
+            print(f"已清除 {name} = {value!r}")
+        for name, value in sensors.iter_s07_powder_param_vars():
             client.write(name, value)
             print(f"已清除 {name} = {value!r}")
     finally:

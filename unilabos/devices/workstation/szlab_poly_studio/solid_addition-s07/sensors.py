@@ -63,6 +63,21 @@ def s07_powder_param_var(kind: str, field: str, index: int) -> str:
     return f"S07_{kind}{field}[{index}]"
 
 
+def iter_s07_powder_param_vars() -> list[tuple[str, float | int]]:
+    reset_values: list[tuple[str, float | int]] = []
+    for kind in ("粗注粉", "精注粉"):
+        for field in ("开口量", "旋转速度", "提请停止量"):
+            reset_values.extend((s07_powder_param_var(kind, field, index), 0) for index in range(POWDER_PARAM_LENGTH))
+        reset_values.extend((s07_powder_param_var(kind, "落粉匀速", index), 0.0) for index in range(POWDER_PARAM_LENGTH))
+    reset_values.extend(
+        [
+            (NODE_COARSE_SHAKE_MAX_SPEED, 0),
+            (NODE_FINE_SHAKE_MAX_SPEED, 0),
+        ]
+    )
+    return reset_values
+
+
 def normalize_powder_params(params: dict[str, Any] | None) -> dict[str, list[float | int] | int]:
     params = dict(params or {})
     return {

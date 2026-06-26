@@ -5,6 +5,40 @@ import time
 from typing import Any
 
 from opcua import Client, ua
+from opcua.common.connection import SecureConnection
+
+_TOKEN_TIME_CHECK_PATCHED = False
+
+
+def _ignore_plc_clock_token_time_check() -> None:
+    global _TOKEN_TIME_CHECK_PATCHED
+    if _TOKEN_TIME_CHECK_PATCHED:
+        return
+
+    def _check_sym_header_without_time_check(self, securityHeader):
+        assert isinstance(securityHeader, ua.SymmetricAlgorithmHeader), (
+            "Expected SymAlgHeader, got: {0}".format(securityHeader)
+        )
+        if securityHeader.TokenId != self.security_token.TokenId:
+            if securityHeader.TokenId != self.next_security_token.TokenId:
+                if self._allow_prev_token and securityHeader.TokenId == self.prev_security_token.TokenId:
+                    return
+                raise ua.UaError(
+                    "Invalid security token id {}, expected {} or {}".format(
+                        securityHeader.TokenId,
+                        self.security_token.TokenId,
+                        self.next_security_token.TokenId,
+                    )
+                )
+            self.revolve_tokens()
+            self.security_policy.make_remote_symmetric_key(self.local_nonce, self.remote_nonce)
+            self.prev_security_token = ua.ChannelSecurityToken()
+        if self.prev_security_token.TokenId != 0:
+            self.security_policy.make_remote_symmetric_key(self.local_nonce, self.remote_nonce)
+            self.prev_security_token = ua.ChannelSecurityToken()
+
+    SecureConnection._check_sym_header = _check_sym_header_without_time_check
+    _TOKEN_TIME_CHECK_PATCHED = True
 
 
 class S07OpcUaClient:
@@ -17,14 +51,18 @@ class S07OpcUaClient:
         browse_limit: int = 5000,
         node_id_map: dict[str, str] | None = None,
         allow_recursive_browse: bool = False,
+        timeout: float = 30.0,
+        ignore_token_time_check: bool = False,
     ):
         logging.getLogger("opcua").setLevel(logging.WARNING)
+        if ignore_token_time_check:
+            _ignore_plc_clock_token_time_check()
         self.url = url
         self._browse_depth = int(browse_depth)
         self._browse_limit = int(browse_limit)
         self._node_id_map = node_id_map or {}
         self._allow_recursive_browse = bool(allow_recursive_browse)
-        self.client = Client(url)
+        self.client = Client(url, timeout=timeout)
         if username and password:
             self.client.set_user(username)
             self.client.set_password(password)

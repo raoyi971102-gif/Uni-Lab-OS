@@ -30,6 +30,7 @@ from .sensors import (
     PROCESS_DOSE_POWDER,
     PROCESS_ROTATE_TO_FEED,
     PROCESS_SCAN_CARTRIDGES,
+    iter_s07_powder_param_vars,
     normalize_powder_params,
     s07_powder_param_var,
     s07_qr_code_var,
@@ -146,6 +147,8 @@ class SZLabS07SolidAdditionDevice:
             (NODE_TARGET_WEIGHT, 0.0),
         ):
             self._write_plc_variable(node, value)
+        for node, value in iter_s07_powder_param_vars():
+            self._write_plc_variable(node, value)
 
     @not_action
     def _run_s07_process(self, process_id: int, timeout: float) -> dict[str, Any]:
@@ -185,6 +188,7 @@ class SZLabS07SolidAdditionDevice:
 
     @action(auto_prefix=True, description="S07 粉罐扫码盘点")
     def scan_powder_cartridges(self, timeout: float = 300.0) -> dict[str, Any]:
+        self._reset_unilab_written_params()
         result = self._run_s07_process(PROCESS_SCAN_CARTRIDGES, timeout)
         if result.get("success"):
             result["qr_codes"] = self._read_qr_codes()
@@ -194,6 +198,7 @@ class SZLabS07SolidAdditionDevice:
     def rotate_powder_cartridge_to_feed(self, position: int, timeout: float = 300.0) -> dict[str, Any]:
         if position not in POSITION_RANGE:
             return {"success": False, "message": "position 必须在 1-10 范围内"}
+        self._reset_unilab_written_params()
         self._write_plc_variable(NODE_LOAD_POSITION, int(position))
         result = self._run_s07_process(PROCESS_ROTATE_TO_FEED, timeout)
         result["position"] = position
@@ -211,6 +216,7 @@ class SZLabS07SolidAdditionDevice:
     ) -> dict[str, Any]:
         if coarse_position not in POSITION_RANGE or fine_position not in POSITION_RANGE:
             return {"success": False, "message": "coarse_position/fine_position 必须在 1-10 范围内"}
+        self._reset_unilab_written_params()
         self._write_plc_variable(NODE_COARSE_POSITION, int(coarse_position))
         self._write_plc_variable(NODE_FINE_POSITION, int(fine_position))
         self._write_plc_variable(NODE_TARGET_WEIGHT, float(target_weight))
