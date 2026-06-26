@@ -1974,10 +1974,10 @@ code {
   place-items: center;
   min-height: 48px;
   gap: 2px;
-  border: 1px dashed #cbd5e1;
+  border: 1px dashed #86efac;
   border-radius: 10px;
-  background: #ffffff;
-  color: #64748b;
+  background: #f0fdf4;
+  color: #15803d;
 }
 
 .demo-stack-slot strong {
@@ -1997,8 +1997,9 @@ code {
 
 .demo-stack-slot.occupied {
   border-style: solid;
-  border-color: #93c5fd;
-  background: #eff6ff;
+  border-color: #fca5a5;
+  background: #fef2f2;
+  color: #b91c1c;
 }
 
 .demo-stack-slot.reserved {
@@ -2319,7 +2320,7 @@ code {
 }
 
 .demo-stack-modal-slot {
-  min-height: 96px;
+  min-height: 76px;
   border: 1px dashed #cbd5e1;
   border-radius: 16px;
   background: #f8fafc;
@@ -2349,8 +2350,23 @@ code {
 
 .demo-stack-modal-slot.occupied {
   border-style: solid;
-  border-color: #93c5fd;
-  background: #eff6ff;
+  border-color: #fca5a5;
+  background: #fef2f2;
+}
+
+.demo-stack-modal-slot.occupied small,
+.demo-stack-modal-slot.occupied p {
+  color: #b91c1c;
+}
+
+.demo-stack-modal-slot.empty {
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+
+.demo-stack-modal-slot.empty small,
+.demo-stack-modal-slot.empty p {
+  color: #15803d;
 }
 
 .demo-stack-modal-slot.reserved {

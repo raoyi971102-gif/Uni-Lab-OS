@@ -77,6 +77,52 @@ type RunStatus = {
 
 type NodeRunStatus = 'idle' | 'preparing' | 'running' | 'success' | 'failed' | 'cancelled';
 
+type StackSlotPayload = {
+  site_key?: string;
+  occupied?: boolean | null;
+  reagent_id?: string | null;
+  qr_code?: string | null;
+  remaining_amount?: number | null;
+  unit?: string | null;
+};
+
+type StackPayload = {
+  id: string;
+  display_name?: string;
+  warehouse_name?: string;
+  managed_resource?: string;
+  content_type?: string[];
+  slots?: Record<string, StackSlotPayload>;
+};
+
+type StackStatusPayload = {
+  success: boolean;
+  schema?: string;
+  updated_at?: string;
+  message?: string;
+  stacks?: Record<string, StackPayload>;
+};
+
+type StackResourceView = {
+  id: string;
+  title: string;
+  role: string;
+  used: number;
+  total: number;
+  nextSlot: string;
+};
+
+type StackSlotView = {
+  id: string;
+  material: string;
+  status: 'empty' | 'occupied' | 'reserved';
+};
+
+type OpcVariableView = {
+  name: string;
+  currentValue?: unknown;
+};
+
 type ActionNodeData = {
   deviceId?: string;
   method: string;
@@ -98,31 +144,6 @@ const DEFAULT_CONFIG = {
   show_csv: false,
 };
 
-const DEFAULT_STACK_RESOURCES = [
-  { id: 'loading_a', title: '上料堆栈 A', role: '输入', used: 3, total: 8, nextSlot: 'A01' },
-  { id: 'unload_b', title: '下料堆栈 B', role: '输出', used: 0, total: 8, nextSlot: 'B01' },
-  { id: 'buffer_c', title: '缓存堆栈 C', role: '缓存', used: 2, total: 4, nextSlot: 'C02' },
-];
-
-const DEFAULT_STATION_SUMMARY = [
-  { label: '上料堆栈 A', value: '8 槽 / 2 已占用', status: 'ok' },
-  { label: '机械臂夹爪', value: '等待动作', status: 'empty' },
-  { label: 'S04 磁搅位 1', value: '等待预约', status: 'empty' },
-  { label: 'S05 拍照站', value: '等待 S04 完成', status: 'empty' },
-  { label: '下料堆栈 B', value: '8 槽空闲', status: 'ok' },
-];
-
-const DEFAULT_STACK_SLOTS = [
-  { id: 'A01', material: 'plate-001', status: 'reserved' },
-  { id: 'A02', material: 'plate-002', status: 'occupied' },
-  { id: 'A03', material: 'plate-003', status: 'occupied' },
-  { id: 'A04', material: '', status: 'empty' },
-  { id: 'A05', material: '', status: 'empty' },
-  { id: 'A06', material: '', status: 'empty' },
-  { id: 'A07', material: '', status: 'empty' },
-  { id: 'A08', material: '', status: 'empty' },
-];
-
 function buildDefaultParams(params: ParamSpec[]) {
   return params.reduce<Record<string, unknown>>((defaults, param) => {
     const name = param.name || '';
@@ -138,6 +159,93 @@ function buildDefaultParams(params: ParamSpec[]) {
     }
     return defaults;
   }, {});
+}
+
+function stackRoleText(stack: StackPayload) {
+  if (stack.managed_resource === 'reagent') return '试剂';
+  if (stack.managed_resource === 'physical_only') return '物理位';
+  return stack.managed_resource || '堆栈';
+}
+
+function sortSlotIds(ids: string[]) {
+  return [...ids].sort((left, right) => left.localeCompare(right, 'zh-CN', { numeric: true }));
+}
+
+function stackResourcesFromStatus(status: StackStatusPayload | null): StackResourceView[] {
+  const stacks = status?.stacks || {};
+  return Object.values(stacks).map((stack) => {
+    const slots = stack.slots || {};
+    const slotIds = sortSlotIds(Object.keys(slots));
+    const used = slotIds.filter((slotId) => slots[slotId]?.occupied === true).length;
+    const nextSlot = slotIds.length ? (slotIds.find((slotId) => slots[slotId]?.occupied !== true) || '已满') : '无数据';
+    return {
+      id: stack.id,
+      title: stack.display_name || stack.warehouse_name || stack.id,
+      role: stackRoleText(stack),
+      used,
+      total: slotIds.length,
+      nextSlot,
+    };
+  });
+}
+
+function stackSlotsFromPayload(stack: StackPayload | undefined): StackSlotView[] {
+  const slots = stack?.slots || {};
+  return sortSlotIds(Object.keys(slots)).map((slotId) => {
+    const slot = slots[slotId];
+    const occupied = slot?.occupied;
+    return {
+      id: slot.site_key || slotId,
+      material: slot?.reagent_id || slot?.qr_code || '',
+      status: occupied === true ? 'occupied' : occupied === false ? 'empty' : 'reserved',
+    };
+  });
+}
+
+function uniqueOpcVariables(variables: Array<string | undefined>) {
+  return Array.from(new Set(variables.filter((variable): variable is string => Boolean(variable))));
+}
+
+const STACK_SENSOR_VARIABLES: Record<string, string> = {
+  's10_liquid_reagent:1-1': '传感器状态_上位机[4].NO[12]',
+  's10_liquid_reagent:1-2': '传感器状态_上位机[4].NO[13]',
+  's10_liquid_reagent:1-3': '传感器状态_上位机[4].NO[14]',
+  's10_liquid_reagent:1-4': '传感器状态_上位机[4].NO[15]',
+  's10_liquid_reagent:1-5': '传感器状态_上位机[5].NO[0]',
+  's10_liquid_reagent:2-1': '传感器状态_上位机[5].NO[1]',
+  's10_liquid_reagent:2-2': '传感器状态_上位机[5].NO[2]',
+  's10_liquid_reagent:2-3': '传感器状态_上位机[5].NO[3]',
+  's10_liquid_reagent:2-4': '传感器状态_上位机[5].NO[4]',
+  's10_liquid_reagent:2-5': '传感器状态_上位机[5].NO[5]',
+  's10_liquid_reagent:3-1': '传感器状态_上位机[5].NO[6]',
+  's10_liquid_reagent:3-2': '传感器状态_上位机[5].NO[7]',
+  's10_liquid_reagent:3-3': '传感器状态_上位机[5].NO[8]',
+  's10_liquid_reagent:3-4': '传感器状态_上位机[5].NO[9]',
+  's10_liquid_reagent:3-5': '传感器状态_上位机[5].NO[10]',
+  's10_liquid_reagent:4-1': '传感器状态_上位机[5].NO[11]',
+  's10_liquid_reagent:4-2': '传感器状态_上位机[5].NO[12]',
+  's10_liquid_reagent:4-3': '传感器状态_上位机[5].NO[13]',
+  's10_liquid_reagent:4-4': '传感器状态_上位机[5].NO[14]',
+  's10_liquid_reagent:4-5': '传感器状态_上位机[5].NO[15]',
+  'powder_container:1-1': '传感器状态_上位机[3].NO[8]',
+  'powder_container:1-2': '传感器状态_上位机[3].NO[9]',
+  'powder_container:1-3': '传感器状态_上位机[3].NO[10]',
+  'powder_container:2-1': '传感器状态_上位机[3].NO[11]',
+  'powder_container:2-2': '传感器状态_上位机[3].NO[12]',
+  'powder_container:2-3': '传感器状态_上位机[3].NO[13]',
+};
+
+function stackSensorValuesFromStatus(status: StackStatusPayload | null) {
+  const values: Record<string, unknown> = {};
+  Object.entries(status?.stacks || {}).forEach(([stackId, stack]) => {
+    Object.entries(stack.slots || {}).forEach(([slotId, slot]) => {
+      const variableName = STACK_SENSOR_VARIABLES[`${stackId}:${slotId}`];
+      if (variableName) {
+        values[variableName] = slot.occupied;
+      }
+    });
+  });
+  return values;
 }
 
 function App() {
@@ -157,8 +265,11 @@ function App() {
   const [leftTab, setLeftTab] = useState<'devices' | 'stacks'>('devices');
   const [mainTab, setMainTab] = useState<'workflow' | 'sensors'>('workflow');
   const [sideTab, setSideTab] = useState<'control' | 'materials' | 'logs'>('control');
-  const [selectedStackId, setSelectedStackId] = useState(DEFAULT_STACK_RESOURCES[0].id);
+  const [selectedStackId, setSelectedStackId] = useState('');
   const [showStackModal, setShowStackModal] = useState(false);
+  const [stackStatus, setStackStatus] = useState<StackStatusPayload | null>(null);
+  const [stackError, setStackError] = useState('');
+  const [isRefreshingStack, setIsRefreshingStack] = useState(false);
   const [config, setConfig] = useState({
     graph: DEFAULT_CONFIG.graph,
     url: DEFAULT_CONFIG.url,
@@ -177,9 +288,33 @@ function App() {
   const opcChanges = useMemo(() => collectOpcChanges(logEvents), [logEvents]);
   const draftKey = useMemo(() => workflowDraftKey(workflowName, nodes, edges), [workflowName, nodes, edges]);
   const actionGroups = useMemo(() => groupActionsByDevice(actions), [actions]);
+  const configuredOpcVariables = useMemo(() => {
+    const nodeVariables = nodes.flatMap((node) => node.data.opcVariables || []);
+    if (nodeVariables.length) return uniqueOpcVariables(nodeVariables);
+    return uniqueOpcVariables(actions.flatMap((action) => action.opc_variables || []));
+  }, [actions, nodes]);
+  const stackSensorValues = useMemo(() => stackSensorValuesFromStatus(stackStatus), [stackStatus]);
+  const configuredOpcVariableRows = useMemo<OpcVariableView[]>(
+    () => configuredOpcVariables.map((name) => ({ name, currentValue: stackSensorValues[name] })),
+    [configuredOpcVariables, stackSensorValues],
+  );
+  const stackResources = useMemo(() => stackResourcesFromStatus(stackStatus), [stackStatus]);
   const selectedStack = useMemo(
-    () => DEFAULT_STACK_RESOURCES.find((stack) => stack.id === selectedStackId) || DEFAULT_STACK_RESOURCES[0],
-    [selectedStackId],
+    () => stackResources.find((stack) => stack.id === selectedStackId) || stackResources[0] || null,
+    [selectedStackId, stackResources],
+  );
+  const selectedStackPayload = selectedStack ? stackStatus?.stacks?.[selectedStack.id] : undefined;
+  const selectedStackSlots = useMemo(
+    () => stackSlotsFromPayload(selectedStackPayload),
+    [selectedStackPayload],
+  );
+  const stationSummary = useMemo(
+    () => stackResources.map((stack) => ({
+      label: stack.title,
+      value: `${stack.total} 槽 / ${stack.used} 已占用`,
+      status: stack.used > 0 ? 'ok' : 'empty',
+    })),
+    [stackResources],
   );
   const workspaceSummary = useMemo(
     () => buildWorkspaceSummary({
@@ -216,6 +351,34 @@ function App() {
       })
       .catch((error) => setMessage(`preset 加载失败: ${error.message}`));
   }, []);
+
+  const refreshStackStatus = useCallback(async () => {
+    setIsRefreshingStack(true);
+    try {
+      const response = await fetch('/api/stack-status');
+      const payload: StackStatusPayload = await response.json();
+      setStackStatus(payload);
+      setStackError(payload.success ? '' : (payload.message || '堆栈状态暂不可用'));
+    } catch (error) {
+      setStackError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsRefreshingStack(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshStackStatus();
+  }, [refreshStackStatus]);
+
+  useEffect(() => {
+    if (!stackResources.length) {
+      setSelectedStackId('');
+      return;
+    }
+    if (!stackResources.some((stack) => stack.id === selectedStackId)) {
+      setSelectedStackId(stackResources[0].id);
+    }
+  }, [selectedStackId, stackResources]);
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => setNodes((current) => applyNodeChanges(changes, current)),
@@ -472,6 +635,14 @@ function App() {
                 <div className="demo-left-section-head">
                   <strong>堆栈</strong>
                   <span>Stack</span>
+                  <button
+                    className="demo-table-action"
+                    disabled={isRefreshingStack}
+                    onClick={() => refreshStackStatus()}
+                    type="button"
+                  >
+                    {isRefreshingStack ? '刷新中' : '刷新堆栈'}
+                  </button>
                 </div>
                 <table className="demo-stack-resource-table">
                   <thead>
@@ -483,9 +654,9 @@ function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {DEFAULT_STACK_RESOURCES.map((stack) => (
+                    {stackResources.map((stack) => (
                       <tr
-                        className={selectedStack.id === stack.id ? 'active' : ''}
+                        className={selectedStack?.id === stack.id ? 'active' : ''}
                         key={stack.id}
                         onClick={() => setSelectedStackId(stack.id)}
                         onDoubleClick={() => setShowStackModal(true)}
@@ -501,6 +672,14 @@ function App() {
                         </td>
                       </tr>
                     ))}
+                    {!stackResources.length && (
+                      <tr>
+                        <td colSpan={4}>
+                          <strong>等待真实堆栈数据</strong>
+                          <span>{stackError || '正在读取 /api/stack-status'}</span>
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </section>
@@ -552,7 +731,7 @@ function App() {
 
           {mainTab === 'sensors' && (
             <div className="demo-opc-dock tabbed">
-              <OpcChangePanel changes={opcChanges} nodes={nodes} />
+              <OpcChangePanel changes={opcChanges} nodes={nodes} variables={configuredOpcVariableRows} />
             </div>
           )}
         </section>
@@ -583,12 +762,18 @@ function App() {
                   <span>Station state</span>
                 </div>
                 <div className="demo-station-list">
-                  {DEFAULT_STATION_SUMMARY.map((station) => (
+                  {stationSummary.map((station) => (
                     <article className={`demo-station-mini ${station.status}`} key={station.label}>
                       <span>{station.label}</span>
                       <strong>{station.value}</strong>
                     </article>
                   ))}
+                  {!stationSummary.length && (
+                    <article className="demo-station-mini empty">
+                      <span>堆栈状态</span>
+                      <strong>{stackError || '等待真实堆栈数据'}</strong>
+                    </article>
+                  )}
                 </div>
               </div>
             </section>
@@ -648,19 +833,25 @@ function App() {
             <div className="demo-modal-head">
               <div>
                 <p>Stack detail</p>
-                <h2>{selectedStack.title}</h2>
-                <span>{selectedStack.role}</span>
+                <h2>{selectedStack?.title || '堆栈详情'}</h2>
+                <span>{selectedStack?.role || '等待真实数据'}</span>
               </div>
               <button onClick={() => setShowStackModal(false)} type="button">关闭</button>
             </div>
             <div className="demo-stack-modal-grid">
-              {DEFAULT_STACK_SLOTS.map((slot) => (
+              {selectedStackSlots.map((slot) => (
                 <article className={`demo-stack-modal-slot ${slot.status}`} key={slot.id}>
                   <strong>{slot.id}</strong>
                   <small>{slot.status === 'empty' ? '空闲' : '占用'}</small>
-                  <p>{slot.material || '空槽'}</p>
                 </article>
               ))}
+              {!selectedStackSlots.length && (
+                <article className="demo-stack-modal-slot empty">
+                  <strong>无槽位</strong>
+                  <small>等待</small>
+                  <p>{stackError || '等待真实堆栈数据'}</p>
+                </article>
+              )}
             </div>
           </section>
         </div>
@@ -896,11 +1087,47 @@ function LogPanel({
   );
 }
 
-function OpcChangePanel({ changes, nodes }: { changes: OpcChange[]; nodes: Node<ActionNodeData>[] }) {
+function OpcChangePanel({
+  changes,
+  nodes,
+  variables,
+}: {
+  changes: OpcChange[];
+  nodes: Node<ActionNodeData>[];
+  variables: OpcVariableView[];
+}) {
   const nodeLabels = new Map(nodes.map((node) => [node.id, node.data.label]));
 
   return (
     <section className="opc-changes">
+      <div className="opc-changes-head">
+        <h3>OPC 采样变量</h3>
+        <span>{variables.length} 个</span>
+      </div>
+      {variables.length ? (
+        <div className="opc-change-table-wrap">
+          <table className="opc-change-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Name</th>
+                <th>当前值</th>
+              </tr>
+            </thead>
+            <tbody>
+              {variables.map((variable, index) => (
+                <tr key={variable.name}>
+                  <td>{index + 1}</td>
+                  <td><code>{variable.name}</code></td>
+                  <td>{variable.currentValue === undefined ? '-' : formatOpcValue(variable.currentValue)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="opc-change-empty">暂无 OPC 采样变量，请先添加动作节点</div>
+      )}
       <div className="opc-changes-head">
         <h3>OPC 变量变化</h3>
         <span>{changes.length} 条</span>
