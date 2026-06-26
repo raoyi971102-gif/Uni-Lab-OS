@@ -198,6 +198,13 @@ class SZLabS07SolidAdditionDevice:
         recipe = data[recipe_name]
         return dict(recipe.get("coarse_params", {})), dict(recipe.get("fine_params", {}))
 
+    @not_action
+    def _merge_powder_params(self, base: dict[str, Any], override: dict[str, Any] | None) -> dict[str, Any]:
+        merged = dict(base)
+        if override:
+            merged.update(override)
+        return merged
+
     @action(auto_prefix=True, description="S07 粉罐扫码盘点")
     def scan_powder_cartridges(self, timeout: float = 300.0) -> dict[str, Any]:
         self._reset_unilab_written_params()
@@ -225,37 +232,21 @@ class SZLabS07SolidAdditionDevice:
         coarse_params: dict[str, Any] | None = None,
         fine_params: dict[str, Any] | None = None,
         timeout: float = 300.0,
+        params_json: str | None = None,
+        recipe_name: str = "default",
     ) -> dict[str, Any]:
         if coarse_position not in POSITION_RANGE or fine_position not in POSITION_RANGE:
             return {"success": False, "message": "coarse_position/fine_position 必须在 1-10 范围内"}
+        json_coarse_params, json_fine_params = self._load_powder_params_from_json(params_json, recipe_name)
+        coarse_params = self._merge_powder_params(json_coarse_params, coarse_params)
+        fine_params = self._merge_powder_params(json_fine_params, fine_params)
         self._reset_unilab_written_params()
         self._write_plc_variable(NODE_COARSE_POSITION, int(coarse_position))
         self._write_plc_variable(NODE_FINE_POSITION, int(fine_position))
         self._write_plc_variable(NODE_TARGET_WEIGHT, float(target_weight))
-        self._write_powder_params("粗注粉", coarse_params or {}, NODE_COARSE_SHAKE_MAX_SPEED)
-        self._write_powder_params("精注粉", fine_params or {}, NODE_FINE_SHAKE_MAX_SPEED)
+        self._write_powder_params("粗注粉", coarse_params, NODE_COARSE_SHAKE_MAX_SPEED)
+        self._write_powder_params("精注粉", fine_params, NODE_FINE_SHAKE_MAX_SPEED)
         result = self._run_s07_process(PROCESS_DOSE_POWDER, timeout)
         result["target_weight"] = target_weight
-        return result
-
-    @action(auto_prefix=True, description="S07 从 JSON 读取参数并注粉")
-    def dose_powder_from_json(
-        self,
-        coarse_position: int,
-        fine_position: int,
-        target_weight: float,
-        params_json: str | None = None,
-        recipe_name: str = "default",
-        timeout: float = 300.0,
-    ) -> dict[str, Any]:
-        coarse_params, fine_params = self._load_powder_params_from_json(params_json, recipe_name)
-        result = self.dose_powder(
-            coarse_position=coarse_position,
-            fine_position=fine_position,
-            target_weight=target_weight,
-            coarse_params=coarse_params,
-            fine_params=fine_params,
-            timeout=timeout,
-        )
         result["recipe_name"] = recipe_name
         return result
