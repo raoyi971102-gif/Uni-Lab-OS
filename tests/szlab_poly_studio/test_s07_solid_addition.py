@@ -55,6 +55,7 @@ def test_s07_solid_addition_device_is_ast_scannable_from_own_package():
         "scan_powder_cartridges",
         "rotate_powder_cartridge_to_feed",
         "dose_powder",
+        "dose_powder_from_json",
     ]
     assert all(action["action_args"]["auto_prefix"] for action in actions.values())
 
@@ -146,3 +147,37 @@ def test_s07_resets_all_unilab_written_params_before_dose():
     assert (sensors.s07_powder_param_var("精注粉", "落粉匀速", 0), 0.0) in initial_writes
     assert (sensors.NODE_COARSE_SHAKE_MAX_SPEED, 0) in initial_writes
     assert (sensors.NODE_FINE_SHAKE_MAX_SPEED, 0) in initial_writes
+
+
+def test_s07_dose_powder_from_json_loads_recipe_params(tmp_path):
+    params_path = tmp_path / "powder_params.json"
+    params_path.write_text(
+        json.dumps(
+            {
+                "test_recipe": {
+                    "coarse_params": {"opening": [1, 2, 3, 4, 5], "shake_max_speed": 90},
+                    "fine_params": {"feed_speed": [0.1, 0.2, 0.3, 0.4, 0.5], "shake_max_speed": 30},
+                }
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    plc = FakeS07Plc()
+    device = make_s07_device(plc)
+
+    result = device.dose_powder_from_json(
+        coarse_position=2,
+        fine_position=5,
+        target_weight=12.5,
+        params_json=str(params_path),
+        recipe_name="test_recipe",
+        timeout=0.05,
+    )
+
+    assert result["success"] is True
+    assert result["recipe_name"] == "test_recipe"
+    assert (sensors.s07_powder_param_var("粗注粉", "开口量", 2), 3) in plc.writes
+    assert (sensors.s07_powder_param_var("精注粉", "落粉匀速", 4), 0.5) in plc.writes
+    assert (sensors.NODE_COARSE_SHAKE_MAX_SPEED, 90) in plc.writes
+    assert (sensors.NODE_FINE_SHAKE_MAX_SPEED, 30) in plc.writes

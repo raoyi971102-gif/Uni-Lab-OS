@@ -5,6 +5,7 @@
   },
   "virtual_opcua": {
     "csv": "unilabos/devices/workstation/szlab_poly_studio/solid_addition-s07/s07_nodes.csv",
+    "powder_params": "unilabos/devices/workstation/szlab_poly_studio/solid_addition-s07/s07_powder_params.json",
     "flow": "unilabos/devices/workstation/szlab_poly_studio/solid_addition-s07/s07_flow.json",
     "endpoint": "opc.tcp://127.0.0.1:48507/"
   },

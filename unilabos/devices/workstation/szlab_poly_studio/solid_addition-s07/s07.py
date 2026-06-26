@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 from rclpy.action import ActionClient
@@ -35,6 +36,8 @@ from .sensors import (
     s07_powder_param_var,
     s07_qr_code_var,
 )
+
+DEFAULT_POWDER_PARAMS_PATH = Path(__file__).resolve().parent / "s07_powder_params.json"
 
 
 @device(
@@ -186,6 +189,15 @@ class SZLabS07SolidAdditionDevice:
                 self._write_plc_variable(s07_powder_param_var(kind, field, index), value)
         self._write_plc_variable(shake_node, normalized["shake_max_speed"])
 
+    @not_action
+    def _load_powder_params_from_json(self, params_json: str | None, recipe_name: str) -> tuple[dict[str, Any], dict[str, Any]]:
+        path = Path(params_json or DEFAULT_POWDER_PARAMS_PATH)
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if recipe_name not in data:
+            raise ValueError(f"注粉参数 JSON 中未找到 recipe: {recipe_name}")
+        recipe = data[recipe_name]
+        return dict(recipe.get("coarse_params", {})), dict(recipe.get("fine_params", {}))
+
     @action(auto_prefix=True, description="S07 粉罐扫码盘点")
     def scan_powder_cartridges(self, timeout: float = 300.0) -> dict[str, Any]:
         self._reset_unilab_written_params()
@@ -224,4 +236,26 @@ class SZLabS07SolidAdditionDevice:
         self._write_powder_params("精注粉", fine_params or {}, NODE_FINE_SHAKE_MAX_SPEED)
         result = self._run_s07_process(PROCESS_DOSE_POWDER, timeout)
         result["target_weight"] = target_weight
+        return result
+
+    @action(auto_prefix=True, description="S07 从 JSON 读取参数并注粉")
+    def dose_powder_from_json(
+        self,
+        coarse_position: int,
+        fine_position: int,
+        target_weight: float,
+        params_json: str | None = None,
+        recipe_name: str = "default",
+        timeout: float = 300.0,
+    ) -> dict[str, Any]:
+        coarse_params, fine_params = self._load_powder_params_from_json(params_json, recipe_name)
+        result = self.dose_powder(
+            coarse_position=coarse_position,
+            fine_position=fine_position,
+            target_weight=target_weight,
+            coarse_params=coarse_params,
+            fine_params=fine_params,
+            timeout=timeout,
+        )
+        result["recipe_name"] = recipe_name
         return result
