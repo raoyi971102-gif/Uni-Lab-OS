@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import time
 from typing import Any
 
@@ -96,6 +97,8 @@ class SzlabMixerRobotDevice(
 
     @not_action
     def _ensure_robot_not_busy(self) -> tuple[bool, str]:
+        if os.environ.get("SKIP_BUSY_CHECK") == "1":
+            return True, "已跳过机器人 Busy 前置检查"
         try:
             if bool(self._read_variable(self.busy_variable_name, use_cache=False)):
                 return False, f"机器人 Busy 信号 {self.busy_variable_name} 已为 True，不能提交新任务"
@@ -105,6 +108,8 @@ class SzlabMixerRobotDevice(
 
     @not_action
     def _ensure_sensor_gate(self, sensor_variable: str, expected: bool, message: str) -> dict[str, Any] | None:
+        if os.environ.get("SKIP_SENSOR_PRECHECK") == "1":
+            return None
         if not sensor_variable:
             return {"success": False, "message": "缺少精确传感器变量，不能执行机器人取放料动作"}
         actual = bool(self._read_variable(sensor_variable, use_cache=False))
@@ -157,6 +162,8 @@ class SzlabMixerRobotDevice(
 
     @not_action
     def _wait_busy_cycle(self) -> tuple[bool, str]:
+        if os.environ.get("SKIP_BUSY_CHECK") == "1":
+            return True, "已跳过机器人 Busy 周期等待"
         if self._wait_variable_equal(
             self.busy_variable_name,
             True,
@@ -252,7 +259,16 @@ class SzlabMixerRobotDevice(
             return {"success": False, "message": str(exc), **self._last_task}
 
         busy_success, busy_message = self._wait_busy_cycle()
-        reset_result = self._reset_pc_to_plc_variables(reset_variables)
+        if os.environ.get("SKIP_RESET_AFTER_RUN") == "1":
+            reset_result = {
+                "success": True,
+                "written_variables": {},
+                "errors": {},
+                "skipped": True,
+                "message": "已跳过任务完成后的 PC->PLC 变量复位",
+            }
+        else:
+            reset_result = self._reset_pc_to_plc_variables(reset_variables)
         status = "completed" if busy_success and reset_result["success"] else "failed"
 
         self._last_task = {
@@ -330,10 +346,9 @@ class SzlabMixerRobotDevice(
     def submit_pick_from_s01(
         self,
         product_type: int = 1,
-        source_sensor_variable: str = "",
     ) -> dict[str, Any]:
         try:
-            return self._run_s01_pick(product_type, source_sensor_variable)
+            return self._run_s01_pick(product_type)
         except Exception as exc:
             return {"success": False, "message": str(exc), "task": "pick", "station": "S01"}
 
@@ -341,10 +356,9 @@ class SzlabMixerRobotDevice(
     def submit_pick_from_s01_position(
         self,
         position: int = 1,
-        source_sensor_variable: str = "",
     ) -> dict[str, Any]:
         try:
-            return self._run_s01_pick_position(position, source_sensor_variable)
+            return self._run_s01_pick_position(position)
         except Exception as exc:
             return {"success": False, "message": str(exc), "task": "pick", "station": "S01", "position": position}
 
@@ -421,42 +435,40 @@ class SzlabMixerRobotDevice(
             return {"success": False, "message": str(exc), "task": "pick", "station": "S071", "position": position}
 
     @action(auto_prefix=True, description="S072 放料")
-    def submit_place_to_s072(self, product_type: int = 1, target_sensor_variable: str = "") -> dict[str, Any]:
+    def submit_place_to_s072(self, product_type: int = 1, position: int = 1) -> dict[str, Any]:
         try:
-            return self._run_s072_place(product_type, target_sensor_variable)
+            return self._run_s072_place(product_type, position)
         except Exception as exc:
-            return {"success": False, "message": str(exc), "task": "place", "station": "S072"}
+            return {"success": False, "message": str(exc), "task": "place", "station": "S072", "position": position}
 
     @action(auto_prefix=True, description="S072 取料")
-    def submit_pick_from_s072(self, product_type: int = 1, source_sensor_variable: str = "") -> dict[str, Any]:
+    def submit_pick_from_s072(self, product_type: int = 1, position: int = 1) -> dict[str, Any]:
         try:
-            return self._run_s072_pick(product_type, source_sensor_variable)
+            return self._run_s072_pick(product_type, position)
         except Exception as exc:
-            return {"success": False, "message": str(exc), "task": "pick", "station": "S072"}
+            return {"success": False, "message": str(exc), "task": "pick", "station": "S072", "position": position}
 
     @action(auto_prefix=True, description="S08 放瓶")
     def submit_place_to_s08(
         self,
         product_type: int = 1,
         position: int = 1,
-        target_sensor_variable: str = "",
     ) -> dict[str, Any]:
         try:
-            return self._run_s08_place(product_type, position, target_sensor_variable)
+            return self._run_s08_place(product_type, position)
         except Exception as exc:
-            return {"success": False, "message": str(exc), "task": "place", "station": "S08"}
+            return {"success": False, "message": str(exc), "task": "place", "station": "S08", "position": position}
 
     @action(auto_prefix=True, description="S08 取瓶")
     def submit_pick_from_s08(
         self,
         product_type: int = 1,
         position: int = 1,
-        source_sensor_variable: str = "",
     ) -> dict[str, Any]:
         try:
-            return self._run_s08_pick(product_type, position, source_sensor_variable)
+            return self._run_s08_pick(product_type, position)
         except Exception as exc:
-            return {"success": False, "message": str(exc), "task": "pick", "station": "S08"}
+            return {"success": False, "message": str(exc), "task": "pick", "station": "S08", "position": position}
 
     @action(auto_prefix=True, description="S09 放料")
     def submit_place_to_s09(self, product_type: int = 1, position: int = 1) -> dict[str, Any]:

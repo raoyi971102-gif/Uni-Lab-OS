@@ -625,6 +625,68 @@ def test_szlab_robot_s05_only_writes_task_number_and_resets_it():
     ]
 
 
+def test_szlab_robot_s01_uses_internal_gripper_sensor_mapping():
+    gateway = FakeRobotPlcGateway(
+        sensor_values={"传感器状态_上位机[3].NO[6]": True},
+        busy_values=[False, True, False],
+    )
+    device = SzlabMixerRobotDevice(timeout=3.0, busy_start_timeout=3.0)
+    device.set_plc_gateway(gateway)
+
+    result = device.submit_pick_from_s01(product_type=1)
+
+    assert result["success"] is True
+    assert result["source_sensor_variable"] == "传感器状态_上位机[3].NO[6]"
+    assert gateway.writes == [
+        ("S01出入料产品", 1),
+        ("PLC_R任务号", 1),
+        ("PLC_R任务号", 0),
+        ("S01出入料产品", 0),
+    ]
+
+
+def test_szlab_robot_s072_place_uses_position_sensor_mapping():
+    gateway = FakeRobotPlcGateway(
+        sensor_values={"传感器状态_上位机[3].NO[15]": False},
+        busy_values=[False, True, False],
+    )
+    device = SzlabMixerRobotDevice(timeout=3.0, busy_start_timeout=3.0)
+    device.set_plc_gateway(gateway)
+
+    result = device.submit_place_to_s072(product_type=1, position=2)
+
+    assert result["success"] is True
+    assert result["target_sensor_variable"] == "传感器状态_上位机[3].NO[15]"
+    assert gateway.writes == [
+        ("S072取放料产品", 1),
+        ("PLC_R任务号", 15),
+        ("PLC_R任务号", 0),
+        ("S072取放料产品", 0),
+    ]
+
+
+def test_szlab_robot_s08_pick_uses_position_sensor_mapping():
+    gateway = FakeRobotPlcGateway(
+        sensor_values={"传感器状态_上位机[3].NO[15]": True},
+        busy_values=[False, True, False],
+    )
+    device = SzlabMixerRobotDevice(timeout=3.0, busy_start_timeout=3.0)
+    device.set_plc_gateway(gateway)
+
+    result = device.submit_pick_from_s08(product_type=1, position=2)
+
+    assert result["success"] is True
+    assert result["source_sensor_variable"] == "传感器状态_上位机[3].NO[15]"
+    assert gateway.writes == [
+        ("S08取放料产品", 1),
+        ("S08取放料编号", 2),
+        ("PLC_R任务号", 18),
+        ("PLC_R任务号", 0),
+        ("S08取放料编号", 0),
+        ("S08取放料产品", 0),
+    ]
+
+
 def test_szlab_robot_s09_tip_place_uses_confirmed_two_slot_gate():
     gateway = FakeRobotPlcGateway(
         sensor_values={"传感器状态_上位机[4].NO[6]": False},

@@ -9,7 +9,27 @@
 
 ## PC->PLC Reset Rule
 
-PC->PLC variables are reset by Uni-LabOS after task completion or after a failed/timeout task submission. PLC->PC variables are read-only from Uni-LabOS and must be reset by PLC logic.
+Normal robot actions reset PC->PLC variables to `0` after task completion or after a failed/timeout task submission. PLC->PC variables are read-only from Uni-LabOS and must be reset by PLC logic.
+
+Field CLI debugging uses a different observation-friendly rule:
+
+- Before each real CLI case, `CLEAR_PC_TO_PLC_BEFORE_RUN=1` clears known PC->PLC variables.
+- After a successful CLI case, `SKIP_RESET_AFTER_RUN=1` keeps the written PC->PLC values so the upper computer can observe them.
+- If writing fails partway through a task submission, Uni-LabOS still rolls back the variables that were already written.
+
+## OPC UA NodeId Mapping
+
+The real upper-computer OPC UA server exposes variables with string NodeIds in this format:
+
+`ns=4;s=上位机通讯|<变量名>`
+
+Examples:
+
+- `传感器状态_上位机[2].NO[10]` -> `ns=4;s=上位机通讯|传感器状态_上位机[2].NO[10]`
+- `S03取放料产品` -> `ns=4;s=上位机通讯|S03取放料产品`
+- `PLC_R任务号` -> `ns=4;s=上位机通讯|PLC_R任务号`
+
+`cli_robot_test.sh` generates `opcua_node_id_map` from the PLC CSV `变量名` column and passes it to `SZLabPolyPLCDevice`, avoiding recursive BrowseName matching issues for array-like sensor names.
 
 ## Status-Maintenance Precheck
 
@@ -55,6 +75,8 @@ The exact PLC variables for "current origin" and "clear current origin parameter
 
 Sensor values are PLC->PC. `True` means occupied; `False` means empty. Every pick action requires the source sensor to be `True`; every place action requires the target sensor to be `False`. If the gate fails, Uni-LabOS does not write action variables or `PLC_R任务号`.
 
+For PLC connectivity-only debugging, `SKIP_SENSOR_PRECHECK=1` skips these pick/place sensor gates. This is only for confirming read/write behavior with the upper computer; it can allow task writes even when source/target physical state is not valid.
+
 Confirmed built-in mappings:
 
 - S02 TIP positions 1-6: `传感器状态_上位机[0].NO[0]` to `[0].NO[5]`.
@@ -84,3 +106,20 @@ Actions that require a caller-supplied exact sensor variable because the source/
 - Confirm exact source/target sensor mapping for S01, S072, S08, and S09 liquid reagent full/not-full selection.
 - Confirm whether all PC->PLC task variables use `0` as the final reset value.
 - S07固体加样准备 is not ready. The Feishu flowchart text is incomplete: "再从固体粉末容器瓶平台上与固体粉末容器瓶". Do not implement this preparation workflow until the missing PLC variables and complete motion text are confirmed.
+
+## Field CLI Debug Notes
+
+`cli_robot_test.sh` supports scoped station tests:
+
+- `MODE=pick|place|both` selects action direction.
+- `PRODUCT_TYPES="1"` limits product type enumeration.
+- `SKIP_BUSY_CHECK=1` skips the temporary Busy precheck and Busy cycle wait.
+- `SKIP_SENSOR_PRECHECK=1` skips source/target sensor gates.
+- `SKIP_RESET_AFTER_RUN=1` keeps successful write values visible after completion.
+- `CLEAR_PC_TO_PLC_BEFORE_RUN=1` still clears PC->PLC values before each case.
+
+Latest confirmed S03 behavior:
+
+- With direct NodeId mapping, S03 sensor reads and task variable writes use the real OPC UA NodeId format successfully.
+- With `MODE=pick PRODUCT_TYPES="1" SKIP_BUSY_CHECK=1`, 16/18 S03 pick cases completed; the 2 failures were expected sensor-gate failures where the source sensor was `False`.
+- With `SKIP_SENSOR_PRECHECK=1 SKIP_BUSY_CHECK=1`, the remaining blocker was intermittent OPC UA connection timeout, not robot task variable mapping.
