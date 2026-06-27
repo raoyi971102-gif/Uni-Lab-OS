@@ -786,7 +786,7 @@ def test_szlab_mixer_registry_actions_expose_s04_s05_robot_actions():
     assert workflow["edges"] == []
 
 
-def test_szlab_mixer_device_creation_ignores_csv_path(monkeypatch, tmp_path):
+def test_szlab_mixer_device_creation_passes_csv_path_to_gateway_devices(monkeypatch, tmp_path):
     graph_path = tmp_path / "graph.json"
     graph_path.write_text(
         """
@@ -817,7 +817,14 @@ def test_szlab_mixer_device_creation_ignores_csv_path(monkeypatch, tmp_path):
     )
 
     assert set(devices) == {"szlab_mixer_pump"}
-    assert created == {0: {"url": "opc.tcp://example:50001", "timeout": 300.0}}
+    assert created == {
+        0: {
+            "url": "opc.tcp://example:50001",
+            "timeout": 300.0,
+            "csv_path": str(Path("/tmp/invalid.csv").resolve()),
+            "use_plc_gateway": True,
+        }
+    }
 
 
 def test_production_graph_passes_robot_and_pipeline_specs(monkeypatch):

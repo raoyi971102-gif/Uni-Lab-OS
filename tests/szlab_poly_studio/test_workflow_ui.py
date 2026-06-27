@@ -239,7 +239,7 @@ def test_szlab_mixer_ui_preset_uses_0623_csv_and_s04_s05_actions():
     runtime_config = _load_preset_runtime_config(preset)
     graph_nodes = {node["id"]: node for node in preset.device_graph["nodes"]}
 
-    assert graph_nodes["szlab_poly_plc"]["config"]["csv_path"] == "szlab_plc_0623.csv"
+    assert graph_nodes["szlab_poly_plc"]["config"]["csv_path"].endswith("szlab_plc_0623.csv")
     assert runtime_config.device_factory.plc_device_id == "szlab_poly_plc"
     assert preset.actions["run_stirring"].device_id == "szlab_mixer_stirrer"
     assert preset.actions["take_photo"].device_id == "szlab_mixer_photoshotting"
