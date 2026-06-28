@@ -364,6 +364,7 @@ def test_s09_run_nodes_orchestration_emits_action_logs_to_workflow_logger():
     assert client.wait_equal_calls[0] == ("S09允许加工", True)
     assert ("S09工艺选择", 7) in client.writes
 
+
 def test_s09_bind_and_release_are_placeholders():
     device = make_pipetting_device()
 

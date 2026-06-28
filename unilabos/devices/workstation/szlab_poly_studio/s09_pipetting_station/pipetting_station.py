@@ -738,12 +738,3 @@ class SzlabMixerPipettingStationDevice:
                 "last_process": dict(self._last_process),
             },
         }
-
-
-if __name__ == "__main__":
-    import runpy
-
-    runpy.run_module(
-        "unilabos.devices.workstation.szlab_poly_studio.s09_pipetting_station.debug_pipetting_station",
-        run_name="__main__",
-    )
