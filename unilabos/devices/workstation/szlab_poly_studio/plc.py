@@ -20,6 +20,7 @@ from unilabos.utils.log import logger
 
 
 DEFAULT_CSV_NAME = "szlab_plc_0610.csv"
+DEFAULT_OPCUA_NODE_ID_PREFIX = "ns=4;s=上位机通讯|"
 
 
 def wait_variable_equal(
@@ -219,6 +220,36 @@ def load_variable_names_from_csv(csv_path: str) -> List[str]:
     return names
 
 
+def _patch_opcua_token_time_drift_check() -> None:
+    """兼容 PLC/OPC UA Server 时间严重漂移导致的 security token 超时。"""
+    from opcua.common.connection import SecureConnection
+
+    def _check_sym_header_ignore_prev_token_timeout(self: Any, security_header: Any) -> None:
+        assert isinstance(
+            security_header,
+            ua.SymmetricAlgorithmHeader,
+        ), "Expected SymAlgHeader, got: {0}".format(security_header)
+        if security_header.TokenId != self.security_token.TokenId:
+            if security_header.TokenId != self.next_security_token.TokenId:
+                if self._allow_prev_token and security_header.TokenId == self.prev_security_token.TokenId:
+                    return
+                raise ua.UaError(
+                    "Invalid security token id {}, expected {} or {}".format(
+                        security_header.TokenId,
+                        self.security_token.TokenId,
+                        self.next_security_token.TokenId,
+                    )
+                )
+            self.revolve_tokens()
+            self.security_policy.make_remote_symmetric_key(self.local_nonce, self.remote_nonce)
+            self.prev_security_token = ua.ChannelSecurityToken()
+        if self.prev_security_token.TokenId != 0:
+            self.security_policy.make_remote_symmetric_key(self.local_nonce, self.remote_nonce)
+            self.prev_security_token = ua.ChannelSecurityToken()
+
+    SecureConnection._check_sym_header = _check_sym_header_ignore_prev_token_timeout
+
+
 @device(
     id="szlab_poly_plc",
     display_name="苏州实验室 PLC",
@@ -236,6 +267,8 @@ class SZLabPolyPLCDevice(BaseClient):
         auto_connect: bool = True,
         opcua_log_level: str = "WARNING",
         opcua_node_id_map: Optional[Dict[str, str]] = None,
+        opcua_node_id_prefix: Optional[str] = DEFAULT_OPCUA_NODE_ID_PREFIX,
+        ignore_opcua_token_time_drift: bool = False,
         *args,
         **kwargs,
     ):
@@ -246,15 +279,25 @@ class SZLabPolyPLCDevice(BaseClient):
         self.heartbeat_node = heartbeat_node
         self.heartbeat_on = False
         self._heartbeat_timer: Optional[threading.Timer] = None
-        self._direct_node_id_map = dict(opcua_node_id_map or {})
 
         nodes = [
             OpcUaNode(name=name, node_type=NodeType.VARIABLE, data_type=None)
             for name in load_variable_names_from_csv(self.csv_path)
         ]
+        self._direct_node_id_map = dict(opcua_node_id_map or {})
+        if opcua_node_id_prefix:
+            self._direct_node_id_map.update(
+                {
+                    node.name: f"{opcua_node_id_prefix}{node.name}"
+                    for node in nodes
+                    if node.name not in self._direct_node_id_map
+                }
+            )
         self.register_node_list(nodes)
 
         logging.getLogger("opcua").setLevel(getattr(logging, opcua_log_level.upper(), logging.WARNING))
+        if ignore_opcua_token_time_drift:
+            _patch_opcua_token_time_drift_check()
         client = Client(url)
         if username and password:
             client.set_user(username)
