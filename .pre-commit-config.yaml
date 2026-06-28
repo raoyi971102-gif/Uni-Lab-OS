@@ -3,12 +3,14 @@ repos:
     hooks:
       - id: autopep8
         name: autopep8
-        entry: python -m autopep8 --in-place --max-line-length=120
-        language: system
+        entry: autopep8 --in-place --max-line-length=120
+        language: python
+        additional_dependencies: [autopep8]
         types: [python]
 
       - id: flake8
         name: flake8
-        entry: python -m flake8
-        language: system
+        entry: flake8
+        language: python
+        additional_dependencies: [flake8]
         types: [python]

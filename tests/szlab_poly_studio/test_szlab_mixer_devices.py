@@ -490,6 +490,94 @@ def test_szlab_poly_plc_uses_node_id_map_without_browsing(monkeypatch, tmp_path)
     assert device.use_node("S05拍照结果").node_id == "ns=4;s=上位机通讯|S05拍照结果"
 
 
+def test_szlab_poly_plc_uses_csv_node_ids_without_browsing(monkeypatch, tmp_path):
+    pytest.importorskip("pylabrobot")
+    from unilabos.devices.workstation.szlab_poly_studio.plc import SZLabPolyPLCDevice
+
+    csv_path = tmp_path / "sensors.csv"
+    csv_path.write_text(
+        "序号,变量名,数据类型,node_id\n"
+        "1,传感器状态_上位机,ST_BOOL16[10],\n"
+        "2,传感器状态_上位机[0].NO[0],BOOL,ns=4;s=上位机通讯|传感器状态_上位机[0].NO[0]\n"
+        "3,S09允许加工,BOOL,ns=4;s=上位机通讯|S09允许加工\n",
+        encoding="utf-8",
+    )
+
+    class FakeClient:
+        def __init__(self, url):
+            self.url = url
+            self.connected = False
+
+        def connect(self):
+            self.connected = True
+
+    def fail_find_nodes(self):
+        raise AssertionError("已提供 NodeId prefix 时不应浏览 OPC UA 地址空间")
+
+    monkeypatch.setattr("unilabos.devices.workstation.szlab_poly_studio.plc.Client", FakeClient)
+    monkeypatch.setattr(SZLabPolyPLCDevice, "_find_nodes", fail_find_nodes)
+
+    device = SZLabPolyPLCDevice(
+        url="opc.tcp://127.0.0.1:4840/",
+        csv_path=str(csv_path),
+    )
+
+    assert device.client.connected is True
+    assert "传感器状态_上位机" not in device._variables_to_find
+    assert (
+        device.use_node("传感器状态_上位机[0].NO[0]").node_id
+        == "ns=4;s=上位机通讯|传感器状态_上位机[0].NO[0]"
+    )
+    assert device.use_node("S09允许加工").node_id == "ns=4;s=上位机通讯|S09允许加工"
+
+
+def test_szlab_plc_0628_addnodeid_excludes_non_value_sensor_parents():
+    from unilabos.devices.workstation.szlab_poly_studio.plc import load_variable_names_from_csv
+
+    csv_path = Path("unilabos/devices/workstation/szlab_poly_studio/szlab_plc_0628_addnodeid.csv")
+    text = csv_path.read_text(encoding="utf-8")
+    names = load_variable_names_from_csv(str(csv_path))
+
+    assert "node_id" in text.splitlines()[0]
+    assert "传感器状态_上位机" not in names
+    assert "传感器状态_上位机[0]" not in names
+    assert "传感器状态_上位机[0].NO" in names
+    assert "传感器状态_上位机[0].NO[0]" in names
+    assert "S09允许加工" in names
+
+
+def test_szlab_poly_plc_can_enable_opcua_token_time_drift_patch(monkeypatch, tmp_path):
+    pytest.importorskip("pylabrobot")
+    from unilabos.devices.workstation.szlab_poly_studio.plc import SZLabPolyPLCDevice
+
+    csv_path = tmp_path / "s09.csv"
+    csv_path.write_text("序号,变量名,数据类型\n1,S09允许加工,BOOL\n", encoding="utf-8")
+    patch_calls = []
+
+    class FakeClient:
+        def __init__(self, url):
+            self.url = url
+            self.connected = False
+
+        def connect(self):
+            self.connected = True
+
+    monkeypatch.setattr("unilabos.devices.workstation.szlab_poly_studio.plc.Client", FakeClient)
+    monkeypatch.setattr(
+        "unilabos.devices.workstation.szlab_poly_studio.plc._patch_opcua_token_time_drift_check",
+        lambda: patch_calls.append("patched"),
+    )
+
+    SZLabPolyPLCDevice(
+        url="opc.tcp://127.0.0.1:4840/",
+        csv_path=str(csv_path),
+        opcua_node_id_map={"S09允许加工": "ns=4;s=上位机通讯|S09允许加工"},
+        ignore_opcua_token_time_drift=True,
+    )
+
+    assert patch_calls == ["patched"]
+
+
 def test_szlab_mixer_keeps_pipeline_route_helpers():
     route = S06PipelineRoute(control_valve=11, absolute_position=21)
     routes = default_s06_pipeline_routes()

@@ -188,9 +188,10 @@ def _resolve_csv_path(csv_path: Optional[str]) -> str:
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), csv_path)
 
 
-def load_variable_names_from_csv(csv_path: str) -> List[str]:
-    """Load PLC variable names from the CSV column named '变量名'."""
+def load_variable_definitions_from_csv(csv_path: str) -> tuple[List[str], Dict[str, str]]:
+    """Load PLC variable names and optional NodeId mappings from CSV."""
     names: List[str] = []
+    node_id_map: Dict[str, str] = {}
     seen = set()
     last_error: Optional[UnicodeDecodeError] = None
     for encoding in ("utf-8-sig", "utf-16", "utf-16-le", "gb18030", "gbk"):
@@ -198,25 +199,73 @@ def load_variable_names_from_csv(csv_path: str) -> List[str]:
             try:
                 with open(csv_path, newline="", encoding=encoding) as csv_file:
                     reader = csv.DictReader(csv_file, delimiter=delimiter)
-                    if "变量名" not in (reader.fieldnames or []):
+                    fieldnames = reader.fieldnames or []
+                    if "变量名" not in fieldnames:
                         names.clear()
+                        node_id_map.clear()
                         seen.clear()
                         continue
+                    node_id_field = next(
+                        (field for field in fieldnames if field.strip().lower() in {"node_id", "nodeid"}),
+                        None,
+                    )
                     for row in reader:
                         name = (row.get("变量名") or "").strip()
+                        node_id = (row.get(node_id_field) or "").strip() if node_id_field else ""
+                        if node_id_field and not node_id:
+                            continue
                         if not name or name in seen:
                             continue
                         seen.add(name)
                         names.append(name)
-                return names
+                        if node_id:
+                            node_id_map[name] = node_id
+                return names, node_id_map
             except UnicodeDecodeError as exc:
                 names.clear()
+                node_id_map.clear()
                 seen.clear()
                 last_error = exc
                 break
     if last_error:
         raise last_error
+    return names, node_id_map
+
+
+def load_variable_names_from_csv(csv_path: str) -> List[str]:
+    """Load PLC variable names from the CSV column named '变量名'."""
+    names, _node_id_map = load_variable_definitions_from_csv(csv_path)
     return names
+
+
+def _patch_opcua_token_time_drift_check() -> None:
+    """兼容 PLC/OPC UA Server 时间严重漂移导致的 security token 超时。"""
+    from opcua.common.connection import SecureConnection
+
+    def _check_sym_header_ignore_prev_token_timeout(self: Any, security_header: Any) -> None:
+        assert isinstance(
+            security_header,
+            ua.SymmetricAlgorithmHeader,
+        ), "Expected SymAlgHeader, got: {0}".format(security_header)
+        if security_header.TokenId != self.security_token.TokenId:
+            if security_header.TokenId != self.next_security_token.TokenId:
+                if self._allow_prev_token and security_header.TokenId == self.prev_security_token.TokenId:
+                    return
+                raise ua.UaError(
+                    "Invalid security token id {}, expected {} or {}".format(
+                        security_header.TokenId,
+                        self.security_token.TokenId,
+                        self.next_security_token.TokenId,
+                    )
+                )
+            self.revolve_tokens()
+            self.security_policy.make_remote_symmetric_key(self.local_nonce, self.remote_nonce)
+            self.prev_security_token = ua.ChannelSecurityToken()
+        if self.prev_security_token.TokenId != 0:
+            self.security_policy.make_remote_symmetric_key(self.local_nonce, self.remote_nonce)
+            self.prev_security_token = ua.ChannelSecurityToken()
+
+    SecureConnection._check_sym_header = _check_sym_header_ignore_prev_token_timeout
 
 
 @device(
@@ -236,6 +285,7 @@ class SZLabPolyPLCDevice(BaseClient):
         auto_connect: bool = True,
         opcua_log_level: str = "WARNING",
         opcua_node_id_map: Optional[Dict[str, str]] = None,
+        ignore_opcua_token_time_drift: bool = False,
         *args,
         **kwargs,
     ):
@@ -246,15 +296,18 @@ class SZLabPolyPLCDevice(BaseClient):
         self.heartbeat_node = heartbeat_node
         self.heartbeat_on = False
         self._heartbeat_timer: Optional[threading.Timer] = None
-        self._direct_node_id_map = dict(opcua_node_id_map or {})
 
+        variable_names, csv_node_id_map = load_variable_definitions_from_csv(self.csv_path)
         nodes = [
             OpcUaNode(name=name, node_type=NodeType.VARIABLE, data_type=None)
-            for name in load_variable_names_from_csv(self.csv_path)
+            for name in variable_names
         ]
+        self._direct_node_id_map = {**csv_node_id_map, **dict(opcua_node_id_map or {})}
         self.register_node_list(nodes)
 
         logging.getLogger("opcua").setLevel(getattr(logging, opcua_log_level.upper(), logging.WARNING))
+        if ignore_opcua_token_time_drift:
+            _patch_opcua_token_time_drift_check()
         client = Client(url)
         if username and password:
             client.set_user(username)
