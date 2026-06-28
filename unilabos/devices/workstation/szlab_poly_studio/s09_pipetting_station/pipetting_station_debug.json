@@ -1,0 +1,49 @@
+{
+  "opcua": {
+    "virtual_url": "opc.tcp://127.0.0.1:48509/",
+    "production_url": "opc.tcp://192.168.1.10:4840/"
+  },
+  "virtual_opcua": {
+    "csv": "unilabos/devices/workstation/szlab_poly_studio/s09_pipetting_station/pipetting_station_nodes.csv",
+    "flow": "unilabos/devices/workstation/szlab_poly_studio/s09_pipetting_station/pipetting_station_flow.json",
+    "endpoint": "opc.tcp://127.0.0.1:48509/"
+  },
+  "device": {
+    "timeout": 300.0,
+    "csv_path": "s09_pipetting_station/pipetting_station_nodes.csv",
+    "opcua_node_id_map": {
+      "S09原点信号_1": "ns=4;s=上位机通讯|S09原点信号_1",
+      "S09原点信号_2": "ns=4;s=上位机通讯|S09原点信号_2",
+      "S09原点信号_3": "ns=4;s=上位机通讯|S09原点信号_3",
+      "S09原点信号_4": "ns=4;s=上位机通讯|S09原点信号_4",
+      "S09工艺选择": "ns=4;s=上位机通讯|S09工艺选择",
+      "S09工艺完成": "ns=4;s=上位机通讯|S09工艺完成",
+      "S09TIP盒工位编号": "ns=4;s=上位机通讯|S09TIP盒工位编号",
+      "S09TIP编号": "ns=4;s=上位机通讯|S09TIP编号",
+      "S09液体瓶编号": "ns=4;s=上位机通讯|S09液体瓶编号",
+      "S09抽液量": "ns=4;s=上位机通讯|S09抽液量",
+      "S09放液量": "ns=4;s=上位机通讯|S09放液量",
+      "S09天平读数": "ns=4;s=上位机通讯|S09天平读数",
+      "S09液体瓶1剩余液量": "ns=4;s=上位机通讯|S09液体瓶1剩余液量",
+      "S09液体瓶2剩余液量": "ns=4;s=上位机通讯|S09液体瓶2剩余液量",
+      "S09液体瓶3剩余液量": "ns=4;s=上位机通讯|S09液体瓶3剩余液量",
+      "S09液体瓶4剩余液量": "ns=4;s=上位机通讯|S09液体瓶4剩余液量",
+      "S09液体瓶5剩余液量": "ns=4;s=上位机通讯|S09液体瓶5剩余液量",
+      "工站状态[8]": "ns=4;s=上位机通讯|工站状态[8]",
+      "PLC_R任务号": "ns=4;s=上位机通讯|PLC_R任务号",
+      "S09取放料产品": "ns=4;s=上位机通讯|S09取放料产品",
+      "S09取放料编号": "ns=4;s=上位机通讯|S09取放料编号"
+    }
+  },
+  "action": {
+    "name": "run_process",
+    "process": 5,
+    "tip_box_index": 1,
+    "tip_index": 1,
+    "liquid_bottle_index": 1,
+    "station": 1,
+    "aspirate_volume": 0,
+    "dispense_volume": 0,
+    "require_allow": false
+  }
+}
