@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any
 
 S04_PLACE_TASK_NUMBER = 7
@@ -30,6 +31,8 @@ class SzlabRobotS04Mixin:
         return bool(self._read_variable(self._s04_sensor_variable(position), use_cache=False))
 
     def _ensure_s04_pick_allowed(self, position: int) -> dict[str, Any] | None:
+        if os.environ.get("SKIP_SENSOR_PRECHECK") == "1":
+            return None
         occupied = self._read_s04_position_occupied(position)
         if occupied:
             return None
@@ -44,6 +47,8 @@ class SzlabRobotS04Mixin:
         }
 
     def _ensure_s04_place_allowed(self, position: int) -> dict[str, Any] | None:
+        if os.environ.get("SKIP_SENSOR_PRECHECK") == "1":
+            return None
         occupied = self._read_s04_position_occupied(position)
         if not occupied:
             return None
