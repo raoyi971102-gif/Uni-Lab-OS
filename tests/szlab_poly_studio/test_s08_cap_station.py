@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from tests.szlab_poly_studio.pseudo_clients.s08_cap_station import PseudoSzlabS08OpcUaClient
+from tests.szlab_poly_studio.pseudo_clients.decap_s08_pseudo_opcua_client import PseudoSzlabS08OpcUaClient
 from tests.szlab_poly_studio.s08_test_helpers import (
     NODE_PARAMS_WRITTEN,
     NODE_PROCESS_COMPLETE,

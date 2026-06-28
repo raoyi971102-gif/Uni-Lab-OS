@@ -1,12 +1,11 @@
-"""S08 开盖工位单元测试用 pseudo OPC UA client。"""
+"""S08 单元测试用 mock OPC UA client（不连网，模拟握手变量读写）。"""
 
 from __future__ import annotations
 
 from typing import Any, Sequence
 
-from tests.szlab_poly_studio.s08_driver_loader import load_s08_cap_station_module
+from unilabos.devices.workstation.szlab_poly_studio.decap_s08 import decap_s08_cap_station as _s08_module
 
-_s08_module = load_s08_cap_station_module()
 CAP_CACHE_LENGTH = _s08_module.CAP_CACHE_LENGTH
 CAP_STORAGE_SLOT_SENSORS = _s08_module.CAP_STORAGE_SLOT_SENSORS
 NODE_PARAMS_WRITTEN = _s08_module.NODE_PARAMS_WRITTEN
@@ -94,5 +93,4 @@ class PseudoSzlabS08OpcUaClient:
         self.values[NODE_STATION_STATUS] = int(status_code)
 
 
-# 兼容旧测试导入名
 SzlabS08CapStationPseudoPlcClient = PseudoSzlabS08OpcUaClient

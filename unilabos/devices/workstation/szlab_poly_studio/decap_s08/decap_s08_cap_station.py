@@ -44,12 +44,12 @@ from unilabos.utils.log import logger
 
 def _load_opcua_client_class():
     try:
-        from .opcua_client import SzlabS08OpcUaClient
+        from .decap_s08_opcua_client import SzlabS08OpcUaClient
 
         return SzlabS08OpcUaClient
     except ImportError:
-        module_path = Path(__file__).resolve().parent / "opcua_client.py"
-        spec = importlib.util.spec_from_file_location("szlab_s08_opcua_client", module_path)
+        module_path = Path(__file__).resolve().parent / "decap_s08_opcua_client.py"
+        spec = importlib.util.spec_from_file_location("szlab_decap_s08_opcua_client", module_path)
         if spec is None or spec.loader is None:
             raise ImportError(f"无法加载 S08 OPC UA 客户端: {module_path}")
         module = importlib.util.module_from_spec(spec)

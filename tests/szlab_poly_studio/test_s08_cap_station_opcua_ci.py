@@ -8,14 +8,23 @@ from pathlib import Path
 
 import pytest
 
-from tests.szlab_poly_studio.s08_driver_loader import load_s08_cap_station_module
+from unilabos.devices.workstation.szlab_poly_studio.decap_s08 import decap_s08_cap_station as _s08_module
+from unilabos.devices.workstation.szlab_poly_studio.decap_s08.decap_s08_cap_station import (
+    SZLabS08CapStationDevice,
+)
 
-_s08_module = load_s08_cap_station_module()
-SZLabS08CapStationDevice = _s08_module.SZLabS08CapStationDevice
 _cap_cache_element_name = _s08_module._cap_cache_element_name
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-S08_CSV_PATH = REPO_ROOT / "unilabos" / "devices" / "workstation" / "szlab_poly_studio" / "decap-s08" / "s08_nodes.csv"
+S08_CSV_PATH = (
+    REPO_ROOT
+    / "unilabos"
+    / "devices"
+    / "workstation"
+    / "szlab_poly_studio"
+    / "decap_s08"
+    / "decap_s08_nodes.csv"
+)
 S08_FLOW_PATH = REPO_ROOT / "tests" / "psuedo_devices" / "szlab_s08_cap_station" / "open_liquid_cap_flow.json"
 DEFAULT_ENDPOINT = "opc.tcp://127.0.0.1:50102/"
 SAMPLE_ID = [101, 102, 103]

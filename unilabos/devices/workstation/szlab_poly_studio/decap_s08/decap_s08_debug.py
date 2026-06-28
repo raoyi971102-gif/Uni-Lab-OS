@@ -1,8 +1,6 @@
 """SZLab S08 开关盖工位单独调试脚本。
 
-目录名包含连字符，推荐按文件路径运行：
-
-    PYTHONPATH=. python unilabos/devices/workstation/szlab_poly_studio/decap-s08/debug_s08.py --mode all
+    PYTHONPATH=. python unilabos/devices/workstation/szlab_poly_studio/decap_s08/decap_s08_debug.py --mode all
 
 模式：
     serve  - 只启动伪 OPC（csv server + flow daemon），保持运行
@@ -14,7 +12,6 @@
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import logging
 import threading
@@ -25,7 +22,7 @@ from urllib.parse import urlparse
 
 _DEVICE_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _DEVICE_DIR.parents[4]
-_DEFAULT_CONFIG = _DEVICE_DIR / "s08_debug.json"
+_DEFAULT_CONFIG = _DEVICE_DIR / "decap_s08_debug.json"
 logger = logging.getLogger(__name__)
 
 
@@ -58,25 +55,22 @@ def load_s08_debug_config(config_path: Path, *, use_production: bool) -> dict[st
     config["resolved_opcua_url"] = opcua["production_url" if use_production else "virtual_url"]
     config["use_production"] = use_production
     virtual = config.get("virtual_opcua", {})
-    config["virtual_csv_path"] = resolve_repo_path(virtual.get("csv", "s08_nodes.csv"))
-    config["virtual_flow_path"] = resolve_repo_path(virtual.get("flow", "s08_flow.json"))
+    config["virtual_csv_path"] = resolve_repo_path(virtual.get("csv", "decap_s08_nodes.csv"))
+    config["virtual_flow_path"] = resolve_repo_path(virtual.get("flow", "decap_s08_flow.json"))
     config["virtual_endpoint"] = virtual.get("endpoint", config["resolved_opcua_url"])
     config["virtual_object_name"] = virtual.get("object_name", "VirtualS08")
     return config
 
 
+from unilabos.devices.workstation.szlab_poly_studio.decap_s08.decap_s08_cap_station import (
+    SZLabS08CapStationDevice,
+    SzlabS08OpcUaClient,
+    build_opcua_node_id_map_for_uplink_comm,
+)
+
+
 def _load_device_class():
-    module_path = _DEVICE_DIR / "s08_cap_station.py"
-    spec = importlib.util.spec_from_file_location("szlab_decap_s08_debug_device", module_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"无法加载 S08 设备模块: {module_path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return (
-        module.SZLabS08CapStationDevice,
-        module.SzlabS08OpcUaClient,
-        module.build_opcua_node_id_map_for_uplink_comm,
-    )
+    return SZLabS08CapStationDevice, SzlabS08OpcUaClient, build_opcua_node_id_map_for_uplink_comm
 
 
 def _client_kwargs_for_config(device_cfg: dict[str, Any], object_name: str) -> dict[str, Any]:

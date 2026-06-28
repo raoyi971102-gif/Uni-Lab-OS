@@ -56,7 +56,7 @@ class SzlabS08OpcUaClient:
                     top_names.append(str(child.nodeid))
             raise RuntimeError(
                 f"OPC UA 中未找到 {self._object_name} 对象。真机节点树较大，已停止自动递归扫描以避免卡住；"
-                "请先用 OPC UA 浏览工具找到 S08 变量 NodeId，并写入 s08_debug.json 的 "
+                "请先用 OPC UA 浏览工具找到 S08 变量 NodeId，并写入 decap_s08_debug.json 的 "
                 f"device.opcua_node_id_map。顶层对象: {top_names}"
             )
 

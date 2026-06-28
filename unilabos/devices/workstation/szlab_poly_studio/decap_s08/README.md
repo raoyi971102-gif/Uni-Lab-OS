@@ -2,10 +2,10 @@
 
 苏州实验室 S08 开关盖工位驱动，直连 OPC UA。对外仅暴露一个 Action：**`process_cap`**。
 
-- 驱动：`s08_cap_station.py`（`SZLabS08CapStationDevice`）
-- OPC 客户端：`opcua_client.py`
-- 变量表：`s08_nodes.csv`
-- 本地调试：`debug_s08.py`、`s08_debug.json`
+- 驱动：`decap_s08_cap_station.py`（`SZLabS08CapStationDevice`）
+- OPC 客户端：`decap_s08_opcua_client.py`
+- 变量表：`decap_s08_nodes.csv`
+- 本地调试：`decap_s08_debug.py`、`decap_s08_debug.json`
 
 ## 工艺编号（`S08工艺选择` / `S08工艺完成`）
 
@@ -99,6 +99,13 @@ PYTHONPATH=. python -m pytest tests/szlab_poly_studio/test_s08_cap_station.py -v
 | 9 | `process_cap` 成功路径与入参校验（开/关、三种瓶型、槽位分配） |
 | 8 | 开启 `require_station_status` / `validate_cap_constraints` 时的约束与默认跳过行为 |
 
+测试支撑文件（均在 `tests/szlab_poly_studio/`）：
+
+| 文件 | 作用 |
+|------|------|
+| `s08_test_helpers.py` | 共用 `make_s08_device()` fixture 与常量 |
+| `pseudo_clients/decap_s08_pseudo_opcua_client.py` | 单元测试用 mock OPC client（不连网） |
+
 ### 虚拟 OPC UA 集成测试（CI 会跑）
 
 ```bash
@@ -120,36 +127,29 @@ PYTHONPATH=. python -m pytest \
 PYTHONPATH=. python tests/psuedo_devices/common/run_opcua_ci.py
 ```
 
-仅跑 S08 manifest 时，可设 glob（具体以 manifest 路径为准）：
-
-```bash
-PYTHONPATH=. python tests/psuedo_devices/common/run_opcua_ci.py \
-  --manifest-glob 'tests/psuedo_devices/szlab_s08_cap_station/ci.json'
-```
-
 ### 本地调试脚本（目录内）
 
 虚拟 OPC 一键开盖（先起 csv server + flow daemon，再调 `process_cap`）：
 
 ```bash
 cd /path/to/Uni-Lab-OS
-PYTHONPATH=. python unilabos/devices/workstation/szlab_poly_studio/decap-s08/debug_s08.py --mode all
+PYTHONPATH=. python unilabos/devices/workstation/szlab_poly_studio/decap_s08/decap_s08_debug.py --mode all
 ```
 
 其他模式：
 
 ```bash
 # 只起虚拟 OPC，保持运行
-PYTHONPATH=. python unilabos/devices/workstation/szlab_poly_studio/decap-s08/debug_s08.py --mode serve
+PYTHONPATH=. python unilabos/devices/workstation/szlab_poly_studio/decap_s08/decap_s08_debug.py --mode serve
 
-# 对已运行的虚拟 OPC 或真机执行 s08_debug.json 里的 action
-PYTHONPATH=. python unilabos/devices/workstation/szlab_poly_studio/decap-s08/debug_s08.py --mode run
+# 对已运行的虚拟 OPC 或真机执行 decap_s08_debug.json 里的 action
+PYTHONPATH=. python unilabos/devices/workstation/szlab_poly_studio/decap_s08/decap_s08_debug.py --mode run
 
 # 真机（production_url）
-PYTHONPATH=. python unilabos/devices/workstation/szlab_poly_studio/decap-s08/debug_s08.py --mode run --production
+PYTHONPATH=. python unilabos/devices/workstation/szlab_poly_studio/decap_s08/decap_s08_debug.py --mode run --production
 
 # 清除本侧握手写点
-PYTHONPATH=. python unilabos/devices/workstation/szlab_poly_studio/decap-s08/debug_s08.py --mode reset
+PYTHONPATH=. python unilabos/devices/workstation/szlab_poly_studio/decap_s08/decap_s08_debug.py --mode reset
 ```
 
 ### 实机 OPC UA 环境变量（可选）
