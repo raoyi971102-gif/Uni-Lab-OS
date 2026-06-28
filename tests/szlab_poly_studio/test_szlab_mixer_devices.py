@@ -490,15 +490,16 @@ def test_szlab_poly_plc_uses_node_id_map_without_browsing(monkeypatch, tmp_path)
     assert device.use_node("S05拍照结果").node_id == "ns=4;s=上位机通讯|S05拍照结果"
 
 
-def test_szlab_poly_plc_generates_default_node_ids_without_browsing(monkeypatch, tmp_path):
+def test_szlab_poly_plc_uses_csv_node_ids_without_browsing(monkeypatch, tmp_path):
     pytest.importorskip("pylabrobot")
     from unilabos.devices.workstation.szlab_poly_studio.plc import SZLabPolyPLCDevice
 
     csv_path = tmp_path / "sensors.csv"
     csv_path.write_text(
-        "序号,变量名,数据类型\n"
-        "1,传感器状态_上位机[0].NO[0],BOOL\n"
-        "2,S09允许加工,BOOL\n",
+        "序号,变量名,数据类型,node_id\n"
+        "1,传感器状态_上位机,ST_BOOL16[10],\n"
+        "2,传感器状态_上位机[0].NO[0],BOOL,ns=4;s=上位机通讯|传感器状态_上位机[0].NO[0]\n"
+        "3,S09允许加工,BOOL,ns=4;s=上位机通讯|S09允许加工\n",
         encoding="utf-8",
     )
 
@@ -522,11 +523,27 @@ def test_szlab_poly_plc_generates_default_node_ids_without_browsing(monkeypatch,
     )
 
     assert device.client.connected is True
+    assert "传感器状态_上位机" not in device._variables_to_find
     assert (
         device.use_node("传感器状态_上位机[0].NO[0]").node_id
         == "ns=4;s=上位机通讯|传感器状态_上位机[0].NO[0]"
     )
     assert device.use_node("S09允许加工").node_id == "ns=4;s=上位机通讯|S09允许加工"
+
+
+def test_szlab_plc_0628_addnodeid_excludes_non_value_sensor_parents():
+    from unilabos.devices.workstation.szlab_poly_studio.plc import load_variable_names_from_csv
+
+    csv_path = Path("unilabos/devices/workstation/szlab_poly_studio/szlab_plc_0628_addnodeid.csv")
+    text = csv_path.read_text(encoding="utf-8")
+    names = load_variable_names_from_csv(str(csv_path))
+
+    assert "node_id" in text.splitlines()[0]
+    assert "传感器状态_上位机" not in names
+    assert "传感器状态_上位机[0]" not in names
+    assert "传感器状态_上位机[0].NO" in names
+    assert "传感器状态_上位机[0].NO[0]" in names
+    assert "S09允许加工" in names
 
 
 def test_szlab_poly_plc_can_enable_opcua_token_time_drift_patch(monkeypatch, tmp_path):
