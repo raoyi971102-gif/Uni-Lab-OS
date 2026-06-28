@@ -13,6 +13,14 @@ from unilabos.devices.workstation.szlab_poly_studio.s09_pipetting_station.sensor
 )
 from unilabos.devices.workstation.szlab_poly_studio.robot.robot import SzlabMixerRobotDevice
 from unilabos.registry.ast_registry_scanner import scan_directory
+from scripts.run_workflow_local import (
+    RuntimeConfig,
+    RuntimeDeviceFactoryConfig,
+    RuntimeOpcSnapshotConfig,
+    WorkflowLogger,
+    WorkflowNode,
+    run_nodes,
+)
 from tests.szlab_poly_studio.pseudo_szlab_s09_opcua_client import PseudoSzlabS09OpcUaClient
 
 
@@ -72,6 +80,15 @@ def test_s09_run_process_writes_expected_variables_and_waits_done():
     )
 
     assert result["success"] is True
+    assert [item["message"] for item in result["logs"]] == [
+        f"S09 工艺 7 参数写入开始：{S09_PROCESS_LABELS[7]}",
+        "S09 工艺 7 参数写入完成",
+        "S09 参数写入完成信号已触发",
+        "等待 S09 工艺 7 完成",
+        "S09 工艺 7 完成信号已确认",
+        "S09 工艺参数清零开始",
+        "S09 工艺参数清零完成",
+    ]
     assert ("S09TIP盒工位编号", 2) in client.writes
     assert ("S09TIP编号", 12) in client.writes
     assert ("S09液体瓶编号", 3) in client.writes
@@ -255,7 +272,14 @@ def test_s09_run_process_require_allow_waits_and_blocks_before_writing_params_on
         require_allow=True,
     )
 
-    assert result == {"success": False, "message": "等待 S09 允许加工超时"}
+    assert result["success"] is False
+    assert result["message"] == "等待 S09 允许加工超时"
+    assert result["logs"] == [
+        {
+            "message": "等待 S09 允许加工信号",
+            "detail": {"variable": "S09允许加工", "expected": True},
+        }
+    ]
     assert client.wait_equal_calls == [("S09允许加工", True)]
     assert client.writes == []
 
@@ -271,6 +295,74 @@ def test_s09_go_to_safe_position_reads_allow_then_writes_process_params():
     assert ("S09工艺选择", 4) in client.writes
     assert client.pulses == ["S09参数写入完成"]
     assert client.reads[-1] == "S09原点信号_4"
+    assert result["logs"][-2]["message"] == "等待机械臂到达 S09 安全位4"
+    assert result["logs"][-1]["message"] == "S09 安全位4原点信号读取完成"
+
+
+def test_s09_run_nodes_orchestration_emits_action_logs_to_workflow_logger():
+    client = PseudoSzlabS09OpcUaClient({"S09允许加工": True})
+    device = make_pipetting_device(client)
+    records = []
+    logger = WorkflowLogger(writer=lambda message, **kwargs: records.append((message, kwargs)))
+    runtime_config = RuntimeConfig(
+        path=Path("s09_test_runtime.json"),
+        device_factory=RuntimeDeviceFactoryConfig(
+            plc_device_id="szlab_poly_plc",
+            devices={
+                "szlab_mixer_pipetting_station": (
+                    "unilabos.devices.workstation.szlab_poly_studio.s09_pipetting_station."
+                    "pipetting_station.SzlabMixerPipettingStationDevice"
+                )
+            },
+        ),
+        opc_snapshot=RuntimeOpcSnapshotConfig(
+            action_variables={
+                "run_process": [
+                    "S09允许加工",
+                    "S09工艺选择",
+                    "S09参数写入完成",
+                    "S09工艺完成",
+                    "S09抽液量",
+                ],
+            }
+        ),
+    )
+    nodes = [
+        WorkflowNode(
+            uuid="s09-run-process",
+            name="auto-run_process",
+            device_name="szlab_mixer_pipetting_station",
+            param={
+                "process": 7,
+                "tip_box_index": 1,
+                "tip_index": 1,
+                "liquid_bottle_index": 1,
+                "aspirate_volume": 10,
+                "require_allow": True,
+            },
+        )
+    ]
+
+    results = run_nodes(
+        nodes,
+        devices={"szlab_poly_plc": client, "szlab_mixer_pipetting_station": device},
+        logger=logger,
+        runtime_config=runtime_config,
+    )
+
+    assert results[0]["result"]["success"] is True
+    messages = [message for message, _kwargs in records]
+    assert "等待 S09 允许加工信号" in messages
+    assert f"S09 工艺 7 参数写入开始：{S09_PROCESS_LABELS[7]}" in messages
+    assert "S09 参数写入完成信号已触发" in messages
+    assert "等待 S09 工艺 7 完成" in messages
+    assert any(
+        kwargs["detail"]["node_uuid"] == "s09-run-process"
+        for _message, kwargs in records
+        if isinstance(kwargs.get("detail"), dict) and "action_log" in kwargs["detail"]
+    )
+    assert client.wait_equal_calls[0] == ("S09允许加工", True)
+    assert ("S09工艺选择", 7) in client.writes
 
 def test_s09_bind_and_release_are_placeholders():
     device = make_pipetting_device()

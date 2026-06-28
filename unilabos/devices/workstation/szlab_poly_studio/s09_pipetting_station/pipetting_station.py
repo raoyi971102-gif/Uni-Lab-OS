@@ -185,6 +185,15 @@ class SzlabMixerPipettingStationDevice:
         return self._wait_equal(S09_ALLOW_PROCESS_VAR, True)
 
     @not_action
+    def _append_log(
+        self,
+        logs: list[dict[str, Any]],
+        message: str,
+        detail: dict[str, Any] | None = None,
+    ) -> None:
+        logs.append({"message": message, "detail": detail or {}})
+
+    @not_action
     def _clear_process_params(self) -> dict[str, Any]:
         writes: dict[str, Any] = {}
         errors: dict[str, str] = {}
@@ -341,8 +350,19 @@ class SzlabMixerPipettingStationDevice:
         result = self.run_process(process=home_position, require_allow=require_allow)
         if not result.get("success", False):
             return result
+        logs = list(result.get("logs") or [])
+        self._append_log(
+            logs,
+            f"等待机械臂到达 S09 安全位{home_position}",
+            {"home_position": home_position, "home_signal": S09_HOME_SIGNALS[home_position]},
+        )
         home = self.check_home_position(home_position)
-        return {**home, "process": result}
+        self._append_log(
+            logs,
+            f"S09 安全位{home_position}原点信号读取完成",
+            {"home_position": home_position, "result": home.get("data")},
+        )
+        return {**home, "process": result, "logs": logs}
 
     @action(auto_prefix=True, description="确认 S09 唯一加液工位空闲")
     def prepare_liquid_station(self) -> dict[str, Any]:
@@ -402,6 +422,7 @@ class SzlabMixerPipettingStationDevice:
         require_allow: bool = False,
         reset_delay: float = 0.1,
     ) -> dict[str, Any]:
+        logs: list[dict[str, Any]] = []
         try:
             (
                 process,
@@ -426,23 +447,47 @@ class SzlabMixerPipettingStationDevice:
 
         if require_allow:
             try:
+                self._append_log(
+                    logs,
+                    "等待 S09 允许加工信号",
+                    {"variable": S09_ALLOW_PROCESS_VAR, "expected": True},
+                )
                 if not self._wait_allow_process():
-                    return {"success": False, "message": "等待 S09 允许加工超时"}
+                    return {"success": False, "message": "等待 S09 允许加工超时", "logs": logs}
             except Exception as exc:
-                return {"success": False, "message": str(exc)}
+                return {"success": False, "message": str(exc), "logs": logs}
 
         self._status = "Running"
+        process_params = {
+            S09_TIP_BOX_VAR: int(tip_box_index),
+            S09_TIP_VAR: int(tip_index),
+            S09_LIQUID_BOTTLE_VAR: int(liquid_bottle_index),
+            S09_ASPIRATE_VOLUME_VAR: int(aspirate_volume),
+            S09_DISPENSE_VOLUME_VAR: int(dispense_volume),
+            S09_PROCESS_SELECT_VAR: int(process),
+        }
         try:
-            self._write_variable(S09_TIP_BOX_VAR, int(tip_box_index))
-            self._write_variable(S09_TIP_VAR, int(tip_index))
-            self._write_variable(S09_LIQUID_BOTTLE_VAR, int(liquid_bottle_index))
-            self._write_variable(S09_ASPIRATE_VOLUME_VAR, int(aspirate_volume))
-            self._write_variable(S09_DISPENSE_VOLUME_VAR, int(dispense_volume))
-            self._write_variable(S09_PROCESS_SELECT_VAR, int(process))
+            self._append_log(
+                logs,
+                f"S09 工艺 {process} 参数写入开始：{S09_PROCESS_LABELS[process]}",
+                {"process": process, "process_label": S09_PROCESS_LABELS[process], "params": process_params},
+            )
+            for variable, value in process_params.items():
+                self._write_variable(variable, value)
+            self._append_log(
+                logs,
+                f"S09 工艺 {process} 参数写入完成",
+                {"process": process, "written_variables": process_params},
+            )
             self._pulse_variable(S09_PARAM_WRITTEN_VAR, True, False, reset_delay=reset_delay)
+            self._append_log(
+                logs,
+                "S09 参数写入完成信号已触发",
+                {"variable": S09_PARAM_WRITTEN_VAR, "value": True, "reset_value": False},
+            )
         except Exception as exc:
             self._status = "Error"
-            return {"success": False, "message": str(exc), "data": {"process": process}}
+            return {"success": False, "message": str(exc), "data": {"process": process}, "logs": logs}
 
         data: dict[str, Any] = {
             "process": process,
@@ -456,28 +501,53 @@ class SzlabMixerPipettingStationDevice:
             "volume_unit": "raw",
             "aspirate_volume_ul": self._raw_volume_to_ul(aspirate_volume),
             "dispense_volume_ul": self._raw_volume_to_ul(dispense_volume),
+            "logs": logs,
         }
         try:
+            self._append_log(
+                logs,
+                f"等待 S09 工艺 {process} 完成",
+                {"variable": S09_PROCESS_DONE_VAR, "expected": process},
+            )
             if not self._wait_process_done(process):
                 self._status = "Error"
-                return {"success": False, "message": f"S09 工艺 {process} 完成等待超时", "data": data}
+                return {"success": False, "message": f"S09 工艺 {process} 完成等待超时", "data": data, "logs": logs}
+            self._append_log(
+                logs,
+                f"S09 工艺 {process} 完成信号已确认",
+                {"variable": S09_PROCESS_DONE_VAR, "expected": process},
+            )
 
             if process in {9, 10}:
+                self._append_log(logs, "读取 S09 天平读数", {"process": process})
                 balance = self.read_balance(require_stable=False)
                 if not balance.get("success", False):
                     self._status = "Error"
-                    return {"success": False, "message": balance.get("message", "S09 天平读数读取失败"), "data": data}
+                    return {
+                        "success": False,
+                        "message": balance.get("message", "S09 天平读数读取失败"),
+                        "data": data,
+                        "logs": logs,
+                    }
                 data["balance"] = balance["data"]
                 data["balance_reading"] = balance["data"]["balance_reading"]
+                self._append_log(logs, "S09 天平读数读取完成", balance["data"])
         finally:
+            self._append_log(logs, "S09 工艺参数清零开始")
             clear_result = self._clear_process_params()
             data["clear_process_params"] = clear_result
+            self._append_log(logs, "S09 工艺参数清零完成", clear_result)
             if not clear_result["success"] and self._status != "Error":
                 self._status = "Error"
-                return {"success": False, "message": "S09 工艺参数清零失败", "data": data}
+                return {"success": False, "message": "S09 工艺参数清零失败", "data": data, "logs": logs}
         self._status = "Idle"
         self._last_process = data
-        return {"success": True, "message": f"S09 工艺 {process} 完成：{S09_PROCESS_LABELS[process]}", "data": data}
+        return {
+            "success": True,
+            "message": f"S09 工艺 {process} 完成：{S09_PROCESS_LABELS[process]}",
+            "data": data,
+            "logs": logs,
+        }
 
     @action(auto_prefix=True, description="执行 S09 单次业务加液流程")
     def add_liquid(
@@ -491,6 +561,7 @@ class SzlabMixerPipettingStationDevice:
         volume_unit: str = "raw",
     ) -> dict[str, Any]:
         steps: list[dict[str, Any]] = []
+        logs: list[dict[str, Any]] = []
         try:
             aspirate_raw = self._volume_to_raw(aspirate_volume, volume_unit)
             dispense_raw = self._volume_to_raw(dispense_volume, volume_unit)
@@ -525,8 +596,14 @@ class SzlabMixerPipettingStationDevice:
                 volume_unit="raw",
             )
             steps.append({"step": step_name, **result})
+            logs.extend(result.get("logs") or [])
             if not result.get("success", False):
-                return {"success": False, "message": result.get("message", step_name), "steps": steps}
+                return {
+                    "success": False,
+                    "message": result.get("message", step_name),
+                    "steps": steps,
+                    "logs": logs,
+                }
         return {
             "success": True,
             "message": "S09 单次加液完成",
@@ -552,6 +629,7 @@ class SzlabMixerPipettingStationDevice:
                 ],
             },
             "steps": steps,
+            "logs": logs,
         }
 
     @action(auto_prefix=True, description="执行 S09 多步加液工作流")
