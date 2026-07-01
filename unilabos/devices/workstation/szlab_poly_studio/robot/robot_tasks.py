@@ -16,7 +16,11 @@ from unilabos.devices.workstation.szlab_poly_studio.robot.robot_S04 import S04_S
 
 GateKind = Literal["pick", "place"]
 
-PLC_TASK_NUMBER_VARIABLE = "PLC_R任务号"
+ROBOT_HOME_VARIABLE = "Robot_Home"
+ROBOT_WRITE_ALLOWED_VARIABLE = "Robot_任务允许写入"
+ROBOT_WRITE_DONE_VARIABLE = "Robot_任务写入完成"
+ROBOT_TASK_NUMBER_VARIABLE = "任务号"
+ROBOT_TASK_COMPLETE_VARIABLE = "Robot_任务完成"
 S05_MATERIAL_SENSOR = "传感器状态_上位机[3].NO[0]"
 S06_MATERIAL_SENSOR = "传感器状态_上位机[3].NO[1]"
 S09_TIP_SENSORS = {
@@ -43,7 +47,7 @@ ROBOT_ACTION_SPECS: dict[str, RobotActionSpec] = {
         "pick",
         1,
         "S01 取料产品选择",
-        ("S01出入料产品",),
+        ("S01出入料产品", "S01取放料编号"),
     ),
     "pick_from_s01_position": RobotActionSpec(
         "pick_from_s01_position",

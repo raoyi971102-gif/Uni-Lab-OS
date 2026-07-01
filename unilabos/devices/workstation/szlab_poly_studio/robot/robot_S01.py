@@ -20,16 +20,18 @@ class SzlabRobotS01Mixin:
     def _run_s01_pick(
         self,
         product_type: int,
+        position: int = 1,
     ) -> dict[str, Any]:
-        sensor = self._s01_sensor_variable()
+        sensor = self._s01_sensor_variable(position)
         return self._submit_robot_task(
             task="pick",
             station="S01",
             task_number=1,
-            variables=build_variables("pick_from_s01", S01出入料产品=product_type),
-            reset_variables={"S01出入料产品": 0, "PLC_R任务号": 0},
+            variables=build_variables("pick_from_s01", S01出入料产品=product_type, S01取放料编号=position),
+            reset_variables={"S01出入料产品": 0, "S01取放料编号": 0, "任务号": 0},
             precheck=lambda: self._ensure_sensor_gate(sensor, True, "S01 取料源位必须有物料"),
             product_type=int(product_type),
+            position=int(position),
             source_sensor_variable=sensor,
         )
 
@@ -43,7 +45,7 @@ class SzlabRobotS01Mixin:
             station="S01",
             task_number=2,
             variables=build_variables("pick_from_s01_position", S01取放料编号=position),
-            reset_variables={"S01取放料编号": 0, "PLC_R任务号": 0},
+            reset_variables={"S01取放料编号": 0, "任务号": 0},
             precheck=lambda: self._ensure_sensor_gate(sensor, True, "S01 取料源位必须有物料"),
             position=int(position),
             source_sensor_variable=sensor,

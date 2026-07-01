@@ -327,11 +327,12 @@ def ignore_opcua_token_time_drift() -> None:
 
 def pc_to_plc_clear_values() -> dict[str, int]:
     from unilabos.devices.workstation.szlab_poly_studio.robot.robot_tasks import (
-        PLC_TASK_NUMBER_VARIABLE,
+        ROBOT_TASK_NUMBER_VARIABLE,
+        ROBOT_WRITE_DONE_VARIABLE,
         ROBOT_ACTION_SPECS,
     )
 
-    values = {PLC_TASK_NUMBER_VARIABLE: 0}
+    values = {ROBOT_WRITE_DONE_VARIABLE: False, ROBOT_TASK_NUMBER_VARIABLE: 0}
     for spec in ROBOT_ACTION_SPECS.values():
         for variable in spec.variables:
             values.setdefault(variable, 0)
@@ -349,19 +350,28 @@ def clear_pc_to_plc_variables(
         raise KeyError(f"未创建可写 PLC 设备: {runtime_config.device_factory.plc_device_id}")
 
     writes: dict[str, Any] = {}
+    already_clear: dict[str, Any] = {}
     errors: dict[str, str] = {}
     for name, value in pc_to_plc_clear_values().items():
         try:
             plc.write_variable(name, value)
             writes[name] = value
         except Exception as exc:
+            try:
+                current_value = plc.read_variable(name, use_cache=False)
+            except Exception:
+                current_value = None
+            else:
+                if current_value == value:
+                    already_clear[name] = value
+                    continue
             errors[name] = str(exc)
 
-    detail = {"written_variables": writes, "errors": errors}
+    detail = {"written_variables": writes, "already_clear_variables": already_clear, "errors": errors}
     if errors:
         logger.log(f"清空 PC->PLC 变量失败: {len(errors)} 个变量", level="error", detail=detail)
         raise RuntimeError(f"清空 PC->PLC 变量失败: {errors}")
-    logger.log(f"已清空 PC->PLC 变量: {len(writes)} 个", detail=detail)
+    logger.log(f"已清空 PC->PLC 变量: 写入 {len(writes)} 个，已清零 {len(already_clear)} 个", detail=detail)
     return detail
 
 

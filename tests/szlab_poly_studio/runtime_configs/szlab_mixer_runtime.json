@@ -9,7 +9,12 @@
     }
   },
   "opc_snapshot": {
-    "common_variables": [],
+    "common_variables": [
+      "Robot_Home",
+      "Robot_任务允许写入",
+      "Robot_任务写入完成",
+      "Robot_任务完成"
+    ],
     "action_variables": {
       "take_photo": [
         "S05加工完成",
@@ -17,117 +22,118 @@
       ],
       "submit_pick_from_magnetic_stirrer": [
         "S04取放料编号",
-        "PLC_R任务号"
+        "任务号"
       ],
       "submit_place_to_magnetic_stirrer": [
         "S04取放料编号",
-        "PLC_R任务号"
+        "任务号"
       ],
       "submit_pick_from_photo_station": [
-        "PLC_R任务号"
+        "任务号"
       ],
       "submit_place_to_photo_station": [
-        "PLC_R任务号"
+        "任务号"
       ],
       "submit_pick_from_s01": [
         "S01出入料产品",
-        "PLC_R任务号"
+        "S01取放料编号",
+        "任务号"
       ],
       "submit_pick_from_s01_position": [
         "S01取放料编号",
-        "PLC_R任务号"
+        "任务号"
       ],
       "submit_place_to_s02": [
         "S02取放料编号",
-        "PLC_R任务号"
+        "任务号"
       ],
       "submit_pick_from_s02": [
         "S02取放料编号",
-        "PLC_R任务号"
+        "任务号"
       ],
       "submit_place_to_s03": [
         "S03取放料产品",
         "S03取放料编号",
-        "PLC_R任务号"
+        "任务号"
       ],
       "submit_pick_from_s03": [
         "S03取放料产品",
         "S03取放料编号",
-        "PLC_R任务号"
+        "任务号"
       ],
       "submit_place_to_s04": [
         "S04取放料编号",
-        "PLC_R任务号"
+        "任务号"
       ],
       "submit_pick_from_s04": [
         "S04取放料编号",
-        "PLC_R任务号"
+        "任务号"
       ],
       "submit_place_to_s05": [
-        "PLC_R任务号"
+        "任务号"
       ],
       "submit_pick_from_s05": [
-        "PLC_R任务号"
+        "任务号"
       ],
       "submit_place_to_s06": [
-        "PLC_R任务号"
+        "任务号"
       ],
       "submit_pick_from_s06": [
-        "PLC_R任务号"
+        "任务号"
       ],
       "submit_place_to_s071": [
         "S071取放料编号",
-        "PLC_R任务号"
+        "任务号"
       ],
       "submit_pick_from_s071": [
         "S071取放料编号",
-        "PLC_R任务号"
+        "任务号"
       ],
       "submit_place_to_s072": [
         "S072取放料产品",
-        "PLC_R任务号"
+        "任务号"
       ],
       "submit_pick_from_s072": [
         "S072取放料产品",
-        "PLC_R任务号"
+        "任务号"
       ],
       "submit_place_to_s08": [
         "S08取放料产品",
         "S08取放料编号",
-        "PLC_R任务号"
+        "任务号"
       ],
       "submit_pick_from_s08": [
         "S08取放料产品",
         "S08取放料编号",
-        "PLC_R任务号"
+        "任务号"
       ],
       "submit_place_to_s09": [
         "S09取放料产品",
         "S09取放料编号",
-        "PLC_R任务号"
+        "任务号"
       ],
       "submit_pick_from_s09": [
         "S09取放料产品",
         "S09取放料编号",
-        "PLC_R任务号"
+        "任务号"
       ],
       "submit_place_to_s10": [
         "S10取放料编号",
-        "PLC_R任务号"
+        "任务号"
       ],
       "submit_pick_from_s10": [
         "S10取放料编号",
-        "PLC_R任务号"
+        "任务号"
       ],
       "submit_place_to_s11": [
         "S11取放料产品",
         "S11取放料编号",
-        "PLC_R任务号"
+        "任务号"
       ],
       "submit_pick_from_s11": [
         "S11取放料产品",
         "S11取放料编号",
-        "PLC_R任务号"
+        "任务号"
       ]
     },
     "param_variables": {

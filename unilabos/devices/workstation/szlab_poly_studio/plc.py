@@ -306,7 +306,11 @@ class SZLabPolyPLCDevice(BaseClient):
     @not_action
     def read_variable(self, node_name: str, use_cache: bool = True) -> Any:
         del use_cache  # BaseClient reads directly from the OPC UA node.
-        value, error = self.use_node(node_name).read()
+        node = self.use_node(node_name)
+        value, error = node.read()
+        if error and node_name in self._direct_node_id_map:
+            node = self._resolve_node_by_browse(node_name)
+            value, error = node.read()
         if error:
             raise RuntimeError(f"读取 PLC 变量失败: {node_name}")
         return value
@@ -317,8 +321,45 @@ class SZLabPolyPLCDevice(BaseClient):
         try:
             self._write_value_only(node, value)
         except Exception as exc:
-            raise RuntimeError(f"写入 PLC 变量失败: {node_name}") from exc
+            if self._is_bad_node_id_unknown(exc):
+                try:
+                    node = self._resolve_node_by_browse(node_name)
+                    self._write_value_only(node, value)
+                    return True
+                except Exception as fallback_exc:
+                    raise RuntimeError(
+                        f"写入 PLC 变量失败: {node_name}: 直连 NodeId 无效，自动浏览回退失败: {fallback_exc}"
+                    ) from fallback_exc
+            raise RuntimeError(f"写入 PLC 变量失败: {node_name}: {exc}") from exc
         return True
+
+    @not_action
+    def _is_bad_node_id_unknown(self, exc: Exception) -> bool:
+        current: BaseException | None = exc
+        while current is not None:
+            if "BadNodeIdUnknown" in str(current):
+                return True
+            current = current.__cause__ or current.__context__
+        return False
+
+    @not_action
+    def _resolve_node_by_browse(self, node_name: str) -> Any:
+        if not self.client:
+            raise ValueError("client is not connected")
+        self._node_registry.pop(node_name, None)
+        if hasattr(self, "_found_node_objects"):
+            self._found_node_objects.pop(node_name, None)
+        self._find_nodes()
+        if node_name not in self._node_registry:
+            direct_node_id = self._direct_node_id_map.get(node_name)
+            direct_node_detail = f"，直连 NodeId={direct_node_id}" if direct_node_id else ""
+            raise RuntimeError(
+                f"CSV 中注册了变量 {node_name}，但 OPC UA 服务器未发布该节点"
+                f"{direct_node_detail}。"
+                "请在 PLC 工程中将该变量设为网络公开/OPC UA 可访问，"
+                "或用 OPC UA Browser 确认实际 BrowseName/NodeId 后更新映射。"
+            )
+        return self.use_node(node_name)
 
     @not_action
     def _write_value_only(self, node: Any, value: Any) -> None:
