@@ -1,5 +1,6 @@
 import csv
 import json
+import os
 import sys
 import time
 from importlib.util import find_spec
@@ -245,8 +246,8 @@ def test_szlab_mixer_ui_preset_uses_robot_csv_and_s04_s05_actions():
     assert runtime_config.device_factory.plc_device_id == "szlab_poly_plc"
     assert preset.actions["run_stirring"].device_id == "szlab_mixer_stirrer"
     assert preset.actions["take_photo"].device_id == "szlab_mixer_photoshotting"
-    assert preset.actions["submit_pick_from_magnetic_stirrer"].device_id == "szlab_mixer_robot"
-    assert preset.actions["submit_place_to_photo_station"].device_id == "szlab_mixer_robot"
+    assert preset.actions["submit_pick_from_s04"].device_id == "szlab_mixer_robot"
+    assert preset.actions["submit_place_to_s05"].device_id == "szlab_mixer_robot"
 
     workflow = build_graph_workflow(
         flow_nodes=[
@@ -270,7 +271,7 @@ def test_szlab_mixer_ui_preset_uses_robot_csv_and_s04_s05_actions():
                 "id": "place_photo",
                 "data": {
                     "device_id": "szlab_mixer_robot",
-                    "method": "submit_place_to_photo_station",
+                    "method": "submit_place_to_s05",
                     "params": {"sample_id": "sample-1"},
                 },
             },
@@ -293,8 +294,8 @@ def test_szlab_mixer_ui_preset_uses_robot_csv_and_s04_s05_actions():
     ]
 
 
-def test_szlab_mixer_local_graph_builds_direct_node_id_map_from_robot_csv():
-    preset = load_preset("szlab_mixer")
+def test_robot_action_preset_builds_direct_node_id_map_from_robot_csv():
+    preset = load_preset("robot_action")
     csv_path = _resolve_ui_path(preset.default_config["csv"], preset)
 
     graph = build_local_device_graph(
@@ -316,10 +317,14 @@ def test_szlab_mixer_local_graph_builds_direct_node_id_map_from_robot_csv():
     assert node_id_map["任务号"] == "ns=4;s=上位机通讯|任务号"
     assert robot_config["timeout"] == 300
     assert robot_config["write_allowed_timeout"] == 60
+    assert set(configs) == {"szlab_poly_plc", "szlab_mixer_robot"}
+    assert preset.actions["submit_pick_from_s02"].device_id == "szlab_mixer_robot"
+    assert preset.actions["submit_pour_from_s08"].device_id == "szlab_mixer_robot"
+    assert "run_stirring" not in preset.actions
 
 
-def test_szlab_mixer_local_graph_allows_write_allowed_timeout_override():
-    preset = load_preset("szlab_mixer")
+def test_robot_action_local_graph_allows_write_allowed_timeout_override():
+    preset = load_preset("robot_action")
     csv_path = _resolve_ui_path(preset.default_config["csv"], preset)
 
     graph = build_local_device_graph(
@@ -649,6 +654,7 @@ def test_workflow_ui_parser_defaults_to_container_service():
     assert args.preset == "ai4c"
     assert args.runtime_config is None
     assert args.open_browser is False
+    assert args.debug is False
 
 
 def test_workflow_ui_main_installs_opcua_token_time_drift_patch(monkeypatch):
@@ -682,6 +688,24 @@ def test_workflow_ui_main_installs_opcua_token_time_drift_patch(monkeypatch):
             "runtime_config": None,
         },
     )
+
+
+def test_workflow_ui_main_debug_applies_preset_env(monkeypatch):
+    calls = []
+    monkeypatch.delenv("SKIP_ROBOT_PRECHECK_VARIABLES", raising=False)
+
+    monkeypatch.setattr(workflow_ui, "ignore_opcua_token_time_drift", lambda: calls.append("ignore_token_time_drift"))
+    monkeypatch.setattr(workflow_ui, "start_ui", lambda **kwargs: calls.append(("start_ui", kwargs)))
+    monkeypatch.setattr(sys, "argv", ["workflow_ui.py", "--preset", "robot_action", "--debug", "--no-browser"])
+
+    try:
+        workflow_ui.main()
+
+        assert os.environ["SKIP_ROBOT_PRECHECK_VARIABLES"] == "Robot_Home"
+        assert calls[0] == "ignore_token_time_drift"
+        assert calls[1][0] == "start_ui"
+    finally:
+        os.environ.pop("SKIP_ROBOT_PRECHECK_VARIABLES", None)
 
 
 def test_workflow_run_manager_reuses_devices_between_runs(monkeypatch):

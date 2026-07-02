@@ -20,26 +20,8 @@
         "S05加工完成",
         "S05拍照结果"
       ],
-      "submit_pick_from_magnetic_stirrer": [
-        "S04取放料编号",
-        "任务号"
-      ],
-      "submit_place_to_magnetic_stirrer": [
-        "S04取放料编号",
-        "任务号"
-      ],
-      "submit_pick_from_photo_station": [
-        "任务号"
-      ],
-      "submit_place_to_photo_station": [
-        "任务号"
-      ],
       "submit_pick_from_s01": [
         "S01出入料产品",
-        "S01取放料编号",
-        "任务号"
-      ],
-      "submit_pick_from_s01_position": [
         "S01取放料编号",
         "任务号"
       ],
@@ -105,6 +87,10 @@
       "submit_pick_from_s08": [
         "S08取放料产品",
         "S08取放料编号",
+        "任务号"
+      ],
+      "submit_pour_from_s08": [
+        "S08倒料产品选择",
         "任务号"
       ],
       "submit_place_to_s09": [

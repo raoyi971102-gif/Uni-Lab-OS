@@ -44,7 +44,7 @@ Examples:
 ## Robot Task Variables
 
 | Station | Action | Task Number | PC->PLC Variables | Reset Values |
-|---|---:|---:|---|---|
+| --- | ---: | ---: | --- | --- |
 | S01 | pick product | 1 | `S01出入料产品`, `S01取放料编号`, `任务号` | all written PC->PLC variables reset to `0` |
 | S01 | pick position | 2 | `S01取放料编号`, `任务号` | all written PC->PLC variables reset to `0` |
 | S02 | place | 3 | `S02取放料编号`, `任务号` | all written PC->PLC variables reset to `0` |
@@ -63,6 +63,7 @@ Examples:
 | S072 | pick | 16 | `S072取放料产品`, `任务号` | all written PC->PLC variables reset to `0` |
 | S08 | place | 17 | `S08取放料产品`, `S08取放料编号`, `任务号` | all written PC->PLC variables reset to `0` |
 | S08 | pick | 18 | `S08取放料产品`, `S08取放料编号`, `任务号` | all written PC->PLC variables reset to `0` |
+| S08 | pour | 25 | `S08倒料产品选择`, `任务号` | all written PC->PLC variables reset to `0` |
 | S09 | place | 19 | `S09取放料产品`, `S09取放料编号`, `任务号` | all written PC->PLC variables reset to `0` |
 | S09 | pick | 20 | `S09取放料产品`, `S09取放料编号`, `任务号` | all written PC->PLC variables reset to `0` |
 | S10 | place | 21 | `S10取放料编号`, `任务号` | all written PC->PLC variables reset to `0` |

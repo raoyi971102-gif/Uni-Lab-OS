@@ -141,6 +141,16 @@ class SzlabMixerRobotDevice(
         return (row - 1) * 6 + col
 
     @not_action
+    def _should_skip_robot_precheck_variable(self, variable_name: str) -> bool:
+        raw_variables = os.environ.get("SKIP_ROBOT_PRECHECK_VARIABLES", "")
+        skipped_variables = {
+            item.strip()
+            for item in raw_variables.replace(";", ",").split(",")
+            if item.strip()
+        }
+        return variable_name in skipped_variables
+
+    @not_action
     def _run_robot_handshake_precheck(self, target_station: str) -> dict[str, Any]:
         if os.environ.get("SKIP_ROBOT_HANDSHAKE_CHECK") == "1":
             return {
@@ -154,7 +164,7 @@ class SzlabMixerRobotDevice(
             ROBOT_HOME_VARIABLE: None,
             ROBOT_WRITE_ALLOWED_VARIABLE: None,
         }
-        if os.environ.get("SKIP_ROBOT_HOME_CHECK") == "1":
+        if self._should_skip_robot_precheck_variable(ROBOT_HOME_VARIABLE):
             status[ROBOT_HOME_VARIABLE] = "skipped"
         else:
             home_value = bool(self._read_variable(ROBOT_HOME_VARIABLE, use_cache=False))
@@ -345,47 +355,6 @@ class SzlabMixerRobotDevice(
             **self._last_task,
         }
 
-    @action(auto_prefix=True, description="从磁搅位置取料")
-    def submit_pick_from_magnetic_stirrer(self, position: int = 1) -> dict[str, Any]:
-        try:
-            return self._run_s04_pick(position=position)
-        except Exception as exc:
-            return {"success": False, "message": str(exc), "task": "pick", "station": "S04", "position": position}
-
-    @action(auto_prefix=True, description="向磁搅位置放料")
-    def submit_place_to_magnetic_stirrer(self, position: int = 1, sample_id: str = "") -> dict[str, Any]:
-        try:
-            return self._run_s04_place(position=position, sample_id=sample_id)
-        except Exception as exc:
-            return {
-                "success": False,
-                "message": str(exc),
-                "task": "place",
-                "station": "S04",
-                "position": position,
-                "sample_id": sample_id,
-            }
-
-    @action(auto_prefix=True, description="从拍照工位取料")
-    def submit_pick_from_photo_station(self, sample_id: str = "") -> dict[str, Any]:
-        try:
-            return self._run_s05_pick(sample_id=sample_id)
-        except Exception as exc:
-            return {"success": False, "message": str(exc), "task": "pick", "station": "S05", "sample_id": sample_id}
-
-    @action(auto_prefix=True, description="向拍照工位放料")
-    def submit_place_to_photo_station(self, sample_id: str = "") -> dict[str, Any]:
-        try:
-            return self._run_s05_place(sample_id=sample_id)
-        except Exception as exc:
-            return {
-                "success": False,
-                "message": str(exc),
-                "task": "place",
-                "station": "S05",
-                "sample_id": sample_id,
-            }
-
     @action(auto_prefix=True, description="S01 取料")
     def submit_pick_from_s01(
         self,
@@ -394,16 +363,6 @@ class SzlabMixerRobotDevice(
     ) -> dict[str, Any]:
         try:
             return self._run_s01_pick(product_type, position)
-        except Exception as exc:
-            return {"success": False, "message": str(exc), "task": "pick", "station": "S01", "position": position}
-
-    @action(auto_prefix=True, description="S01 取料位置选择")
-    def submit_pick_from_s01_position(
-        self,
-        position: int = 1,
-    ) -> dict[str, Any]:
-        try:
-            return self._run_s01_pick_position(position)
         except Exception as exc:
             return {"success": False, "message": str(exc), "task": "pick", "station": "S01", "position": position}
 
@@ -437,19 +396,44 @@ class SzlabMixerRobotDevice(
 
     @action(auto_prefix=True, description="S04 放料")
     def submit_place_to_s04(self, position: int = 1, sample_id: str = "") -> dict[str, Any]:
-        return self.submit_place_to_magnetic_stirrer(position=position, sample_id=sample_id)
+        try:
+            return self._run_s04_place(position=position, sample_id=sample_id)
+        except Exception as exc:
+            return {
+                "success": False,
+                "message": str(exc),
+                "task": "place",
+                "station": "S04",
+                "position": position,
+                "sample_id": sample_id,
+            }
 
     @action(auto_prefix=True, description="S04 取料")
     def submit_pick_from_s04(self, position: int = 1) -> dict[str, Any]:
-        return self.submit_pick_from_magnetic_stirrer(position=position)
+        try:
+            return self._run_s04_pick(position=position)
+        except Exception as exc:
+            return {"success": False, "message": str(exc), "task": "pick", "station": "S04", "position": position}
 
     @action(auto_prefix=True, description="S05 放料")
     def submit_place_to_s05(self, sample_id: str = "") -> dict[str, Any]:
-        return self.submit_place_to_photo_station(sample_id=sample_id)
+        try:
+            return self._run_s05_place(sample_id=sample_id)
+        except Exception as exc:
+            return {
+                "success": False,
+                "message": str(exc),
+                "task": "place",
+                "station": "S05",
+                "sample_id": sample_id,
+            }
 
     @action(auto_prefix=True, description="S05 取料")
     def submit_pick_from_s05(self, sample_id: str = "") -> dict[str, Any]:
-        return self.submit_pick_from_photo_station(sample_id=sample_id)
+        try:
+            return self._run_s05_pick(sample_id=sample_id)
+        except Exception as exc:
+            return {"success": False, "message": str(exc), "task": "pick", "station": "S05", "sample_id": sample_id}
 
     @action(auto_prefix=True, description="S06 放料")
     def submit_place_to_s06(self) -> dict[str, Any]:
@@ -514,6 +498,13 @@ class SzlabMixerRobotDevice(
             return self._run_s08_pick(product_type, position)
         except Exception as exc:
             return {"success": False, "message": str(exc), "task": "pick", "station": "S08", "position": position}
+
+    @action(auto_prefix=True, description="S08 倒料")
+    def submit_pour_from_s08(self, product_type: int = 1) -> dict[str, Any]:
+        try:
+            return self._run_s08_pour(product_type)
+        except Exception as exc:
+            return {"success": False, "message": str(exc), "task": "pour", "station": "S08", "product_type": product_type}
 
     @action(auto_prefix=True, description="S09 放料")
     def submit_place_to_s09(self, product_type: int = 1, position: int = 1) -> dict[str, Any]:

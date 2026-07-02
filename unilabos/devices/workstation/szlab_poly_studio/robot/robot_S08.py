@@ -30,6 +30,12 @@ class SzlabRobotS08Mixin:
             raise ValueError("S08 取瓶位置必须在 1-2 范围内")
         return S08_PICK_SENSOR_BY_POSITION[position]
 
+    def _validate_s08_pour_product_type(self, product_type: int) -> int:
+        product_type = int(product_type)
+        if product_type not in (1, 2):
+            raise ValueError("S08倒料产品选择必须是 1(样品瓶250ml) 或 2(样品瓶500ml)")
+        return product_type
+
     def _run_s08_place(self, product_type: int, position: int) -> dict[str, Any]:
         sensor = self._s08_place_sensor_variable(position)
         return self._submit_robot_task(
@@ -56,4 +62,15 @@ class SzlabRobotS08Mixin:
             product_type=int(product_type),
             position=int(position),
             source_sensor_variable=sensor,
+        )
+
+    def _run_s08_pour(self, product_type: int) -> dict[str, Any]:
+        product_type = self._validate_s08_pour_product_type(product_type)
+        return self._submit_robot_task(
+            task="pour",
+            station="S08",
+            task_number=25,
+            variables=build_variables("pour_from_s08", S08倒料产品选择=product_type),
+            reset_variables={"S08倒料产品选择": 0, "任务号": 0},
+            product_type=product_type,
         )

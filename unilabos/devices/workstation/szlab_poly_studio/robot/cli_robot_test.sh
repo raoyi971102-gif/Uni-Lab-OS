@@ -299,7 +299,6 @@ if station == "S01":
                 sensor,
                 product_type,
             )
-            emit("submit_pick_from_s01_position", {"position": position}, "S01", "pick", position, sensor)
 elif station == "S02":
     for position, sensor in S02_TIP_SENSORS.items():
         position_int = int(position)

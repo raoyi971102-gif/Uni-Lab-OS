@@ -32,7 +32,7 @@ POSITION="${POSITION:-1}"
 SAMPLE_ID="${SAMPLE_ID:-step-debug}"
 
 # 单步调试默认跳过 Robot_Home，但不跳过 sensor 检查。
-SKIP_ROBOT_HOME_CHECK="${SKIP_ROBOT_HOME_CHECK:-1}"
+SKIP_ROBOT_PRECHECK_VARIABLES="${SKIP_ROBOT_PRECHECK_VARIABLES:-Robot_Home}"
 SKIP_SENSOR_PRECHECK="${SKIP_SENSOR_PRECHECK:-0}"
 SKIP_ROBOT_HANDSHAKE_CHECK="${SKIP_ROBOT_HANDSHAKE_CHECK:-0}"
 SKIP_RESET_AFTER_RUN="${SKIP_RESET_AFTER_RUN:-0}"
@@ -40,7 +40,7 @@ CLEAR_PC_TO_PLC_BEFORE_RUN="${CLEAR_PC_TO_PLC_BEFORE_RUN:-1}"
 IGNORE_OPCUA_TOKEN_TIME_DRIFT="${IGNORE_OPCUA_TOKEN_TIME_DRIFT:-1}"
 DRY_RUN="${DRY_RUN:-0}"
 CONFIRM="${CONFIRM:-}"
-export SKIP_ROBOT_HOME_CHECK SKIP_SENSOR_PRECHECK SKIP_ROBOT_HANDSHAKE_CHECK SKIP_RESET_AFTER_RUN
+export SKIP_ROBOT_PRECHECK_VARIABLES SKIP_SENSOR_PRECHECK SKIP_ROBOT_HANDSHAKE_CHECK SKIP_RESET_AFTER_RUN
 
 usage() {
   cat <<'EOF'
@@ -50,11 +50,12 @@ usage() {
 
 环境变量:
   STATION=S03                 工位，默认 S03
-  TASK=pick|place|pick_position 动作，默认 pick；S01 可用 pick_position 测取放料编号
+  TASK=pick|place             动作，默认 pick
   POSITION=1                  位置，默认 1；S03/S071/S11 中表示第一个 1-1
   PRODUCT_TYPE=1              产品类型，默认 1
   DRY_RUN=1                   只打印 workflow，不连接 PLC
-  SKIP_ROBOT_HOME_CHECK=1     只跳过 Robot_Home，默认开启
+  SKIP_ROBOT_PRECHECK_VARIABLES=Robot_Home
+                               跳过指定 Robot 前置变量检查，默认只跳过 Robot_Home
   SKIP_SENSOR_PRECHECK=1      跳过 sensor 检查，默认关闭
   SKIP_RESET_AFTER_RUN=1      完成后保留任务号/Sxx参数；默认完成后全部清零
   WRITE_DONE_HOLD_SECONDS=2   Robot_任务写入完成=True 的保持秒数，默认 2
@@ -63,7 +64,6 @@ usage() {
 示例:
   DRY_RUN=1 ./robot_arm_step_test.sh
   CONFIRM=YES ./robot_arm_step_test.sh S03 pick 1
-  CONFIRM=YES ./robot_arm_step_test.sh S01 pick_position 1
   CONFIRM=YES STATION=S04 TASK=place POSITION=1 ./robot_arm_step_test.sh
 EOF
 }
@@ -165,10 +165,8 @@ SENSORS = {
 def params_for(station_name: str) -> tuple[str, dict]:
     prefix = "submit_pick_from" if task == "pick" else "submit_place_to"
     if station_name == "S01":
-        if task == "pick_position":
-            return "submit_pick_from_s01_position", {"position": int(position)}
         if task != "pick":
-            raise ValueError("S01 只支持 pick 或 pick_position")
+            raise ValueError("S01 只支持 pick")
         return "submit_pick_from_s01", {"product_type": product_type, "position": int(position)}
     if station_name == "S03":
         return f"{prefix}_s03", {"product_type": product_type, "position": position}
@@ -305,7 +303,7 @@ STATION: $STATION
 TASK: $TASK
 POSITION: $POSITION
 PRODUCT_TYPE: $PRODUCT_TYPE
-SKIP_ROBOT_HOME_CHECK: $SKIP_ROBOT_HOME_CHECK
+SKIP_ROBOT_PRECHECK_VARIABLES: $SKIP_ROBOT_PRECHECK_VARIABLES
 SKIP_SENSOR_PRECHECK: $SKIP_SENSOR_PRECHECK
 
 请确认现场安全、路径无障碍、目标工位 sensor 状态与 $TASK 条件匹配。
@@ -339,7 +337,7 @@ run_step() {
   echo "单步动作: $STATION $TASK position=$POSITION mapped_position=$mapped_position sensor=$sensor"
   echo "action: $action"
   echo "params: $params_json"
-  echo "跳过 Robot_Home: $SKIP_ROBOT_HOME_CHECK"
+  echo "跳过 Robot前置变量: $SKIP_ROBOT_PRECHECK_VARIABLES"
   echo "Robot_任务写入完成保持秒数: $WRITE_DONE_HOLD_SECONDS"
   echo "任务参数读回等待秒数: $WRITE_READBACK_TIMEOUT"
   echo "完成后清除任务参数: $([[ "$SKIP_RESET_AFTER_RUN" == "1" ]] && echo no || echo yes)"

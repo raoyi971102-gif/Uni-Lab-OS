@@ -14,7 +14,7 @@ from unilabos.devices.workstation.szlab_poly_studio.plc import (
 )
 from unilabos.devices.workstation.szlab_poly_studio.robot.robot_S04 import S04_SENSOR_BY_POSITION
 
-GateKind = Literal["pick", "place"]
+GateKind = Literal["pick", "place", "pour"]
 
 ROBOT_HOME_VARIABLE = "Robot_Home"
 ROBOT_WRITE_ALLOWED_VARIABLE = "Robot_任务允许写入"
@@ -48,14 +48,6 @@ ROBOT_ACTION_SPECS: dict[str, RobotActionSpec] = {
         1,
         "S01 取料产品选择",
         ("S01出入料产品", "S01取放料编号"),
-    ),
-    "pick_from_s01_position": RobotActionSpec(
-        "pick_from_s01_position",
-        "S01",
-        "pick",
-        2,
-        "S01 取料位置选择",
-        ("S01取放料编号",),
     ),
     "place_to_s02": RobotActionSpec("place_to_s02", "S02", "place", 3, "S02 放 TIP", ("S02取放料编号",)),
     "pick_from_s02": RobotActionSpec("pick_from_s02", "S02", "pick", 4, "S02 取 TIP", ("S02取放料编号",)),
@@ -101,6 +93,7 @@ ROBOT_ACTION_SPECS: dict[str, RobotActionSpec] = {
         "S08 取瓶",
         ("S08取放料产品", "S08取放料编号"),
     ),
+    "pour_from_s08": RobotActionSpec("pour_from_s08", "S08", "pour", 25, "S08 倒料", ("S08倒料产品选择",)),
     "place_to_s09": RobotActionSpec(
         "place_to_s09",
         "S09",
