@@ -13,8 +13,9 @@
   "default_config": {
     "graph": "__generated__",
     "url": "opc.tcp://192.168.1.10:4840",
-    "csv": "../../../unilabos/devices/workstation/szlab_poly_studio/robot/上位机通讯_new(3).csv",
+    "csv": "/Users/dp/Ming/softwares/unilab/Uni-Lab-OS/unilabos/devices/workstation/szlab_poly_studio/szlab_plc_0701.csv",
     "timeout": 300,
+    "write_allowed_timeout": 60,
     "no_subscription": true,
     "show_csv": false
   },
@@ -82,7 +83,8 @@
         "position": {"x": 420, "y": 0, "z": 0},
         "config": {
           "plc_device_id": "szlab_poly_plc",
-          "timeout": "${timeout}"
+          "timeout": "${timeout}",
+          "write_allowed_timeout": "${write_allowed_timeout}"
         },
         "data": {}
       }

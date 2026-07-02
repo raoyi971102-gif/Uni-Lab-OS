@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import re
 import sys
@@ -31,6 +32,7 @@ from scripts.run_workflow_local import (
     collect_snapshot_variables,
     create_local_devices,
     format_snapshot_detail,
+    ignore_opcua_token_time_drift,
     load_workflow_nodes,
     load_runtime_config,
     method_name_from_template,
@@ -501,6 +503,11 @@ class WorkflowRunManager:
             csv_value = str(payload.get("csv") or default_config.get("csv") or "").strip()
             csv_path = _resolve_ui_path(csv_value, self._preset) if csv_value else None
             timeout = float(payload.get("timeout") or default_config.get("timeout") or 300.0)
+            write_allowed_timeout = float(
+                payload.get("write_allowed_timeout")
+                or default_config.get("write_allowed_timeout")
+                or 5.0
+            )
             no_subscription = bool(payload.get("no_subscription", default_config.get("no_subscription", True)))
             graph_value = str(payload.get("graph") or default_config.get("graph") or GENERATED_GRAPH_SENTINEL).strip()
             opcua_url = str(payload.get("url") or default_config.get("url") or "").strip()
@@ -511,6 +518,8 @@ class WorkflowRunManager:
                 generated_graph = build_local_device_graph(
                     opcua_url=opcua_url,
                     csv_path=str(csv_path or csv_value or default_config.get("csv") or ""),
+                    timeout=timeout,
+                    write_allowed_timeout=write_allowed_timeout,
                     use_subscription=not no_subscription,
                     preset=self._preset,
                 )
@@ -714,6 +723,8 @@ def build_graph_workflow(
 def build_local_device_graph(
     opcua_url: str,
     csv_path: str = "",
+    timeout: float | int | None = None,
+    write_allowed_timeout: float | int | None = None,
     use_subscription: bool = True,
     preset: WorkflowPreset = DEFAULT_PRESET,
 ) -> dict[str, Any]:
@@ -726,6 +737,12 @@ def build_local_device_graph(
         {
             "opcua_url": opcua_url,
             "csv_path": csv_path,
+            "timeout": timeout if timeout is not None else preset.default_config.get("timeout", 300),
+            "write_allowed_timeout": (
+                write_allowed_timeout
+                if write_allowed_timeout is not None
+                else preset.default_config.get("write_allowed_timeout", 5.0)
+            ),
             "use_subscription": use_subscription,
         },
     )
@@ -739,8 +756,33 @@ def build_local_device_graph(
             config = node.get("config")
             if isinstance(config, dict) and config.get("url") == opcua_url:
                 config["csv_path"] = csv_path
+                node_id_map = _load_opcua_node_id_map_from_csv(csv_path)
+                if node_id_map:
+                    config["opcua_node_id_map"] = node_id_map
                 break
     return graph
+
+
+def _load_opcua_node_id_map_from_csv(csv_path: str) -> dict[str, str]:
+    node_id_map: dict[str, str] = {}
+    for encoding in ("utf-8-sig", "utf-16", "utf-16-le", "gb18030", "gbk"):
+        for delimiter in (",", "\t"):
+            try:
+                with open(csv_path, newline="", encoding=encoding) as csv_file:
+                    reader = csv.DictReader(csv_file, delimiter=delimiter)
+                    if "变量名" not in (reader.fieldnames or []):
+                        continue
+                    for row in reader:
+                        name = (row.get("变量名") or "").strip()
+                        if name:
+                            node_id_map[name] = f"ns=4;s=上位机通讯|{name}"
+                return node_id_map
+            except UnicodeDecodeError:
+                node_id_map.clear()
+                break
+            except FileNotFoundError:
+                return {}
+    return node_id_map
 
 
 def _load_preset_runtime_config(preset: WorkflowPreset) -> RuntimeConfig:
@@ -1103,6 +1145,7 @@ def main() -> None:
     args = parser.parse_args()
 
     runtime_config = load_runtime_config(args.runtime_config) if args.runtime_config else None
+    ignore_opcua_token_time_drift()
     start_ui(
         host=args.host,
         port=args.port,

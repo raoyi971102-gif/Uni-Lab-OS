@@ -1,11 +1,13 @@
 import csv
 import json
+import sys
 import time
 from importlib.util import find_spec
 from pathlib import Path
 
 import pytest
 
+import scripts.workflow_ui as workflow_ui
 from scripts.run_workflow_local import (
     WorkflowLogger,
     WorkflowNode,
@@ -234,12 +236,12 @@ def test_magnetic_stirring_preset_uses_s04_stirrer_config():
     assert _action_to_dict(preset.actions["run_stirring"], runtime_config)["opc_variables"] == []
 
 
-def test_szlab_mixer_ui_preset_uses_0623_csv_and_s04_s05_actions():
+def test_szlab_mixer_ui_preset_uses_robot_csv_and_s04_s05_actions():
     preset = load_preset("szlab_mixer")
     runtime_config = _load_preset_runtime_config(preset)
     graph_nodes = {node["id"]: node for node in preset.device_graph["nodes"]}
 
-    assert graph_nodes["szlab_poly_plc"]["config"]["csv_path"].endswith("szlab_plc_0623.csv")
+    assert graph_nodes["szlab_poly_plc"]["config"]["csv_path"].endswith("robot/上位机通讯_new(3).csv")
     assert runtime_config.device_factory.plc_device_id == "szlab_poly_plc"
     assert preset.actions["run_stirring"].device_id == "szlab_mixer_stirrer"
     assert preset.actions["take_photo"].device_id == "szlab_mixer_photoshotting"
@@ -289,6 +291,50 @@ def test_szlab_mixer_ui_preset_uses_0623_csv_and_s04_s05_actions():
         {"source_node_uuid": "stir", "target_node_uuid": "place_photo"},
         {"source_node_uuid": "place_photo", "target_node_uuid": "photo"},
     ]
+
+
+def test_szlab_mixer_local_graph_builds_direct_node_id_map_from_robot_csv():
+    preset = load_preset("szlab_mixer")
+    csv_path = _resolve_ui_path(preset.default_config["csv"], preset)
+
+    graph = build_local_device_graph(
+        opcua_url="opc.tcp://192.168.1.10:4840",
+        csv_path=str(csv_path),
+        timeout=preset.default_config["timeout"],
+        write_allowed_timeout=preset.default_config["write_allowed_timeout"],
+        use_subscription=False,
+        preset=preset,
+    )
+
+    configs = {node["id"]: node["config"] for node in graph["nodes"]}
+    plc_config = configs["szlab_poly_plc"]
+    robot_config = configs["szlab_mixer_robot"]
+    node_id_map = plc_config["opcua_node_id_map"]
+
+    assert node_id_map["传感器状态_上位机[0].NO[0]"] == "ns=4;s=上位机通讯|传感器状态_上位机[0].NO[0]"
+    assert node_id_map["S02取放料编号"] == "ns=4;s=上位机通讯|S02取放料编号"
+    assert node_id_map["任务号"] == "ns=4;s=上位机通讯|任务号"
+    assert robot_config["timeout"] == 300
+    assert robot_config["write_allowed_timeout"] == 60
+
+
+def test_szlab_mixer_local_graph_allows_write_allowed_timeout_override():
+    preset = load_preset("szlab_mixer")
+    csv_path = _resolve_ui_path(preset.default_config["csv"], preset)
+
+    graph = build_local_device_graph(
+        opcua_url="opc.tcp://192.168.1.10:4840",
+        csv_path=str(csv_path),
+        timeout=120,
+        write_allowed_timeout=15,
+        use_subscription=False,
+        preset=preset,
+    )
+
+    robot_config = next(node["config"] for node in graph["nodes"] if node["id"] == "szlab_mixer_robot")
+
+    assert robot_config["timeout"] == 120
+    assert robot_config["write_allowed_timeout"] == 15
 
 
 def test_ai4c_runtime_device_classes_are_importable():
@@ -603,6 +649,39 @@ def test_workflow_ui_parser_defaults_to_container_service():
     assert args.preset == "ai4c"
     assert args.runtime_config is None
     assert args.open_browser is False
+
+
+def test_workflow_ui_main_installs_opcua_token_time_drift_patch(monkeypatch):
+    calls = []
+
+    def fake_ignore_opcua_token_time_drift():
+        calls.append("ignore_token_time_drift")
+
+    def fake_start_ui(**kwargs):
+        calls.append(("start_ui", kwargs))
+
+    monkeypatch.setattr(
+        workflow_ui,
+        "ignore_opcua_token_time_drift",
+        fake_ignore_opcua_token_time_drift,
+        raising=False,
+    )
+    monkeypatch.setattr(workflow_ui, "start_ui", fake_start_ui)
+    monkeypatch.setattr(sys, "argv", ["workflow_ui.py", "--preset", "szlab_mixer", "--no-browser"])
+
+    workflow_ui.main()
+
+    assert calls[0] == "ignore_token_time_drift"
+    assert calls[1] == (
+        "start_ui",
+        {
+            "host": "127.0.0.1",
+            "port": 8014,
+            "open_browser": False,
+            "preset_name": "szlab_mixer",
+            "runtime_config": None,
+        },
+    )
 
 
 def test_workflow_run_manager_reuses_devices_between_runs(monkeypatch):

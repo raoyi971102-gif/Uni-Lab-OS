@@ -51,6 +51,7 @@ type PresetPayload = {
     url?: string;
     csv?: string;
     timeout?: number;
+    write_allowed_timeout?: number;
     no_subscription?: boolean;
     show_csv?: boolean;
   };
@@ -96,6 +97,7 @@ const DEFAULT_CONFIG = {
   url: 'opc.tcp://jdht1471820.bohrium.tech:50001',
   csv: '',
   timeout: 300,
+  write_allowed_timeout: 5,
   no_subscription: true,
   show_csv: false,
 };
@@ -138,6 +140,7 @@ function App() {
     url: DEFAULT_CONFIG.url,
     csv: DEFAULT_CONFIG.csv,
     timeout: DEFAULT_CONFIG.timeout,
+    write_allowed_timeout: DEFAULT_CONFIG.write_allowed_timeout,
     no_subscription: DEFAULT_CONFIG.no_subscription,
     show_csv: DEFAULT_CONFIG.show_csv,
   });
@@ -170,6 +173,7 @@ function App() {
           url: payload.default_config?.url ?? DEFAULT_CONFIG.url,
           csv: payload.default_config?.csv ?? DEFAULT_CONFIG.csv,
           timeout: payload.default_config?.timeout ?? DEFAULT_CONFIG.timeout,
+          write_allowed_timeout: payload.default_config?.write_allowed_timeout ?? DEFAULT_CONFIG.write_allowed_timeout,
           no_subscription: payload.default_config?.no_subscription ?? DEFAULT_CONFIG.no_subscription,
           show_csv: payload.default_config?.show_csv ?? DEFAULT_CONFIG.show_csv,
         }));
@@ -560,6 +564,10 @@ function App() {
             <label>
               超时秒数
               <input type="number" min={1} value={config.timeout} onChange={(event) => setConfig({ ...config, timeout: Number(event.target.value) })} />
+            </label>
+            <label>
+              Robot允许写入等待秒数
+              <input type="number" min={1} value={config.write_allowed_timeout} onChange={(event) => setConfig({ ...config, write_allowed_timeout: Number(event.target.value) })} />
             </label>
             <label className="check">
               <input
