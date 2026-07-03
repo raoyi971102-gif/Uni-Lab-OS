@@ -22,7 +22,13 @@ import 'reactflow/dist/style.css';
 import './styles.css';
 import { collectOpcChanges, formatOpcValue, type LogEvent, type OpcChange } from './opcChanges';
 import { buildWorkspaceSummary, groupActionsByDevice } from './uiState';
-import { createImportedDraft, createWorkflowRequest, layoutFlowGraph, workflowDraftKey } from './workflowDraft';
+import {
+  createExecutionPlan,
+  createImportedDraft,
+  createWorkflowRequest,
+  layoutFlowGraph,
+  workflowDraftKey,
+} from './workflowDraft';
 import { createPseudoFlowJson } from './workflowExport';
 import { WorkstationDemo } from './WorkstationDemo';
 
@@ -132,8 +138,14 @@ type ActionNodeData = {
   params: Record<string, unknown>;
   paramSpecs?: ParamSpec[];
   opcVariables?: string[];
+  executionDisabled?: boolean;
+  executionState?: 'willRun' | 'beforeStart' | 'disabled' | 'blockedByDisabled' | 'disconnected';
+  isExecutionStart?: boolean;
   runStatus?: NodeRunStatus;
   onPositionChange?: (nodeId: string, value: number) => void;
+  onSetStart?: (nodeId: string) => void;
+  onToggleDisabled?: (nodeId: string) => void;
+  onEditParams?: (nodeId: string) => void;
 };
 
 const DEFAULT_CONFIG = {
@@ -261,6 +273,7 @@ function App() {
   const [canvasToast, setCanvasToast] = useState('');
   const [draftReady, setDraftReady] = useState(false);
   const [draftStorageKey, setDraftStorageKey] = useState('');
+  const [startNodeId, setStartNodeId] = useState<string | null>(null);
   const [runStatus, setRunStatus] = useState<RunStatus | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
@@ -294,6 +307,7 @@ function App() {
   const logEvents = useMemo(() => normalizeLogEvents(runStatus), [runStatus]);
   const opcChanges = useMemo(() => collectOpcChanges(logEvents), [logEvents]);
   const draftKey = useMemo(() => workflowDraftKey(workflowName, nodes, edges), [workflowName, nodes, edges]);
+  const executionPlan = useMemo(() => createExecutionPlan(nodes, edges, startNodeId), [edges, nodes, startNodeId]);
   const actionGroups = useMemo(() => groupActionsByDevice(actions), [actions]);
   const configuredOpcVariables = useMemo(() => {
     const nodeVariables = nodes.flatMap((node) => node.data.opcVariables || []);
@@ -361,8 +375,10 @@ function App() {
           setWorkflowName(savedDraft.name);
           setNodes(savedDraft.nodes);
           setEdges(savedDraft.edges.map((edge) => ({ ...edge, animated: true })));
+          setStartNodeId(loadSavedStartNodeId(storageKey, savedDraft.nodes));
         } else {
           setWorkflowName(payload.default_workflow_name || 'szlab_canvas_workflow');
+          setStartNodeId(null);
         }
         setConfig((current) => ({
           ...current,
@@ -410,10 +426,15 @@ function App() {
     if (!draftReady || !draftStorageKey) return;
     try {
       window.localStorage.setItem(draftStorageKey, JSON.stringify(createWorkflowRequest(workflowName, nodes, edges)));
+      if (startNodeId && nodes.some((node) => node.id === startNodeId)) {
+        window.localStorage.setItem(`${draftStorageKey}.startNodeId`, startNodeId);
+      } else {
+        window.localStorage.removeItem(`${draftStorageKey}.startNodeId`);
+      }
     } catch (error) {
       setMessage(`本地草稿保存失败: ${error instanceof Error ? error.message : String(error)}`);
     }
-  }, [draftKey, draftReady, draftStorageKey]);
+  }, [draftKey, draftReady, draftStorageKey, nodes, startNodeId]);
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => setNodes((current) => applyNodeChanges(changes, current)),
@@ -463,6 +484,7 @@ function App() {
           paramSpecs: action.params || [],
           opcVariables: action.opc_variables || [],
           runStatus: 'idle',
+          executionDisabled: false,
         },
       },
     ]);
@@ -478,8 +500,27 @@ function App() {
     );
   };
 
+  const setExecutionStart = (nodeId: string) => {
+    setStartNodeId((current) => (current === nodeId ? null : nodeId));
+    showCanvasToast(startNodeId === nodeId ? '已恢复从头开始运行' : '已设置起始节点');
+  };
+
+  const toggleNodeDisabled = (nodeId: string) => {
+    setNodes((current) =>
+      current.map((node) =>
+        node.id === nodeId
+          ? { ...node, data: { ...node.data, executionDisabled: !node.data.executionDisabled } }
+          : node,
+      ),
+    );
+    showCanvasToast('已更新节点执行范围');
+  };
+
   const buildWorkflow = useCallback(async () => {
-    const request = createWorkflowRequest(workflowName, nodes, edges);
+    if (!executionPlan.executableNodes.length) {
+      throw new Error('当前没有可执行节点，请调整起始节点或禁用状态');
+    }
+    const request = createWorkflowRequest(workflowName, executionPlan.executableNodes, executionPlan.executableEdges);
     const response = await fetch('/api/workflow/build-graph', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -492,7 +533,7 @@ function App() {
     setWorkflow(payload);
     setMessage('');
     return payload as WorkflowJson;
-  }, [edges, nodes, workflowName]);
+  }, [executionPlan.executableEdges, executionPlan.executableNodes, workflowName]);
 
   const exportPseudoFlow = () => {
     try {
@@ -535,6 +576,7 @@ function App() {
       setWorkflowName(imported.name);
       setNodes(imported.nodes);
       setEdges(imported.edges.map((edge) => ({ ...edge, animated: true })));
+      setStartNodeId(null);
       setWorkflow(null);
       setRunStatus(null);
       setActiveRunId(null);
@@ -559,7 +601,7 @@ function App() {
       });
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [draftKey, nodes.length]);
+  }, [draftKey, nodes.length, startNodeId]);
 
   const runWorkflow = async () => {
     try {
@@ -780,7 +822,7 @@ function App() {
               <button onClick={() => importFileRef.current?.click()}>导入 Flow JSON</button>
               <button onClick={() => buildWorkflow().catch((error) => setMessage(error.message))}>校验流程</button>
               <button onClick={exportPseudoFlow} disabled={!nodes.length}>导出 Flow JSON</button>
-              <button className="primary" onClick={runWorkflow} disabled={isRunning || !workflow}>运行</button>
+              <button className="primary" onClick={runWorkflow} disabled={isRunning || !workflow || !executionPlan.executableCount}>运行</button>
             </div>
           </div>
 
@@ -796,10 +838,18 @@ function App() {
                   ...node,
                   data: {
                     ...node.data,
+                    executionState: executionPlan.nodeStates[node.id]?.reason || 'willRun',
+                    isExecutionStart: executionPlan.startNodeId === node.id,
                     onPositionChange: (nodeId: string, value: number) => updateNodeParam(nodeId, 'position', value),
+                    onSetStart: setExecutionStart,
+                    onToggleDisabled: toggleNodeDisabled,
+                    onEditParams: setEditingNodeId,
                   },
                 }))}
-                edges={edges}
+                edges={edges.map((edge) => ({
+                  ...edge,
+                  className: executionPlan.executableEdges.some((item) => item.id === edge.id) ? undefined : 'execution-skipped-edge',
+                }))}
                 nodeTypes={nodeTypes}
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
@@ -849,8 +899,11 @@ function App() {
               <div className="demo-run-buttons">
                 <button onClick={() => setShowConfigModal(true)}>运行配置</button>
                 <button onClick={() => buildWorkflow().catch((error) => setMessage(error.message))}>校验流程</button>
-                <button className="primary" onClick={runWorkflow} disabled={isRunning || !workflow}>运行</button>
+                <button className="primary" onClick={runWorkflow} disabled={isRunning || !workflow || !executionPlan.executableCount}>运行</button>
                 <button className="danger" onClick={cancelWorkflow} disabled={!activeRunId}>终止</button>
+              </div>
+              <div className="demo-execution-summary">
+                本次将执行 <strong>{executionPlan.executableCount}</strong> / {executionPlan.totalCount} 个节点
               </div>
               {message && <div className="message">{message}</div>}
               <div className="demo-control-summary">
@@ -1089,6 +1142,11 @@ function loadSavedDraft(storageKey: string, actions: ActionSpec[]) {
   }
 }
 
+function loadSavedStartNodeId(storageKey: string, nodes: Node<ActionNodeData>[]) {
+  const nodeId = window.localStorage.getItem(`${storageKey}.startNodeId`);
+  return nodeId && nodes.some((node) => node.id === nodeId) ? nodeId : null;
+}
+
 function statusText(status?: string) {
   if (status === 'pending') return '等待中';
   if (status === 'preparing') return '准备中';
@@ -1102,19 +1160,71 @@ function statusText(status?: string) {
 
 function ActionNode({ id, data, selected }: NodeProps<ActionNodeData>) {
   const runStatus = data.runStatus || 'idle';
+  const executionState = data.executionState || 'willRun';
+  const executionBadge = data.isExecutionStart ? '起点' : executionStateText(executionState);
 
   return (
-    <div className={`flow-node ${selected ? 'selected' : ''} ${runStatus}`}>
+    <div className={`flow-node ${selected ? 'selected' : ''} ${runStatus} execution-${executionState} ${data.isExecutionStart ? 'execution-start' : ''}`}>
       <Handle type="target" position={Position.Left} />
+      <div className="node-hover-actions">
+        <button
+          aria-label="从这里开始运行"
+          title="从这里开始运行"
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            data.onSetStart?.(id);
+          }}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 4v16M7 5h10l-2 4 2 4H7" />
+          </svg>
+        </button>
+        <button
+          aria-label="禁用此节点及后续"
+          className="danger"
+          title="禁用此节点及后续"
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            data.onToggleDisabled?.(id);
+          }}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M6 6l12 12M18 6 6 18" />
+          </svg>
+        </button>
+        <button
+          aria-label="编辑参数"
+          title="编辑参数"
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            data.onEditParams?.(id);
+          }}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z" />
+          </svg>
+        </button>
+      </div>
       <div className="flow-node-topline">
         <span className="flow-node-kicker">AI4C Action</span>
         <span className={`node-status ${runStatus}`}>{nodeStatusText(runStatus)}</span>
       </div>
       <div className="flow-node-title">{data.label}</div>
+      {executionBadge && <span className={`execution-badge ${executionState}`}>{executionBadge}</span>}
       <code>{id}</code>
       <Handle type="source" position={Position.Right} />
     </div>
   );
+}
+
+function executionStateText(state: ActionNodeData['executionState']) {
+  if (state === 'beforeStart') return '起点之前';
+  if (state === 'disabled') return '已禁用';
+  if (state === 'blockedByDisabled') return '被上游禁用';
+  return '';
 }
 
 function nodeStatusText(status: NodeRunStatus) {

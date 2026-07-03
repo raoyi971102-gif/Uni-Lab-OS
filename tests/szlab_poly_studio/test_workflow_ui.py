@@ -7,11 +7,13 @@ from pathlib import Path
 
 import pytest
 
+import scripts.run_workflow_local as run_workflow_local
 from scripts.run_workflow_local import (
     WorkflowLogger,
     WorkflowNode,
     _load_class,
     collect_snapshot_variables,
+    create_local_devices,
     load_runtime_config,
     run_nodes,
 )
@@ -220,20 +222,54 @@ def test_magnetic_stirring_preset_uses_s04_stirrer_config():
     stirrer_node = next(node for node in graph["nodes"] if node["id"] == "szlab_mixer_stirrer")
     assert stirrer_node["config"]["url"] == "opc.tcp://127.0.0.1:48405/"
     assert stirrer_node["config"]["csv_path"].endswith("magnetic_stirring/magnetic_stirring_nodes.csv")
-    assert stirrer_node["config"]["opcua_node_id_map"]["S041允许加工"] == "ns=4;s=上位机通讯|S041允许加工"
+    assert stirrer_node["config"]["opcua_node_id_map"]["S041允许加工"] == "ns=2;i=205"
+    assert stirrer_node["config"]["opcua_node_id_map"]["S041磁搅工艺选择"] == "ns=2;i=206"
+    assert stirrer_node["config"]["opcua_node_id_map"]["S041参数写入完成"] == "ns=2;i=207"
+    assert stirrer_node["config"]["opcua_node_id_map"]["S041加工完成"] == "ns=2;i=208"
     assert (
         stirrer_node["config"]["opcua_node_id_map"]["磁搅速度设置_上位机[0]"]
-        == "ns=4;s=上位机通讯|磁搅速度设置_上位机[0]"
+        == "ns=2;i=247"
     )
     assert (
         stirrer_node["config"]["opcua_node_id_map"]["磁搅温度反馈_上位机[0]"]
-        == "ns=4;s=上位机通讯|磁搅温度反馈_上位机[0]"
+        == "ns=2;i=240"
     )
     assert (
         stirrer_node["config"]["opcua_node_id_map"]["磁搅温度设置_上位机[0]"]
-        == "ns=4;s=上位机通讯|磁搅温度设置_上位机[0]"
+        == "ns=2;i=254"
     )
+    assert stirrer_node["config"]["opcua_node_id_map"]["磁搅时间设置_上位机[5]"] == "ns=2;i=266"
+    assert stirrer_node["config"]["opcua_node_id_map"]["磁搅安全温度设置_上位机[5]"] == "ns=2;i=273"
+    assert stirrer_node["config"]["opcua_node_id_map"]["S045允许加工"] == "ns=2;i=229"
+    assert stirrer_node["config"]["opcua_node_id_map"]["S045磁搅工艺选择"] == "ns=2;i=230"
+    assert stirrer_node["config"]["opcua_node_id_map"]["S046加工完成"] == "ns=2;i=238"
+    assert stirrer_node["config"]["opcua_node_id_map"]["S04取放料编号"] == "ns=2;i=515"
     assert _action_to_dict(preset.actions["run_stirring"], runtime_config)["opc_variables"] == []
+
+
+def test_single_device_runtime_does_not_force_missing_plc_gateway(monkeypatch, tmp_path):
+    class FakeStirrerDevice:
+        def __init__(self, **config):
+            self.config = config
+            self.plc_device_id = config.get("plc_device_id", "szlab_poly_plc")
+
+    monkeypatch.setattr(
+        run_workflow_local,
+        "load_ai4c_graph_config",
+        lambda _graph_file: {
+            "szlab_mixer_stirrer": {
+                "url": "opc.tcp://127.0.0.1:48405/",
+                "csv_path": "magnetic_stirring_nodes.csv",
+            }
+        },
+    )
+    monkeypatch.setattr(run_workflow_local, "_load_class", lambda _class_path: FakeStirrerDevice)
+    runtime_config = load_runtime_config("tests/szlab_poly_studio/runtime_configs/magnetic_stirring_runtime.json")
+
+    devices = create_local_devices(tmp_path / "graph.json", runtime_config=runtime_config)
+
+    assert "szlab_mixer_stirrer" in devices
+    assert devices["szlab_mixer_stirrer"].config.get("use_plc_gateway") is not True
 
 
 def test_szlab_mixer_ui_preset_uses_0623_csv_and_s04_s05_actions():
