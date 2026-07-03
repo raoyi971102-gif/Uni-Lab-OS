@@ -63,6 +63,16 @@ textarea {
   padding: 9px 10px;
 }
 
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
 label {
   display: grid;
   gap: 6px;
@@ -204,6 +214,36 @@ code {
   min-height: 0;
 }
 
+.canvas-toast {
+  pointer-events: none;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 10;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(37, 99, 235, 0.22);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 16px 44px rgba(15, 23, 42, 0.16);
+  color: #1d4ed8;
+  font-size: 14px;
+  font-weight: 800;
+  padding: 10px 18px;
+  backdrop-filter: blur(8px);
+  animation: canvas-toast-in 140ms ease-out;
+}
+
+@keyframes canvas-toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -44%) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
 .canvas-toolbar {
   position: absolute;
   top: 12px;
@@ -223,6 +263,16 @@ code {
   font-size: 12px;
   padding: 7px 11px;
   backdrop-filter: blur(6px);
+}
+
+.auto-layout-icon {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
 }
 
 .canvas-summary {

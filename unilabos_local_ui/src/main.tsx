@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactDOM from 'react-dom/client';
 import ReactFlow, {
   Background,
+  ControlButton,
   Controls,
   Handle,
   MiniMap,
@@ -20,7 +21,7 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import './styles.css';
 import { collectOpcChanges, formatOpcValue, type LogEvent, type OpcChange } from './opcChanges';
-import { createWorkflowRequest, workflowDraftKey } from './workflowDraft';
+import { createImportedDraft, createWorkflowRequest, layoutFlowGraph, workflowDraftKey } from './workflowDraft';
 
 type ActionSpec = {
   method: string;
@@ -99,6 +100,7 @@ const DEFAULT_CONFIG = {
   no_subscription: true,
   show_csv: false,
 };
+const DRAFT_STORAGE_PREFIX = 'unilabos.workflowDraft';
 
 function buildDefaultParams(params: ParamSpec[]) {
   return params.reduce<Record<string, unknown>>((defaults, param) => {
@@ -125,6 +127,9 @@ function App() {
   const [workflowName, setWorkflowName] = useState('szlab_canvas_workflow');
   const [workflow, setWorkflow] = useState<WorkflowJson | null>(null);
   const [message, setMessage] = useState('');
+  const [canvasToast, setCanvasToast] = useState('');
+  const [draftReady, setDraftReady] = useState(false);
+  const [draftStorageKey, setDraftStorageKey] = useState('');
   const [runStatus, setRunStatus] = useState<RunStatus | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
@@ -132,7 +137,9 @@ function App() {
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
   const [selectedLogNodeId, setSelectedLogNodeId] = useState<string | null>(null);
   const [opcPanelHeight, setOpcPanelHeight] = useState(150);
+  const importFileRef = useRef<HTMLInputElement | null>(null);
   const opcResizeRef = useRef({ startY: 0, startHeight: 150 });
+  const canvasToastTimerRef = useRef<number | null>(null);
   const [config, setConfig] = useState({
     graph: DEFAULT_CONFIG.graph,
     url: DEFAULT_CONFIG.url,
@@ -158,12 +165,30 @@ function App() {
   }, [nodes, selectedLogNodeId]);
 
   useEffect(() => {
+    return () => {
+      if (canvasToastTimerRef.current !== null) {
+        window.clearTimeout(canvasToastTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     fetch('/api/preset')
       .then((response) => response.json())
       .then((payload: PresetPayload) => {
+        const payloadActions = payload.actions || [];
+        const storageKey = `${DRAFT_STORAGE_PREFIX}.${payload.id || 'default'}`;
         setTitle(payload.title || 'szlab 本地调试工具');
-        setActions(payload.actions || []);
-        setWorkflowName(payload.default_workflow_name || 'szlab_canvas_workflow');
+        setActions(payloadActions);
+        setDraftStorageKey(storageKey);
+        const savedDraft = loadSavedDraft(storageKey, payloadActions);
+        if (savedDraft) {
+          setWorkflowName(savedDraft.name);
+          setNodes(savedDraft.nodes);
+          setEdges(savedDraft.edges.map((edge) => ({ ...edge, animated: true })));
+        } else {
+          setWorkflowName(payload.default_workflow_name || 'szlab_canvas_workflow');
+        }
         setConfig((current) => ({
           ...current,
           graph: payload.default_config?.graph ?? DEFAULT_CONFIG.graph,
@@ -173,9 +198,19 @@ function App() {
           no_subscription: payload.default_config?.no_subscription ?? DEFAULT_CONFIG.no_subscription,
           show_csv: payload.default_config?.show_csv ?? DEFAULT_CONFIG.show_csv,
         }));
+        setDraftReady(true);
       })
       .catch((error) => setMessage(`preset 加载失败: ${error.message}`));
   }, []);
+
+  useEffect(() => {
+    if (!draftReady || !draftStorageKey) return;
+    try {
+      window.localStorage.setItem(draftStorageKey, JSON.stringify(createWorkflowRequest(workflowName, nodes, edges)));
+    } catch (error) {
+      setMessage(`本地草稿保存失败: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, [draftKey, draftReady, draftStorageKey]);
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => setNodes((current) => applyNodeChanges(changes, current)),
@@ -261,6 +296,48 @@ function App() {
       const flow = createPseudoFlowJson(workflowName, nodes, edges);
       downloadJson(`${workflowName || 'workflow'}_flow.json`, flow);
       setMessage(`已导出 ${flow.rules.length} 条 pseudo flow 规则`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const showCanvasToast = (text: string) => {
+    setCanvasToast(text);
+    if (canvasToastTimerRef.current !== null) {
+      window.clearTimeout(canvasToastTimerRef.current);
+    }
+    canvasToastTimerRef.current = window.setTimeout(() => {
+      setCanvasToast('');
+      canvasToastTimerRef.current = null;
+    }, 2000);
+  };
+
+  const autoLayoutNodes = () => {
+    setNodes((current) => layoutFlowGraph(current, edges));
+    showCanvasToast('已自动优化节点布局');
+  };
+
+  const importFlowJson = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = '';
+    if (!file) return;
+
+    try {
+      const parsed = JSON.parse(await file.text());
+      const imported = createImportedDraft(parsed, actions, { autoLayout: true }) as {
+        name: string;
+        nodes: Node<ActionNodeData>[];
+        edges: Edge[];
+      };
+      setWorkflowName(imported.name);
+      setNodes(imported.nodes);
+      setEdges(imported.edges.map((edge) => ({ ...edge, animated: true })));
+      setWorkflow(null);
+      setRunStatus(null);
+      setActiveRunId(null);
+      setSelectedLogNodeId(null);
+      setEditingNodeId(null);
+      setMessage(`已导入 ${imported.nodes.length} 个节点，并自动优化布局`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     }
@@ -412,6 +489,14 @@ function App() {
                   已生成流程：{workflow.nodes.length} 个节点，{workflow.edges.length} 条连线
                 </div>
               )}
+              <input
+                ref={importFileRef}
+                className="visually-hidden"
+                type="file"
+                accept=".json,application/json"
+                onChange={importFlowJson}
+              />
+              <button onClick={() => importFileRef.current?.click()}>导入 Flow JSON</button>
               <button onClick={exportPseudoFlow} disabled={!nodes.length}>导出 Flow JSON</button>
             </div>
             <ReactFlow
@@ -427,13 +512,25 @@ function App() {
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
-              onNodeClick={(_, node) => setEditingNodeId(node.id)}
+              onNodeDoubleClick={(_, node) => setEditingNodeId(node.id)}
               defaultEdgeOptions={{ type: 'smoothstep', animated: true }}
             >
               <Background />
               <MiniMap />
-              <Controls />
+              <Controls>
+                <ControlButton
+                  aria-label="自动布局"
+                  title="自动布局"
+                  onClick={autoLayoutNodes}
+                  disabled={!nodes.length}
+                >
+                  <svg className="auto-layout-icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 5h5v5H4V5Zm11 0h5v5h-5V5ZM4 14h5v5H4v-5Zm11 0h5v5h-5v-5ZM9 7.5h6M9 16.5h6M6.5 10v4M17.5 10v4" />
+                  </svg>
+                </ControlButton>
+              </Controls>
             </ReactFlow>
+            {canvasToast && <div className="canvas-toast">{canvasToast}</div>}
           </div>
           <div
             className="opc-resizer"
@@ -652,6 +749,21 @@ function downloadJson(filename: string, data: unknown) {
   anchor.download = filename;
   anchor.click();
   URL.revokeObjectURL(url);
+}
+
+function loadSavedDraft(storageKey: string, actions: ActionSpec[]) {
+  try {
+    const rawDraft = window.localStorage.getItem(storageKey);
+    if (!rawDraft) return null;
+    return createImportedDraft(JSON.parse(rawDraft), actions, { autoLayout: false }) as {
+      name: string;
+      nodes: Node<ActionNodeData>[];
+      edges: Edge[];
+    };
+  } catch {
+    window.localStorage.removeItem(storageKey);
+    return null;
+  }
 }
 
 function statusText(status?: string) {
