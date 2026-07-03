@@ -804,7 +804,7 @@ function App() {
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
                 onConnect={onConnect}
-                onNodeClick={(_, node) => setEditingNodeId(node.id)}
+                onNodeDoubleClick={(_, node) => setEditingNodeId(node.id)}
                 defaultEdgeOptions={{ type: 'smoothstep', animated: true }}
               >
                 <Background />
