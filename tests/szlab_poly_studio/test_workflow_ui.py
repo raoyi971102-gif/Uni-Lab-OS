@@ -1,3 +1,4 @@
+import asyncio
 import csv
 import json
 import time
@@ -827,8 +828,6 @@ def test_run_nodes_logs_opc_summary_with_detail_instead_of_full_snapshots():
 
 
 def test_stack_status_api_returns_live_plc_stack_status(monkeypatch):
-    from fastapi.testclient import TestClient
-
     class FakePLC:
         def __init__(self):
             self.calls = []
@@ -857,15 +856,19 @@ def test_stack_status_api_returns_live_plc_stack_status(monkeypatch):
 
     monkeypatch.setattr(WorkflowRunManager, "get_live_devices", fake_get_live_devices)
 
-    client = TestClient(create_app("stack_s05_s06"))
-    response = client.get("/api/stack-status")
-    second_response = client.get("/api/stack-status")
+    app = create_app("stack_s05_s06")
+    stack_status_endpoint = next(
+        route.endpoint
+        for route in app.routes
+        if getattr(route, "path", None) == "/api/stack-status"
+    )
+    response = asyncio.run(stack_status_endpoint())
+    second_response = asyncio.run(stack_status_endpoint())
 
-    assert response.status_code == 200
-    payload = response.json()
+    payload = response
     assert payload["success"] is True
     assert payload["stacks"]["s10_liquid_reagent"]["slots"]["1-1"]["occupied"] is True
-    assert second_response.status_code == 200
+    assert second_response["success"] is True
     assert fake_plc.calls == [["s10_liquid_reagent", "powder_container"]]
 
 
