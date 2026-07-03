@@ -118,6 +118,8 @@ class SzlabMixerRobotDevice(
             return None
         if not sensor_variable:
             return {"success": False, "message": "缺少精确传感器变量，不能执行机器人取放料动作"}
+        if self._should_skip_robot_precheck_variable(sensor_variable):
+            return None
         actual = bool(self._read_variable(sensor_variable, use_cache=False))
         if actual == expected:
             return None

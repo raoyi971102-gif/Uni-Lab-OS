@@ -22,7 +22,10 @@
   "debug_config": {
     "skip_robot_precheck_variables": [
       "Robot_Home"
-    ]
+    ],
+    "env": {
+      "SKIP_SENSOR_PRECHECK": "1"
+    }
   },
   "path_roots": [
     "unilabos/devices/workstation/szlab_poly_studio"

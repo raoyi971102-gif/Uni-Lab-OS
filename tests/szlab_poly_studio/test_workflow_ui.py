@@ -693,6 +693,7 @@ def test_workflow_ui_main_installs_opcua_token_time_drift_patch(monkeypatch):
 def test_workflow_ui_main_debug_applies_preset_env(monkeypatch):
     calls = []
     monkeypatch.delenv("SKIP_ROBOT_PRECHECK_VARIABLES", raising=False)
+    monkeypatch.delenv("SKIP_SENSOR_PRECHECK", raising=False)
 
     monkeypatch.setattr(workflow_ui, "ignore_opcua_token_time_drift", lambda: calls.append("ignore_token_time_drift"))
     monkeypatch.setattr(workflow_ui, "start_ui", lambda **kwargs: calls.append(("start_ui", kwargs)))
@@ -701,11 +702,36 @@ def test_workflow_ui_main_debug_applies_preset_env(monkeypatch):
     try:
         workflow_ui.main()
 
-        assert os.environ["SKIP_ROBOT_PRECHECK_VARIABLES"] == "Robot_Home"
+        skipped_variables = set(os.environ["SKIP_ROBOT_PRECHECK_VARIABLES"].split(","))
+        assert "Robot_Home" in skipped_variables
+        assert "传感器状态_上位机[3].NO[14]" in skipped_variables
+        assert os.environ["SKIP_SENSOR_PRECHECK"] == "1"
         assert calls[0] == "ignore_token_time_drift"
         assert calls[1][0] == "start_ui"
     finally:
         os.environ.pop("SKIP_ROBOT_PRECHECK_VARIABLES", None)
+        os.environ.pop("SKIP_SENSOR_PRECHECK", None)
+
+
+def test_workflow_ui_main_debug_applies_szlab_mixer_sensor_skip(monkeypatch):
+    calls = []
+    monkeypatch.delenv("SKIP_ROBOT_PRECHECK_VARIABLES", raising=False)
+    monkeypatch.delenv("SKIP_SENSOR_PRECHECK", raising=False)
+
+    monkeypatch.setattr(workflow_ui, "ignore_opcua_token_time_drift", lambda: calls.append("ignore_token_time_drift"))
+    monkeypatch.setattr(workflow_ui, "start_ui", lambda **kwargs: calls.append(("start_ui", kwargs)))
+    monkeypatch.setattr(sys, "argv", ["workflow_ui.py", "--preset", "szlab_mixer", "--debug", "--no-browser"])
+
+    try:
+        workflow_ui.main()
+
+        assert os.environ["SKIP_ROBOT_PRECHECK_VARIABLES"] == "Robot_Home"
+        assert os.environ["SKIP_SENSOR_PRECHECK"] == "1"
+        assert calls[0] == "ignore_token_time_drift"
+        assert calls[1][0] == "start_ui"
+    finally:
+        os.environ.pop("SKIP_ROBOT_PRECHECK_VARIABLES", None)
+        os.environ.pop("SKIP_SENSOR_PRECHECK", None)
 
 
 def test_workflow_run_manager_reuses_devices_between_runs(monkeypatch):

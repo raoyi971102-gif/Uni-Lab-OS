@@ -933,6 +933,26 @@ def test_szlab_robot_can_skip_only_home_signal(monkeypatch):
     ]
 
 
+def test_szlab_robot_can_skip_configured_sensor_precheck(monkeypatch):
+    sensor = "传感器状态_上位机[3].NO[14]"
+    gateway = FakeRobotPlcGateway(sensor_values={sensor: False})
+    device = SzlabMixerRobotDevice(timeout=3.0, write_allowed_timeout=3.0)
+    device.set_plc_gateway(gateway)
+    monkeypatch.setenv("SKIP_ROBOT_PRECHECK_VARIABLES", sensor)
+
+    result = device.submit_pick_from_s08(product_type=1, position=1)
+
+    assert result["success"] is True
+    assert (sensor, False) not in gateway.reads
+    assert gateway.writes[:5] == [
+        ("S08取放料产品", 1),
+        ("S08取放料编号", 1),
+        ("任务号", 18),
+        ("Robot_任务写入完成", False),
+        ("Robot_任务写入完成", True),
+    ]
+
+
 def test_szlab_robot_resets_written_pc_to_plc_variables_after_completion_timeout():
     gateway = FakeRobotPlcGateway(
         sensor_values={"传感器状态_上位机[2].NO[10]": True},
