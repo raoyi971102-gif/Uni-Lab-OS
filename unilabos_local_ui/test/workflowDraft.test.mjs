@@ -19,7 +19,7 @@ async function importTypeScriptModule(path) {
   return import(tempFile);
 }
 
-const { createWorkflowRequest, workflowDraftKey } = await importTypeScriptModule(
+const { createImportedDraft, createWorkflowRequest, layoutFlowGraph, workflowDraftKey } = await importTypeScriptModule(
   new URL('../src/workflowDraft.ts', import.meta.url),
 );
 const { collectOpcChanges, formatOpcValue } = await importTypeScriptModule(
@@ -89,6 +89,132 @@ assert.notEqual(
   workflowDraftKey('ai4c', changedParamNodes, edges),
   '参数变化应触发 workflow 草稿重新校验',
 );
+
+const actionSpecs = [
+  {
+    method: 'pick_well_plate_from_loading_rack',
+    label: '从上料架取孔板',
+    description: '取孔板',
+    device_id: 'robot',
+    params: [{ name: 'position', label: '位置', type: 'integer', default: 1 }],
+  },
+  {
+    method: 'put_well_plate_to_loading_rack',
+    label: '放回上料架',
+    description: '放孔板',
+    device_id: 'robot',
+    params: [{ name: 'position', label: '位置', type: 'integer', default: 2 }],
+  },
+];
+
+const importedFlow = createImportedDraft(
+  {
+    name: 'imported_flow',
+    rules: [
+      {
+        actions: [
+          {
+            action: {
+              workflow_node_id: 'load',
+              method: 'pick_well_plate_from_loading_rack',
+              params: { position: 3 },
+            },
+          },
+          {
+            action: {
+              workflow_node_id: 'unload',
+              method: 'put_well_plate_to_loading_rack',
+              params: { position: 4 },
+            },
+          },
+        ],
+      },
+    ],
+  },
+  actionSpecs,
+);
+assert.equal(importedFlow.name, 'imported_flow');
+assert.equal(importedFlow.nodes.length, 2, 'flow json 应还原两个节点');
+assert.equal(importedFlow.nodes[0].data.label, '从上料架取孔板');
+assert.equal(importedFlow.nodes[0].data.params.position, 3);
+assert.deepEqual(
+  importedFlow.edges.map((edge) => [edge.source, edge.target]),
+  [['load', 'unload']],
+  'flow json 应按动作顺序生成连线',
+);
+assert.ok(
+  importedFlow.nodes[1].position.x > importedFlow.nodes[0].position.x,
+  '导入 flow 后应自动生成递增横向布局',
+);
+
+const importedDraft = createImportedDraft(
+  {
+    name: 'canvas_draft',
+    nodes: [
+      {
+        id: 'load',
+        position: { x: 10, y: 20 },
+        data: {
+          method: 'pick_well_plate_from_loading_rack',
+          label: '旧标签',
+          description: '旧描述',
+          params: { position: 5 },
+        },
+      },
+    ],
+    edges: [],
+  },
+  actionSpecs,
+  { autoLayout: false },
+);
+assert.equal(importedDraft.name, 'canvas_draft');
+assert.deepEqual(importedDraft.nodes[0].position, { x: 10, y: 20 }, '画布草稿可保留原坐标');
+assert.equal(importedDraft.nodes[0].data.label, '从上料架取孔板', 'preset 元数据应覆盖旧标签');
+assert.equal(importedDraft.nodes[0].data.params.position, 5, '导入参数应覆盖默认参数');
+
+const restoredDraft = createImportedDraft(createWorkflowRequest('persisted_draft', importedDraft.nodes, importedDraft.edges), actionSpecs, { autoLayout: false });
+assert.equal(restoredDraft.name, 'persisted_draft');
+assert.equal(restoredDraft.nodes[0].id, 'load');
+assert.deepEqual(restoredDraft.nodes[0].position, { x: 10, y: 20 }, '持久化草稿恢复后应保留坐标');
+assert.equal(restoredDraft.nodes[0].data.params.position, 5, '持久化草稿恢复后应保留参数');
+
+const laidOut = layoutFlowGraph(
+  [
+    { ...baseNodes[0], id: 'a', position: { x: 999, y: 999 } },
+    { ...baseNodes[0], id: 'b', position: { x: 999, y: 999 } },
+    { ...baseNodes[0], id: 'c', position: { x: 999, y: 999 } },
+  ],
+  [
+    { id: 'a-b', source: 'a', target: 'b' },
+    { id: 'b-c', source: 'b', target: 'c' },
+  ],
+);
+assert.ok(laidOut[1].position.x > laidOut[0].position.x, '线性流程应按 x 轴递增布局');
+assert.ok(laidOut[2].position.x > laidOut[1].position.x, '线性流程后续节点应继续右移');
+
+const gridLayout = layoutFlowGraph(
+  [
+    { ...baseNodes[0], id: 'first', position: { x: 999, y: 999 } },
+    { ...baseNodes[0], id: 'second', position: { x: 999, y: 999 } },
+  ],
+  [],
+);
+assert.notDeepEqual(gridLayout[0].position, gridLayout[1].position, '无边节点应分配不同网格位置');
+
+const wrappedLinearLayout = layoutFlowGraph(
+  Array.from({ length: 7 }, (_, index) => ({
+    ...baseNodes[0],
+    id: `node_${index + 1}`,
+    position: { x: 999, y: 999 },
+  })),
+  Array.from({ length: 6 }, (_, index) => ({
+    id: `edge_${index + 1}`,
+    source: `node_${index + 1}`,
+    target: `node_${index + 2}`,
+  })),
+);
+assert.equal(wrappedLinearLayout[6].position.x, wrappedLinearLayout[0].position.x, '第 7 个节点应换行回到行首');
+assert.ok(wrappedLinearLayout[6].position.y > wrappedLinearLayout[0].position.y, '第 7 个节点应排到下一行');
 
 const opcRowsWhileRunning = collectOpcChanges([
   {

@@ -99,6 +99,26 @@ class WorkflowLogger:
             self._file.flush()
 
 
+def iter_action_logs(result: Any) -> list[dict[str, Any]]:
+    if not isinstance(result, dict):
+        return []
+    logs = result.get("logs")
+    if logs is None and isinstance(result.get("data"), dict):
+        logs = result["data"].get("logs")
+    if not isinstance(logs, list):
+        return []
+
+    entries: list[dict[str, Any]] = []
+    for item in logs:
+        if isinstance(item, str):
+            entries.append({"message": item, "detail": None})
+        elif isinstance(item, dict):
+            message = item.get("message")
+            if message:
+                entries.append({"message": str(message), "detail": item.get("detail")})
+    return entries
+
+
 def method_name_from_template(template_name: str) -> str:
     """网页 workflow 中的 auto-* 节点名映射到 Python 方法名。"""
     return template_name.removeprefix("auto-")
@@ -285,6 +305,86 @@ def _load_class(class_path: str) -> type:
     return getattr(module, class_name)
 
 
+def normalize_opcua_url(url: str | None) -> str | None:
+    if url is None:
+        return None
+    normalized = str(url).strip()
+    if normalized and "://" not in normalized:
+        normalized = f"opc.tcp://{normalized}"
+    return normalized
+
+
+def ignore_opcua_token_time_drift() -> None:
+    """现场调试兼容 PLC/OPC UA Server 时间严重漂移的情况。"""
+    from opcua import ua
+    from opcua.common.connection import SecureConnection
+
+    def _check_sym_header_ignore_prev_token_timeout(self: Any, security_header: Any) -> None:
+        assert isinstance(
+            security_header,
+            ua.SymmetricAlgorithmHeader,
+        ), "Expected SymAlgHeader, got: {0}".format(security_header)
+        if security_header.TokenId != self.security_token.TokenId:
+            if security_header.TokenId != self.next_security_token.TokenId:
+                if self._allow_prev_token and security_header.TokenId == self.prev_security_token.TokenId:
+                    return
+                raise ua.UaError(
+                    "Invalid security token id {}, expected {} or {}".format(
+                        security_header.TokenId,
+                        self.security_token.TokenId,
+                        self.next_security_token.TokenId,
+                    )
+                )
+            self.revolve_tokens()
+            self.security_policy.make_remote_symmetric_key(self.local_nonce, self.remote_nonce)
+            self.prev_security_token = ua.ChannelSecurityToken()
+        if self.prev_security_token.TokenId != 0:
+            self.security_policy.make_remote_symmetric_key(self.local_nonce, self.remote_nonce)
+            self.prev_security_token = ua.ChannelSecurityToken()
+
+    SecureConnection._check_sym_header = _check_sym_header_ignore_prev_token_timeout
+
+
+def pc_to_plc_clear_values() -> dict[str, int]:
+    from unilabos.devices.workstation.szlab_poly_studio.robot.robot_tasks import (
+        PLC_TASK_NUMBER_VARIABLE,
+        ROBOT_ACTION_SPECS,
+    )
+
+    values = {PLC_TASK_NUMBER_VARIABLE: 0}
+    for spec in ROBOT_ACTION_SPECS.values():
+        for variable in spec.variables:
+            values.setdefault(variable, 0)
+    return values
+
+
+def clear_pc_to_plc_variables(
+    devices: dict[str, Any],
+    runtime_config: RuntimeConfig,
+    logger: WorkflowLogger | None = None,
+) -> dict[str, Any]:
+    logger = logger or WorkflowLogger()
+    plc = devices.get(runtime_config.device_factory.plc_device_id)
+    if plc is None or not hasattr(plc, "write_variable"):
+        raise KeyError(f"未创建可写 PLC 设备: {runtime_config.device_factory.plc_device_id}")
+
+    writes: dict[str, Any] = {}
+    errors: dict[str, str] = {}
+    for name, value in pc_to_plc_clear_values().items():
+        try:
+            plc.write_variable(name, value)
+            writes[name] = value
+        except Exception as exc:
+            errors[name] = str(exc)
+
+    detail = {"written_variables": writes, "errors": errors}
+    if errors:
+        logger.log(f"清空 PC->PLC 变量失败: {len(errors)} 个变量", level="error", detail=detail)
+        raise RuntimeError(f"清空 PC->PLC 变量失败: {errors}")
+    logger.log(f"已清空 PC->PLC 变量: {len(writes)} 个", detail=detail)
+    return detail
+
+
 def create_local_devices(
     graph_file: Path,
     opcua_url: str | None = None,
@@ -294,14 +394,21 @@ def create_local_devices(
     runtime_config: RuntimeConfig | None = None,
 ) -> dict[str, Any]:
     runtime_config = runtime_config or load_runtime_config()
+    opcua_url = normalize_opcua_url(opcua_url)
     device_factory = runtime_config.device_factory
     graph_config = load_ai4c_graph_config(graph_file)
     if device_factory.devices:
         devices: dict[str, Any] = {}
-        for device_id, class_path in device_factory.devices.items():
+        device_items = list(device_factory.devices.items())
+        device_items.sort(key=lambda item: item[0] != device_factory.plc_device_id)
+        for device_id, class_path in device_items:
             device_config = dict(graph_config.get(device_id, {}))
-            if opcua_url and "url" in device_config:
+            if opcua_url:
                 device_config["url"] = opcua_url
+            if csv_path:
+                device_config["csv_path"] = str(csv_path.resolve())
+            if device_id != device_factory.plc_device_id:
+                device_config.setdefault("use_plc_gateway", True)
             if plc_action_timeout and "timeout" in device_config:
                 device_config["timeout"] = plc_action_timeout
             device_class = _load_class(class_path)
@@ -400,6 +507,11 @@ def run_nodes(
                 f"OPC状态变化: {len(diff_detail['changes'])}/{len(before)} 个变量变化",
                 detail=diff_detail,
             )
+        for action_log in iter_action_logs(result):
+            logger.log(
+                action_log["message"],
+                detail={"node_uuid": node.uuid, "action_log": action_log.get("detail")},
+            )
         logger.log(f"动作结果: {result}", detail={"result": result})
         results.append(
             {
@@ -442,6 +554,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--url", default=None, help="覆盖设备图中的 OPC UA 服务地址")
     parser.add_argument("--csv", type=Path, default=None, help="覆盖设备图中的 OPC UA 节点 CSV")
     parser.add_argument("--no-subscription", action="store_true", help="禁用 OPC UA 订阅，全部强制读取节点")
+    parser.add_argument(
+        "--ignore-opcua-token-time-drift",
+        action="store_true",
+        help="忽略 OPC UA 旧 token 的时间漂移过期校验，仅用于现场调试",
+    )
+    parser.add_argument(
+        "--clear-pc-to-plc-before-run",
+        action="store_true",
+        help="执行 workflow 前将机器人 PC->PLC 写入变量统一清零",
+    )
     parser.add_argument("--timeout", type=float, default=300.0, help="机械臂动作等待超时时间")
     parser.add_argument("--log-file", type=Path, default=None, help="将本地执行日志同步写入指定文件")
     return parser
@@ -462,6 +584,8 @@ def main() -> int:
         return 0
 
     runtime_config = load_runtime_config(args.runtime_config)
+    if args.ignore_opcua_token_time_drift:
+        ignore_opcua_token_time_drift()
     devices = create_local_devices(
         graph_file=args.graph,
         opcua_url=args.url,
@@ -473,6 +597,8 @@ def main() -> int:
     log_handle = args.log_file.open("w", encoding="utf-8") if args.log_file else None
     logger = WorkflowLogger(file=log_handle)
     try:
+        if args.clear_pc_to_plc_before_run:
+            clear_pc_to_plc_variables(devices, runtime_config, logger=logger)
         results = run_workflow(args.workflow, devices, logger=logger, runtime_config=runtime_config)
         logger.log(f"本地 workflow 执行完成，共 {len(results)} 个节点")
         return 0

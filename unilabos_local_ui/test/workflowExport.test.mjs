@@ -14,13 +14,16 @@ async function importTypeScriptModule(path) {
     },
   });
   const tempDir = await mkdtemp(join(tmpdir(), 'workflow-export-test-'));
-  const tempFile = join(tempDir, 'workflowExport.mjs');
+  const tempFile = join(tempDir, `${path.pathname.split('/').pop().replace('.ts', '')}.mjs`);
   await writeFile(tempFile, transpiled.outputText, 'utf8');
   return import(tempFile);
 }
 
 const { createPseudoFlowJson } = await importTypeScriptModule(
   new URL('../src/workflowExport.ts', import.meta.url),
+);
+const { createImportedDraft, createWorkflowRequest } = await importTypeScriptModule(
+  new URL('../src/workflowDraft.ts', import.meta.url),
 );
 
 const nodes = [
@@ -80,3 +83,38 @@ assert.deepEqual(createPseudoFlowJson('szlab_flow', nodes, [{ id: 'e1', source: 
     },
   ],
 });
+
+const actions = [
+  {
+    method: 'move_plate',
+    label: '移动孔板',
+    description: '移动孔板到目标位置',
+    device_id: 'robot',
+    params: [{ name: 'position', type: 'integer', default: 1 }],
+  },
+];
+
+const draft = createWorkflowRequest(
+  'roundtrip',
+  [
+    {
+      id: 'node_1',
+      position: { x: 24, y: 48 },
+      data: {
+        deviceId: 'robot',
+        method: 'move_plate',
+        label: '移动孔板',
+        description: '移动孔板到目标位置',
+        params: { position: 9 },
+      },
+    },
+  ],
+  [],
+);
+
+const imported = createImportedDraft(draft, actions, { autoLayout: false });
+assert.equal(imported.name, 'roundtrip');
+assert.equal(imported.nodes[0].id, 'node_1');
+assert.deepEqual(imported.nodes[0].position, { x: 24, y: 48 });
+assert.equal(imported.nodes[0].data.deviceId, 'robot');
+assert.equal(imported.nodes[0].data.params.position, 9);
