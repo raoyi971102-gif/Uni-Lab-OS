@@ -25,6 +25,9 @@ const { createImportedDraft, createWorkflowRequest, layoutFlowGraph, workflowDra
 const { collectOpcChanges, formatOpcValue } = await importTypeScriptModule(
   new URL('../src/opcChanges.ts', import.meta.url),
 );
+const { formatUiError, buildWorkspaceSummary, groupActionsByDevice } = await importTypeScriptModule(
+  new URL('../src/uiState.ts', import.meta.url),
+);
 
 const baseNodes = [
   {
@@ -248,3 +251,87 @@ assert.equal(opcRowsWhileRunning[0].valueEnd, undefined);
 
 assert.equal(formatOpcValue({ success: true, value: false, node_id: 'ns=2;i=270' }), 'false');
 assert.equal(formatOpcValue({ success: false, error: 'bad node' }), 'bad node');
+
+assert.equal(
+  formatUiError(new TypeError('Failed to fetch'), '运行 workflow'),
+  '运行 workflow 失败：无法连接本地调试服务，请确认 workflow_ui 后端仍在运行，且当前页面与后端端口一致。',
+);
+assert.equal(formatUiError(new Error('workflow 不能包含环'), '校验流程'), '校验流程失败：workflow 不能包含环');
+
+const summary = buildWorkspaceSummary({
+  nodes: [
+    { data: { deviceId: 'szlab_mixer_robot', runStatus: 'success' } },
+    { data: { deviceId: 'szlab_mixer_stirrer', runStatus: 'running' } },
+    { data: { deviceId: 'szlab_mixer_photoshotting', runStatus: 'idle' } },
+  ],
+  edges: [{}, {}],
+  opcChangeCount: 6,
+  runStatus: 'running',
+});
+assert.deepEqual(summary, {
+  totalNodes: 3,
+  totalEdges: 2,
+  runningNodes: 1,
+  completedNodes: 1,
+  deviceCount: 3,
+  opcChangeCount: 6,
+  runStatusText: '运行中',
+});
+
+assert.deepEqual(
+  groupActionsByDevice([
+    {
+      method: 'submit_place_to_magnetic_stirrer',
+      label: '放置到 S04 磁搅位',
+      description: '放置到 S04 磁搅位',
+      device_id: 'szlab_mixer_robot',
+    },
+    {
+      method: 'run_stirring',
+      label: '执行 S04 磁搅加工',
+      description: '执行 S04 磁搅加工',
+      device_id: 'szlab_mixer_stirrer',
+    },
+    {
+      method: 'take_photo',
+      label: '拍照并保存结果',
+      description: '拍照并保存结果',
+      device_id: 'szlab_mixer_photoshotting',
+    },
+  ]),
+  [
+    {
+      id: 'szlab_mixer_robot',
+      title: '机械臂转运',
+      device: 'szlab_mixer_robot',
+      actions: [
+        {
+          method: 'submit_place_to_magnetic_stirrer',
+          label: '放置到 S04 磁搅位',
+          description: '放置到 S04 磁搅位',
+          device_id: 'szlab_mixer_robot',
+        },
+      ],
+    },
+    {
+      id: 'process_devices',
+      title: '设备工艺',
+      device: 'S04 / S05',
+      actions: [
+        {
+          method: 'run_stirring',
+          label: '执行 S04 磁搅加工',
+          description: '执行 S04 磁搅加工',
+          device_id: 'szlab_mixer_stirrer',
+        },
+        {
+          method: 'take_photo',
+          label: '拍照并保存结果',
+          description: '拍照并保存结果',
+          device_id: 'szlab_mixer_photoshotting',
+        },
+      ],
+    },
+  ],
+  '动作面板应按机械臂和设备工艺分层显示',
+);

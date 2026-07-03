@@ -15,6 +15,7 @@ except ModuleNotFoundError as exc:
         raise
     BaseClient = object
     OpcUaNode = None
+from unilabos.devices.workstation.szlab_poly_studio.stack_status import build_stack_status
 from unilabos.registry.decorators import action, device, not_action, topic_config
 from unilabos.utils.log import logger
 
@@ -285,6 +286,7 @@ class SZLabPolyPLCDevice(BaseClient):
         auto_connect: bool = True,
         opcua_log_level: str = "WARNING",
         opcua_node_id_map: Optional[Dict[str, str]] = None,
+        opcua_node_id_prefix: Optional[str] = None,
         ignore_opcua_token_time_drift: bool = False,
         *args,
         **kwargs,
@@ -296,13 +298,23 @@ class SZLabPolyPLCDevice(BaseClient):
         self.heartbeat_node = heartbeat_node
         self.heartbeat_on = False
         self._heartbeat_timer: Optional[threading.Timer] = None
+        self._sensor_read_warning_names: set[str] = set()
 
         variable_names, csv_node_id_map = load_variable_definitions_from_csv(self.csv_path)
         nodes = [
             OpcUaNode(name=name, node_type=NodeType.VARIABLE, data_type=None)
             for name in variable_names
         ]
-        self._direct_node_id_map = {**csv_node_id_map, **dict(opcua_node_id_map or {})}
+        prefix_node_id_map = (
+            {name: f"{opcua_node_id_prefix}{name}" for name in variable_names}
+            if opcua_node_id_prefix
+            else {}
+        )
+        self._direct_node_id_map = {
+            **prefix_node_id_map,
+            **csv_node_id_map,
+            **dict(opcua_node_id_map or {}),
+        }
         self.register_node_list(nodes)
 
         logging.getLogger("opcua").setLevel(getattr(logging, opcua_log_level.upper(), logging.WARNING))
@@ -503,9 +515,22 @@ class SZLabPolyPLCDevice(BaseClient):
             try:
                 result[site_key] = bool(self.read_variable(variable_name))
             except Exception as exc:
-                logger.warning(f"读取传感器 {variable_name} 失败: {exc}")
+                if variable_name not in self._sensor_read_warning_names:
+                    logger.warning(f"读取传感器 {variable_name} 失败: {exc}")
+                    self._sensor_read_warning_names.add(variable_name)
+                else:
+                    logger.debug(f"读取传感器 {variable_name} 失败: {exc}")
                 result[site_key] = None
         return result
+
+    @not_action
+    def _read_stack_sensor_groups(self, group_names: Optional[List[str]] = None) -> Dict[str, Dict[str, Optional[bool]]]:
+        selected_groups = group_names or list(SENSOR_GROUPS)
+        return {
+            group_name: self._read_sensor_group(sensors)
+            for group_name, sensors in SENSOR_GROUPS.items()
+            if group_name in selected_groups
+        }
 
     @action(auto_prefix=True, always_free=True, description="启动苏州实验室 PLC 心跳")
     def start_heart_beat(self) -> Dict[str, Any]:
@@ -589,6 +614,10 @@ class SZLabPolyPLCDevice(BaseClient):
             "status": self._read_sensor_group(sensors),
         }
 
+    @action(auto_prefix=True, always_free=True, description="读取前端堆栈 JSON 状态")
+    def get_stack_status(self, group_names: Optional[List[str]] = None) -> Dict[str, Any]:
+        return build_stack_status(self._read_stack_sensor_groups(group_names=group_names))
+
     @action(auto_prefix=True, always_free=True, description="写入 S01 上料过渡仓取料编号和入料产品")
     def set_s1_loading_request(self, pick_index: int, product_type: int) -> Dict[str, Any]:
         try:
@@ -637,3 +666,7 @@ class SZLabPolyPLCDevice(BaseClient):
     @topic_config(period=5.0)
     def registered_variables(self) -> List[str]:
         return sorted(self._variables_to_find)
+
+    @topic_config(period=1.0)
+    def stack_status(self) -> Dict[str, Any]:
+        return self.get_stack_status()

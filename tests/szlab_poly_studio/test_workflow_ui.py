@@ -1,3 +1,4 @@
+import asyncio
 import csv
 import json
 import time
@@ -26,6 +27,7 @@ from scripts.workflow_ui import (
     _run_node_with_live_opc_sampling,
     build_graph_workflow,
     build_linear_workflow,
+    create_app,
     build_local_device_graph,
     build_parser,
     load_preset,
@@ -823,3 +825,94 @@ def test_run_nodes_logs_opc_summary_with_detail_instead_of_full_snapshots():
         "value_goal": {"success": True, "value": False},
         "after": {"success": True, "value": False},
     }
+
+
+def test_stack_status_api_returns_live_plc_stack_status(monkeypatch):
+    class FakePLC:
+        def __init__(self):
+            self.calls = []
+
+        def get_stack_status(self, group_names=None):
+            self.calls.append(group_names)
+            return {
+                "success": True,
+                "schema": "szlab_poly_studio.stack_status.v1",
+                "stacks": {
+                    "s10_liquid_reagent": {
+                        "id": "s10_liquid_reagent",
+                        "display_name": "S10液体试剂瓶仓",
+                        "warehouse_name": "S10液体试剂瓶仓占位",
+                        "managed_resource": "reagent",
+                        "content_type": ["liquid_reagent"],
+                        "slots": {"1-1": {"site_key": "1-1", "occupied": True}},
+                    }
+                },
+            }
+
+    fake_plc = FakePLC()
+
+    def fake_get_live_devices(self):
+        return {"szlab_poly_plc": fake_plc}
+
+    monkeypatch.setattr(WorkflowRunManager, "get_live_devices", fake_get_live_devices)
+
+    app = create_app("stack_s05_s06")
+    stack_status_endpoint = next(
+        route.endpoint
+        for route in app.routes
+        if getattr(route, "path", None) == "/api/stack-status"
+    )
+    response = asyncio.run(stack_status_endpoint())
+    second_response = asyncio.run(stack_status_endpoint())
+
+    payload = response
+    assert payload["success"] is True
+    assert payload["stacks"]["s10_liquid_reagent"]["slots"]["1-1"]["occupied"] is True
+    assert second_response["success"] is True
+    assert fake_plc.calls == [["s10_liquid_reagent", "powder_container"]]
+
+
+def test_stack_s05_s06_preset_uses_trimmed_csv_for_stack_camera_and_pump():
+    preset = load_preset("stack_s05_s06")
+    runtime_config = _load_preset_runtime_config(preset)
+    csv_path = _resolve_ui_path(preset.default_config["csv"], preset)
+
+    with csv_path.open(encoding="utf-8-sig", newline="") as handle:
+        variable_names = {row["变量名"] for row in csv.DictReader(handle)}
+
+    required_variables = {
+        "S05加工完成",
+        "S05拍照结果",
+        "S06准备信号",
+        "S06允许加工",
+        "S06工艺选择",
+        "S06_1号溶液添加量",
+        "S06_2号溶液添加量",
+        "S06参数写入完成",
+        "S06加工完成",
+        "传感器状态_上位机[4].NO[12]",
+        "传感器状态_上位机[5].NO[1]",
+        "传感器状态_上位机[3].NO[8]",
+        "传感器状态_上位机[3].NO[13]",
+    }
+
+    assert preset.id == "stack_s05_s06"
+    assert preset.default_config["csv"] == "stack_s05_s06_nodes.csv"
+    assert preset.target_device_ids == ["szlab_mixer_photoshotting", "szlab_mixer_pump"]
+    plc_node = next(node for node in preset.device_graph["nodes"] if node["id"] == "szlab_poly_plc")
+    assert plc_node["config"]["opcua_node_id_prefix"] == "ns=4;s=上位机通讯|"
+    assert plc_node["config"]["opcua_node_id_map"]["传感器状态_上位机[3].NO[8]"] == "ns=2;i=62"
+    assert plc_node["config"]["opcua_node_id_map"]["传感器状态_上位机[4].NO[12]"] == "ns=2;i=83"
+    pump_node = next(node for node in preset.device_graph["nodes"] if node["id"] == "szlab_mixer_pump")
+    assert pump_node["config"]["opcua_node_id_map"]["传感器状态_上位机[3].NO[1]"] == "ns=2;i=55"
+    assert pump_node["config"]["opcua_node_id_map"]["传感器状态_上位机[5].NO[1]"] == "ns=2;i=89"
+    take_photo_snapshot = collect_snapshot_variables("take_photo", {}, runtime_config)
+    assert "传感器状态_上位机[3].NO[8]" in take_photo_snapshot
+    assert "传感器状态_上位机[3].NO[13]" in take_photo_snapshot
+    assert "传感器状态_上位机[4].NO[12]" in take_photo_snapshot
+    assert "传感器状态_上位机[5].NO[15]" in take_photo_snapshot
+    assert runtime_config.device_factory.plc_device_id == "szlab_poly_plc"
+    assert "szlab_poly_plc" in runtime_config.device_factory.devices
+    assert "szlab_mixer_photoshotting" in runtime_config.device_factory.devices
+    assert "szlab_mixer_pump" in runtime_config.device_factory.devices
+    assert required_variables <= variable_names

@@ -21,7 +21,10 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import './styles.css';
 import { collectOpcChanges, formatOpcValue, type LogEvent, type OpcChange } from './opcChanges';
+import { buildWorkspaceSummary, groupActionsByDevice } from './uiState';
 import { createImportedDraft, createWorkflowRequest, layoutFlowGraph, workflowDraftKey } from './workflowDraft';
+import { createPseudoFlowJson } from './workflowExport';
+import { WorkstationDemo } from './WorkstationDemo';
 
 type ActionSpec = {
   method: string;
@@ -64,11 +67,6 @@ type WorkflowJson = {
   edges: Array<Record<string, unknown>>;
 };
 
-type PseudoFlowJson = {
-  name: string;
-  rules: Array<Record<string, unknown>>;
-};
-
 type RunStatus = {
   run_id: string;
   status: string;
@@ -79,6 +77,52 @@ type RunStatus = {
 };
 
 type NodeRunStatus = 'idle' | 'preparing' | 'running' | 'success' | 'failed' | 'cancelled';
+
+type StackSlotPayload = {
+  site_key?: string;
+  occupied?: boolean | null;
+  reagent_id?: string | null;
+  qr_code?: string | null;
+  remaining_amount?: number | null;
+  unit?: string | null;
+};
+
+type StackPayload = {
+  id: string;
+  display_name?: string;
+  warehouse_name?: string;
+  managed_resource?: string;
+  content_type?: string[];
+  slots?: Record<string, StackSlotPayload>;
+};
+
+type StackStatusPayload = {
+  success: boolean;
+  schema?: string;
+  updated_at?: string;
+  message?: string;
+  stacks?: Record<string, StackPayload>;
+};
+
+type StackResourceView = {
+  id: string;
+  title: string;
+  role: string;
+  used: number;
+  total: number;
+  nextSlot: string;
+};
+
+type StackSlotView = {
+  id: string;
+  material: string;
+  status: 'empty' | 'occupied' | 'reserved';
+};
+
+type OpcVariableView = {
+  name: string;
+  currentValue?: unknown;
+};
 
 type ActionNodeData = {
   deviceId?: string;
@@ -119,6 +163,93 @@ function buildDefaultParams(params: ParamSpec[]) {
   }, {});
 }
 
+function stackRoleText(stack: StackPayload) {
+  if (stack.managed_resource === 'reagent') return '试剂';
+  if (stack.managed_resource === 'physical_only') return '物理位';
+  return stack.managed_resource || '堆栈';
+}
+
+function sortSlotIds(ids: string[]) {
+  return [...ids].sort((left, right) => left.localeCompare(right, 'zh-CN', { numeric: true }));
+}
+
+function stackResourcesFromStatus(status: StackStatusPayload | null): StackResourceView[] {
+  const stacks = status?.stacks || {};
+  return Object.values(stacks).map((stack) => {
+    const slots = stack.slots || {};
+    const slotIds = sortSlotIds(Object.keys(slots));
+    const used = slotIds.filter((slotId) => slots[slotId]?.occupied === true).length;
+    const nextSlot = slotIds.length ? (slotIds.find((slotId) => slots[slotId]?.occupied !== true) || '已满') : '无数据';
+    return {
+      id: stack.id,
+      title: stack.display_name || stack.warehouse_name || stack.id,
+      role: stackRoleText(stack),
+      used,
+      total: slotIds.length,
+      nextSlot,
+    };
+  });
+}
+
+function stackSlotsFromPayload(stack: StackPayload | undefined): StackSlotView[] {
+  const slots = stack?.slots || {};
+  return sortSlotIds(Object.keys(slots)).map((slotId) => {
+    const slot = slots[slotId];
+    const occupied = slot?.occupied;
+    return {
+      id: slot.site_key || slotId,
+      material: slot?.reagent_id || slot?.qr_code || '',
+      status: occupied === true ? 'occupied' : occupied === false ? 'empty' : 'reserved',
+    };
+  });
+}
+
+function uniqueOpcVariables(variables: Array<string | undefined>) {
+  return Array.from(new Set(variables.filter((variable): variable is string => Boolean(variable))));
+}
+
+const STACK_SENSOR_VARIABLES: Record<string, string> = {
+  's10_liquid_reagent:1-1': '传感器状态_上位机[4].NO[12]',
+  's10_liquid_reagent:1-2': '传感器状态_上位机[4].NO[13]',
+  's10_liquid_reagent:1-3': '传感器状态_上位机[4].NO[14]',
+  's10_liquid_reagent:1-4': '传感器状态_上位机[4].NO[15]',
+  's10_liquid_reagent:1-5': '传感器状态_上位机[5].NO[0]',
+  's10_liquid_reagent:2-1': '传感器状态_上位机[5].NO[1]',
+  's10_liquid_reagent:2-2': '传感器状态_上位机[5].NO[2]',
+  's10_liquid_reagent:2-3': '传感器状态_上位机[5].NO[3]',
+  's10_liquid_reagent:2-4': '传感器状态_上位机[5].NO[4]',
+  's10_liquid_reagent:2-5': '传感器状态_上位机[5].NO[5]',
+  's10_liquid_reagent:3-1': '传感器状态_上位机[5].NO[6]',
+  's10_liquid_reagent:3-2': '传感器状态_上位机[5].NO[7]',
+  's10_liquid_reagent:3-3': '传感器状态_上位机[5].NO[8]',
+  's10_liquid_reagent:3-4': '传感器状态_上位机[5].NO[9]',
+  's10_liquid_reagent:3-5': '传感器状态_上位机[5].NO[10]',
+  's10_liquid_reagent:4-1': '传感器状态_上位机[5].NO[11]',
+  's10_liquid_reagent:4-2': '传感器状态_上位机[5].NO[12]',
+  's10_liquid_reagent:4-3': '传感器状态_上位机[5].NO[13]',
+  's10_liquid_reagent:4-4': '传感器状态_上位机[5].NO[14]',
+  's10_liquid_reagent:4-5': '传感器状态_上位机[5].NO[15]',
+  'powder_container:1-1': '传感器状态_上位机[3].NO[8]',
+  'powder_container:1-2': '传感器状态_上位机[3].NO[9]',
+  'powder_container:1-3': '传感器状态_上位机[3].NO[10]',
+  'powder_container:2-1': '传感器状态_上位机[3].NO[11]',
+  'powder_container:2-2': '传感器状态_上位机[3].NO[12]',
+  'powder_container:2-3': '传感器状态_上位机[3].NO[13]',
+};
+
+function stackSensorValuesFromStatus(status: StackStatusPayload | null) {
+  const values: Record<string, unknown> = {};
+  Object.entries(status?.stacks || {}).forEach(([stackId, stack]) => {
+    Object.entries(stack.slots || {}).forEach(([slotId, slot]) => {
+      const variableName = STACK_SENSOR_VARIABLES[`${stackId}:${slotId}`];
+      if (variableName) {
+        values[variableName] = slot.occupied;
+      }
+    });
+  });
+  return values;
+}
+
 function App() {
   const [title, setTitle] = useState('szlab 本地调试工具');
   const [actions, setActions] = useState<ActionSpec[]>([]);
@@ -136,9 +267,15 @@ function App() {
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
   const [selectedLogNodeId, setSelectedLogNodeId] = useState<string | null>(null);
-  const [opcPanelHeight, setOpcPanelHeight] = useState(150);
+  const [leftTab, setLeftTab] = useState<'devices' | 'stacks'>('devices');
+  const [mainTab, setMainTab] = useState<'workflow' | 'sensors'>('workflow');
+  const [sideTab, setSideTab] = useState<'control' | 'materials' | 'logs'>('control');
+  const [selectedStackId, setSelectedStackId] = useState('');
+  const [showStackModal, setShowStackModal] = useState(false);
+  const [stackStatus, setStackStatus] = useState<StackStatusPayload | null>(null);
+  const [stackError, setStackError] = useState('');
+  const [isRefreshingStack, setIsRefreshingStack] = useState(false);
   const importFileRef = useRef<HTMLInputElement | null>(null);
-  const opcResizeRef = useRef({ startY: 0, startHeight: 150 });
   const canvasToastTimerRef = useRef<number | null>(null);
   const [config, setConfig] = useState({
     graph: DEFAULT_CONFIG.graph,
@@ -157,6 +294,44 @@ function App() {
   const logEvents = useMemo(() => normalizeLogEvents(runStatus), [runStatus]);
   const opcChanges = useMemo(() => collectOpcChanges(logEvents), [logEvents]);
   const draftKey = useMemo(() => workflowDraftKey(workflowName, nodes, edges), [workflowName, nodes, edges]);
+  const actionGroups = useMemo(() => groupActionsByDevice(actions), [actions]);
+  const configuredOpcVariables = useMemo(() => {
+    const nodeVariables = nodes.flatMap((node) => node.data.opcVariables || []);
+    if (nodeVariables.length) return uniqueOpcVariables(nodeVariables);
+    return uniqueOpcVariables(actions.flatMap((action) => action.opc_variables || []));
+  }, [actions, nodes]);
+  const stackSensorValues = useMemo(() => stackSensorValuesFromStatus(stackStatus), [stackStatus]);
+  const configuredOpcVariableRows = useMemo<OpcVariableView[]>(
+    () => configuredOpcVariables.map((name) => ({ name, currentValue: stackSensorValues[name] })),
+    [configuredOpcVariables, stackSensorValues],
+  );
+  const stackResources = useMemo(() => stackResourcesFromStatus(stackStatus), [stackStatus]);
+  const selectedStack = useMemo(
+    () => stackResources.find((stack) => stack.id === selectedStackId) || stackResources[0] || null,
+    [selectedStackId, stackResources],
+  );
+  const selectedStackPayload = selectedStack ? stackStatus?.stacks?.[selectedStack.id] : undefined;
+  const selectedStackSlots = useMemo(
+    () => stackSlotsFromPayload(selectedStackPayload),
+    [selectedStackPayload],
+  );
+  const stationSummary = useMemo(
+    () => stackResources.map((stack) => ({
+      label: stack.title,
+      value: `${stack.total} 槽 / ${stack.used} 已占用`,
+      status: stack.used > 0 ? 'ok' : 'empty',
+    })),
+    [stackResources],
+  );
+  const workspaceSummary = useMemo(
+    () => buildWorkspaceSummary({
+      nodes,
+      edges,
+      opcChangeCount: opcChanges.length,
+      runStatus: runStatus?.status,
+    }),
+    [edges, nodes, opcChanges.length, runStatus?.status],
+  );
 
   useEffect(() => {
     if (selectedLogNodeId && !nodes.some((node) => node.id === selectedLogNodeId)) {
@@ -202,6 +377,34 @@ function App() {
       })
       .catch((error) => setMessage(`preset 加载失败: ${error.message}`));
   }, []);
+
+  const refreshStackStatus = useCallback(async () => {
+    setIsRefreshingStack(true);
+    try {
+      const response = await fetch('/api/stack-status');
+      const payload: StackStatusPayload = await response.json();
+      setStackStatus(payload);
+      setStackError(payload.success ? '' : (payload.message || '堆栈状态暂不可用'));
+    } catch (error) {
+      setStackError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsRefreshingStack(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshStackStatus();
+  }, [refreshStackStatus]);
+
+  useEffect(() => {
+    if (!stackResources.length) {
+      setSelectedStackId('');
+      return;
+    }
+    if (!stackResources.some((stack) => stack.id === selectedStackId)) {
+      setSelectedStackId(stackResources[0].id);
+    }
+  }, [selectedStackId, stackResources]);
 
   useEffect(() => {
     if (!draftReady || !draftStorageKey) return;
@@ -438,57 +641,135 @@ function App() {
     });
   };
 
-  const startOpcPanelResize = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    opcResizeRef.current = { startY: event.clientY, startHeight: opcPanelHeight };
-
-    const handlePointerMove = (moveEvent: PointerEvent) => {
-      const delta = opcResizeRef.current.startY - moveEvent.clientY;
-      const nextHeight = opcResizeRef.current.startHeight + delta;
-      setOpcPanelHeight(Math.min(Math.max(nextHeight, 96), 360));
-    };
-
-    const stopResize = () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', stopResize);
-      window.removeEventListener('pointercancel', stopResize);
-    };
-
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', stopResize);
-    window.addEventListener('pointercancel', stopResize);
-  }, [opcPanelHeight]);
-
   return (
-    <div className="app">
-      <header className="header">
+    <div className="demo-shell demo-tool-shell">
+      <header className="demo-tool-header">
         <div>
           <h1>{title}</h1>
         </div>
-        <div className={`badge ${runStatus?.status || 'idle'}`}>{statusText(runStatus?.status)}</div>
+        <dl className="demo-header-metrics" aria-label="联调状态摘要">
+          <div>
+            <dt>状态</dt>
+            <dd>{workspaceSummary.runStatusText}</dd>
+          </div>
+          <div>
+            <dt>节点</dt>
+            <dd>{workspaceSummary.totalNodes}</dd>
+          </div>
+          <div>
+            <dt>设备</dt>
+            <dd>{workspaceSummary.deviceCount}</dd>
+          </div>
+          <div>
+            <dt>OPC</dt>
+            <dd>{workspaceSummary.opcChangeCount}</dd>
+          </div>
+        </dl>
       </header>
 
-      <div className="layout">
-        <aside className="panel palette">
-          <h2>动作面板</h2>
-          <div className="palette-actions">
-            {actions.map((action) => (
-              <button key={action.method} className="action-card" onClick={() => addActionNode(action)}>
-                <strong>{action.label}</strong>
-                <span>{action.description}</span>
-              </button>
-            ))}
+      <main className="demo-workbench">
+        <aside className="demo-card demo-action-panel">
+          <div className="demo-panel-title">
+            <h2>联调入口</h2>
+            <span>Device / Stack</span>
+          </div>
+          <div className="demo-tabbar left" role="tablist" aria-label="联调入口切换">
+            <button className={leftTab === 'devices' ? 'active' : ''} onClick={() => setLeftTab('devices')} type="button">设备动作</button>
+            <button className={leftTab === 'stacks' ? 'active' : ''} onClick={() => setLeftTab('stacks')} type="button">堆栈</button>
+          </div>
+          <div className="demo-left-sections">
+            {leftTab === 'devices' && (
+              <section className="demo-left-section">
+                <div className="demo-left-section-head">
+                  <strong>设备动作</strong>
+                  <span>Device actions</span>
+                </div>
+                <div className="demo-action-tree">
+                  {actionGroups.map((group) => (
+                    <section className="demo-action-tree-group" key={group.id}>
+                      <div className="demo-action-tree-parent">
+                        <strong>{group.title}</strong>
+                        <code>{group.device}</code>
+                        <span>{group.actions.length} 项</span>
+                      </div>
+                      <div className="demo-action-tree-children">
+                        {group.actions.map((action) => (
+                          <button className="demo-action-row" key={action.method} onClick={() => addActionNode(action)} type="button">
+                            <span title={action.label}>{action.label}</span>
+                            <code title={action.method}>{action.method}</code>
+                            <em>可用</em>
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {leftTab === 'stacks' && (
+              <section className="demo-left-section stack-entry">
+                <div className="demo-left-section-head">
+                  <strong>堆栈</strong>
+                  <span>Stack</span>
+                  <button
+                    className="demo-table-action"
+                    disabled={isRefreshingStack}
+                    onClick={() => refreshStackStatus()}
+                    type="button"
+                  >
+                    {isRefreshingStack ? '刷新中' : '刷新堆栈'}
+                  </button>
+                </div>
+                <table className="demo-stack-resource-table">
+                  <thead>
+                    <tr>
+                      <th>堆栈</th>
+                      <th>占用</th>
+                      <th>下一槽</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stackResources.map((stack) => (
+                      <tr
+                        className={selectedStack?.id === stack.id ? 'active' : ''}
+                        key={stack.id}
+                        onClick={() => setSelectedStackId(stack.id)}
+                        onDoubleClick={() => setShowStackModal(true)}
+                      >
+                        <td>
+                          <strong>{stack.title}</strong>
+                          <span>{stack.role}</span>
+                        </td>
+                        <td>{stack.used}/{stack.total}</td>
+                        <td>{stack.nextSlot}</td>
+                        <td>
+                          <button className="demo-table-action" onClick={() => setShowStackModal(true)} type="button">详情</button>
+                        </td>
+                      </tr>
+                    ))}
+                    {!stackResources.length && (
+                      <tr>
+                        <td colSpan={4}>
+                          <strong>等待真实堆栈数据</strong>
+                          <span>{stackError || '正在读取 /api/stack-status'}</span>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </section>
+            )}
           </div>
         </aside>
 
-        <main className="canvas-panel" style={{ gridTemplateRows: `minmax(0, 1fr) 8px ${opcPanelHeight}px` }}>
-          <div className="flow-canvas">
-            <div className="canvas-toolbar">
-              {workflow && (
-                <div className="canvas-summary">
-                  已生成流程：{workflow.nodes.length} 个节点，{workflow.edges.length} 条连线
-                </div>
-              )}
+        <section className="demo-card demo-main-panel">
+          <div className="demo-canvas-toolbar">
+            <div>
+              <strong>{workflowName}</strong>
+            </div>
+            <div className="demo-toolbar-actions">
               <input
                 ref={importFileRef}
                 className="visually-hidden"
@@ -497,74 +778,181 @@ function App() {
                 onChange={importFlowJson}
               />
               <button onClick={() => importFileRef.current?.click()}>导入 Flow JSON</button>
-              <button onClick={exportPseudoFlow} disabled={!nodes.length}>导出 Flow JSON</button>
-            </div>
-            <ReactFlow
-              nodes={nodes.map((node) => ({
-                ...node,
-                data: {
-                  ...node.data,
-                  onPositionChange: (nodeId: string, value: number) => updateNodeParam(nodeId, 'position', value),
-                },
-              }))}
-              edges={edges}
-              nodeTypes={nodeTypes}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              onConnect={onConnect}
-              onNodeDoubleClick={(_, node) => setEditingNodeId(node.id)}
-              defaultEdgeOptions={{ type: 'smoothstep', animated: true }}
-            >
-              <Background />
-              <MiniMap />
-              <Controls>
-                <ControlButton
-                  aria-label="自动布局"
-                  title="自动布局"
-                  onClick={autoLayoutNodes}
-                  disabled={!nodes.length}
-                >
-                  <svg className="auto-layout-icon" viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M4 5h5v5H4V5Zm11 0h5v5h-5V5ZM4 14h5v5H4v-5Zm11 0h5v5h-5v-5ZM9 7.5h6M9 16.5h6M6.5 10v4M17.5 10v4" />
-                  </svg>
-                </ControlButton>
-              </Controls>
-            </ReactFlow>
-            {canvasToast && <div className="canvas-toast">{canvasToast}</div>}
-          </div>
-          <div
-            className="opc-resizer"
-            role="separator"
-            aria-label="调整 OPC 变量变化面板高度"
-            aria-orientation="horizontal"
-            onPointerDown={startOpcPanelResize}
-          />
-          <OpcChangePanel changes={opcChanges} nodes={nodes} />
-        </main>
-
-        <aside className="panel inspector">
-          <section className="inspector-section">
-            <h2>流程控制</h2>
-            <div className="buttons">
-              <button onClick={() => setShowConfigModal(true)}>运行配置</button>
               <button onClick={() => buildWorkflow().catch((error) => setMessage(error.message))}>校验流程</button>
+              <button onClick={exportPseudoFlow} disabled={!nodes.length}>导出 Flow JSON</button>
               <button className="primary" onClick={runWorkflow} disabled={isRunning || !workflow}>运行</button>
-              <button className="danger" onClick={cancelWorkflow} disabled={!activeRunId}>终止</button>
             </div>
-            {message && <div className="message">{message}</div>}
-          </section>
+          </div>
 
-          <section className="inspector-section logs">
-            <h2>运行日志</h2>
-            <LogPanel
-              events={logEvents}
-              nodes={nodes}
-              selectedNodeId={selectedLogNodeId}
-              onSelectNode={setSelectedLogNodeId}
-            />
-          </section>
+          <div className="demo-tabbar" role="tablist" aria-label="主工作区切换">
+            <button className={mainTab === 'workflow' ? 'active' : ''} onClick={() => setMainTab('workflow')} type="button">流程画布</button>
+            <button className={mainTab === 'sensors' ? 'active' : ''} onClick={() => setMainTab('sensors')} type="button">传感器快照</button>
+          </div>
+
+          {mainTab === 'workflow' && (
+            <div className="demo-canvas real-flow-canvas">
+              <ReactFlow
+                nodes={nodes.map((node) => ({
+                  ...node,
+                  data: {
+                    ...node.data,
+                    onPositionChange: (nodeId: string, value: number) => updateNodeParam(nodeId, 'position', value),
+                  },
+                }))}
+                edges={edges}
+                nodeTypes={nodeTypes}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
+                onConnect={onConnect}
+                onNodeDoubleClick={(_, node) => setEditingNodeId(node.id)}
+                defaultEdgeOptions={{ type: 'smoothstep', animated: true }}
+              >
+                <Background />
+                <MiniMap />
+                <Controls>
+                  <ControlButton
+                    aria-label="自动布局"
+                    title="自动布局"
+                    onClick={autoLayoutNodes}
+                    disabled={!nodes.length}
+                  >
+                    <svg className="auto-layout-icon" viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M4 5h5v5H4V5Zm11 0h5v5h-5V5ZM4 14h5v5H4v-5Zm11 0h5v5h-5v-5ZM9 7.5h6M9 16.5h6M6.5 10v4M17.5 10v4" />
+                    </svg>
+                  </ControlButton>
+                </Controls>
+              </ReactFlow>
+              {canvasToast && <div className="canvas-toast">{canvasToast}</div>}
+            </div>
+          )}
+
+          {mainTab === 'sensors' && (
+            <div className="demo-opc-dock tabbed">
+              <OpcChangePanel changes={opcChanges} nodes={nodes} variables={configuredOpcVariableRows} />
+            </div>
+          )}
+        </section>
+
+        <aside className="demo-card demo-right-panel">
+          <div className="demo-tabbar side" role="tablist" aria-label="右侧信息切换">
+            <button className={sideTab === 'control' ? 'active' : ''} onClick={() => setSideTab('control')} type="button">控制</button>
+            <button className={sideTab === 'materials' ? 'active' : ''} onClick={() => setSideTab('materials')} type="button">物料</button>
+            <button className={sideTab === 'logs' ? 'active' : ''} onClick={() => setSideTab('logs')} type="button">日志</button>
+          </div>
+
+          {sideTab === 'control' && (
+            <section className="demo-side-tab-panel">
+              <div className="demo-panel-title">
+                <h2>流程控制</h2>
+                <span>Run manager</span>
+              </div>
+              <div className="demo-run-buttons">
+                <button onClick={() => setShowConfigModal(true)}>运行配置</button>
+                <button onClick={() => buildWorkflow().catch((error) => setMessage(error.message))}>校验流程</button>
+                <button className="primary" onClick={runWorkflow} disabled={isRunning || !workflow}>运行</button>
+                <button className="danger" onClick={cancelWorkflow} disabled={!activeRunId}>终止</button>
+              </div>
+              {message && <div className="message">{message}</div>}
+              <div className="demo-control-summary">
+                <div className="demo-panel-title compact">
+                  <h2>站位摘要</h2>
+                  <span>Station state</span>
+                </div>
+                <div className="demo-station-list">
+                  {stationSummary.map((station) => (
+                    <article className={`demo-station-mini ${station.status}`} key={station.label}>
+                      <span>{station.label}</span>
+                      <strong>{station.value}</strong>
+                    </article>
+                  ))}
+                  {!stationSummary.length && (
+                    <article className="demo-station-mini empty">
+                      <span>堆栈状态</span>
+                      <strong>{stackError || '等待真实堆栈数据'}</strong>
+                    </article>
+                  )}
+                </div>
+              </div>
+            </section>
+          )}
+
+          {sideTab === 'materials' && (
+            <section className="demo-material-section demo-side-tab-panel">
+              <div className="demo-panel-title">
+                <h2>物料</h2>
+              </div>
+              <table className="demo-material-table">
+                <thead>
+                  <tr>
+                    <th>物料</th>
+                    <th>当前位置</th>
+                    <th>下一步</th>
+                    <th>状态</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {nodes.map((node, index) => (
+                    <tr key={node.id}>
+                      <td>
+                        <strong>{`node-${index + 1}`}</strong>
+                        <span>{node.data.deviceId || '-'}</span>
+                      </td>
+                      <td>{node.data.method}</td>
+                      <td>{node.data.label}</td>
+                      <td>{nodeStatusText(node.data.runStatus || 'idle')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+          )}
+
+          {sideTab === 'logs' && (
+            <section className="demo-log-section demo-side-tab-panel">
+              <div className="demo-panel-title">
+                <h2>运行日志</h2>
+                <span>Timeline</span>
+              </div>
+              <LogPanel
+                events={logEvents}
+                nodes={nodes}
+                selectedNodeId={selectedLogNodeId}
+                onSelectNode={setSelectedLogNodeId}
+              />
+            </section>
+          )}
         </aside>
-      </div>
+      </main>
+
+      {showStackModal && (
+        <div className="demo-modal-backdrop" onMouseDown={() => setShowStackModal(false)}>
+          <section className="demo-stack-modal" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="demo-modal-head">
+              <div>
+                <p>Stack detail</p>
+                <h2>{selectedStack?.title || '堆栈详情'}</h2>
+                <span>{selectedStack?.role || '等待真实数据'}</span>
+              </div>
+              <button onClick={() => setShowStackModal(false)} type="button">关闭</button>
+            </div>
+            <div className="demo-stack-modal-grid">
+              {selectedStackSlots.map((slot) => (
+                <article className={`demo-stack-modal-slot ${slot.status}`} key={slot.id}>
+                  <strong>{slot.id}</strong>
+                  <small>{slot.status === 'empty' ? '空闲' : '占用'}</small>
+                </article>
+              ))}
+              {!selectedStackSlots.length && (
+                <article className="demo-stack-modal-slot empty">
+                  <strong>无槽位</strong>
+                  <small>等待</small>
+                  <p>{stackError || '等待真实堆栈数据'}</p>
+                </article>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
 
       {editingNode && (
         <div className="modal-backdrop" onMouseDown={() => setEditingNodeId(null)}>
@@ -674,71 +1062,6 @@ function App() {
       )}
     </div>
   );
-}
-
-function createPseudoFlowJson(
-  name: string,
-  nodes: Node<ActionNodeData>[],
-  edges: Edge[],
-): PseudoFlowJson {
-  const orderedNodes = orderFlowNodes(nodes, edges);
-  const flowName = name || 'pseudo_flow';
-  return {
-    name: flowName,
-    rules: [
-      {
-        name: flowName,
-        trigger: {
-          node: orderedNodes[0]?.data.label || flowName,
-          value: true,
-          edge: 'rising',
-        },
-        log_nodes: orderedNodes.map((node) => node.data.label),
-        actions: orderedNodes.map((node, index) => ({
-          action: {
-            index: index + 1,
-            node: node.data.label,
-            workflow_node_id: node.id,
-            device_id: node.data.deviceId,
-            method: node.data.method,
-            params: node.data.params,
-          },
-        })),
-      },
-    ],
-  };
-}
-
-function orderFlowNodes(nodes: Node<ActionNodeData>[], edges: Edge[]) {
-  const nodesById = new Map(nodes.map((node) => [node.id, node]));
-  const originalIndex = new Map(nodes.map((node, index) => [node.id, index]));
-  const incoming = new Map(nodes.map((node) => [node.id, 0]));
-  const outgoing = new Map(nodes.map((node) => [node.id, [] as string[]]));
-
-  edges.forEach((edge) => {
-    if (!nodesById.has(edge.source) || !nodesById.has(edge.target)) return;
-    outgoing.get(edge.source)?.push(edge.target);
-    incoming.set(edge.target, (incoming.get(edge.target) || 0) + 1);
-  });
-
-  const ready = nodes
-    .filter((node) => (incoming.get(node.id) || 0) === 0)
-    .map((node) => node.id);
-  const orderedIds: string[] = [];
-  while (ready.length) {
-    ready.sort((left, right) => (originalIndex.get(left) || 0) - (originalIndex.get(right) || 0));
-    const current = ready.shift()!;
-    orderedIds.push(current);
-    (outgoing.get(current) || []).forEach((target) => {
-      incoming.set(target, (incoming.get(target) || 0) - 1);
-      if ((incoming.get(target) || 0) === 0) ready.push(target);
-    });
-  }
-
-  if (orderedIds.length !== nodes.length) {
-    throw new Error('当前画布存在循环连线，无法导出线性 flow.json');
-  }
-  return orderedIds.map((id) => nodesById.get(id)!);
 }
 
 function downloadJson(filename: string, data: unknown) {
@@ -887,11 +1210,47 @@ function LogPanel({
   );
 }
 
-function OpcChangePanel({ changes, nodes }: { changes: OpcChange[]; nodes: Node<ActionNodeData>[] }) {
+function OpcChangePanel({
+  changes,
+  nodes,
+  variables,
+}: {
+  changes: OpcChange[];
+  nodes: Node<ActionNodeData>[];
+  variables: OpcVariableView[];
+}) {
   const nodeLabels = new Map(nodes.map((node) => [node.id, node.data.label]));
 
   return (
     <section className="opc-changes">
+      <div className="opc-changes-head">
+        <h3>OPC 采样变量</h3>
+        <span>{variables.length} 个</span>
+      </div>
+      {variables.length ? (
+        <div className="opc-change-table-wrap">
+          <table className="opc-change-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Name</th>
+                <th>当前值</th>
+              </tr>
+            </thead>
+            <tbody>
+              {variables.map((variable, index) => (
+                <tr key={variable.name}>
+                  <td>{index + 1}</td>
+                  <td><code>{variable.name}</code></td>
+                  <td>{variable.currentValue === undefined ? '-' : formatOpcValue(variable.currentValue)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="opc-change-empty">暂无 OPC 采样变量，请先添加动作节点</div>
+      )}
       <div className="opc-changes-head">
         <h3>OPC 变量变化</h3>
         <span>{changes.length} 条</span>
@@ -969,8 +1328,12 @@ function groupLogEvents(events: LogEvent[]) {
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <ReactFlowProvider>
-      <App />
-    </ReactFlowProvider>
+    {window.location.pathname === '/demo' ? (
+      <WorkstationDemo />
+    ) : (
+      <ReactFlowProvider>
+        <App />
+      </ReactFlowProvider>
+    )}
   </React.StrictMode>,
 );
