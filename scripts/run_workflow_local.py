@@ -401,13 +401,14 @@ def create_local_devices(
         devices: dict[str, Any] = {}
         device_items = list(device_factory.devices.items())
         device_items.sort(key=lambda item: item[0] != device_factory.plc_device_id)
+        has_plc_gateway = bool(device_factory.plc_device_id and device_factory.plc_device_id in device_factory.devices)
         for device_id, class_path in device_items:
             device_config = dict(graph_config.get(device_id, {}))
             if opcua_url:
                 device_config["url"] = opcua_url
             if csv_path:
                 device_config["csv_path"] = str(csv_path.resolve())
-            if device_id != device_factory.plc_device_id:
+            if has_plc_gateway and device_id != device_factory.plc_device_id:
                 device_config.setdefault("use_plc_gateway", True)
             if plc_action_timeout and "timeout" in device_config:
                 device_config["timeout"] = plc_action_timeout

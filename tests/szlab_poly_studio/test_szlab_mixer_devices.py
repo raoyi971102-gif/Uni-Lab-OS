@@ -910,9 +910,9 @@ def test_szlab_mixer_device_creation_passes_csv_path_to_gateway_devices(monkeypa
             "url": "opc.tcp://example:50001",
             "timeout": 300.0,
             "csv_path": str(Path("/tmp/invalid.csv").resolve()),
-            "use_plc_gateway": True,
         }
     }
+    assert "use_plc_gateway" not in created[0]
 
 
 def test_production_graph_passes_robot_and_pipeline_specs(monkeypatch):

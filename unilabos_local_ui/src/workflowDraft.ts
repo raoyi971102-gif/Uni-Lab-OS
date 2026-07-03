@@ -10,6 +10,7 @@ type WorkflowDraftNode = {
     params: Record<string, unknown>;
     paramSpecs?: ParamSpecLike[];
     opcVariables?: string[];
+    executionDisabled?: boolean;
   };
 };
 
@@ -51,6 +52,8 @@ type ImportedDraftOptions = {
   autoLayout?: boolean;
 };
 
+type ExecutionReason = 'willRun' | 'beforeStart' | 'disabled' | 'blockedByDisabled' | 'disconnected';
+
 const DEFAULT_START_X = 80;
 const DEFAULT_START_Y = 120;
 const LAYOUT_X_GAP = 240;
@@ -74,6 +77,9 @@ export function createWorkflowRequest(
       if (node.data.deviceId) {
         data.device_id = node.data.deviceId;
       }
+      if (node.data.executionDisabled) {
+        data.execution_disabled = true;
+      }
       return {
         id: node.id,
         position: node.position,
@@ -90,6 +96,50 @@ export function createWorkflowRequest(
 
 export function workflowDraftKey(name: string, nodes: FlowNodeLike[], edges: FlowEdgeLike[]) {
   return JSON.stringify(createWorkflowRequest(name, nodes, edges));
+}
+
+export function createExecutionPlan<T extends FlowNodeLike>(
+  nodes: T[],
+  edges: FlowEdgeLike[],
+  startNodeId?: string | null,
+) {
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const normalizedStartNodeId = startNodeId && nodeIds.has(startNodeId) ? startNodeId : null;
+  const reachableFromStart = collectReachableNodeIds(normalizedStartNodeId, nodes, edges);
+  const disabledSeeds = new Set(nodes.filter((node) => node.data.executionDisabled).map((node) => node.id));
+  const reachableDisabledSeeds = new Set(Array.from(disabledSeeds).filter((nodeId) => reachableFromStart.has(nodeId)));
+  const blockedByDisabled = new Set<string>();
+  reachableDisabledSeeds.forEach((nodeId) => {
+    collectReachableNodeIds(nodeId, nodes, edges).forEach((blockedId) => blockedByDisabled.add(blockedId));
+  });
+
+  const nodeStates: Record<string, { reason: ExecutionReason }> = {};
+  nodes.forEach((node) => {
+    let reason: ExecutionReason = 'willRun';
+    if (!reachableFromStart.has(node.id)) {
+      reason = 'beforeStart';
+    } else if (reachableDisabledSeeds.has(node.id)) {
+      reason = 'disabled';
+    } else if (blockedByDisabled.has(node.id)) {
+      reason = 'blockedByDisabled';
+    }
+    nodeStates[node.id] = { reason };
+  });
+
+  const executableNodes = nodes.filter((node) => nodeStates[node.id]?.reason === 'willRun');
+  const executableNodeIds = new Set(executableNodes.map((node) => node.id));
+  const executableEdges = edges.filter((edge) => executableNodeIds.has(edge.source) && executableNodeIds.has(edge.target));
+  const disabledNodeId = nodes.find((node) => reachableDisabledSeeds.has(node.id))?.id || null;
+
+  return {
+    startNodeId: normalizedStartNodeId,
+    disabledNodeId,
+    executableNodes,
+    executableEdges,
+    nodeStates,
+    totalCount: nodes.length,
+    executableCount: executableNodes.length,
+  };
 }
 
 export function createImportedDraft(
@@ -200,7 +250,13 @@ function normalizeCanvasDraftPayload(data: Record<string, unknown>, actionByMeth
     const method = readRequiredString(nodeData.method, '画布草稿节点缺少 method');
     const id = readOptionalString(node.id) || `node_${index + 1}_${method}`;
     return {
-      ...buildFlowNode(id, method, nodeData.params, actionByMethod),
+      ...buildFlowNode(
+        id,
+        method,
+        nodeData.params,
+        actionByMethod,
+        Boolean(nodeData.execution_disabled || nodeData.executionDisabled),
+      ),
       position: normalizePosition(node.position),
     };
   });
@@ -230,6 +286,7 @@ function buildFlowNode(
   method: string,
   importedParams: unknown,
   actionByMethod: Map<string, ActionSpecLike>,
+  executionDisabled = false,
 ) {
   const action = actionByMethod.get(method);
   if (!action) {
@@ -252,8 +309,35 @@ function buildFlowNode(
       paramSpecs: action.params || [],
       opcVariables: action.opc_variables || [],
       runStatus: 'idle',
+        executionDisabled,
     },
   };
+}
+
+function collectReachableNodeIds(
+  startNodeId: string | null,
+  nodes: Array<{ id: string }>,
+  edges: FlowEdgeLike[],
+) {
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  if (!startNodeId || !nodeIds.has(startNodeId)) {
+    return nodeIds;
+  }
+  const outgoing = new Map(nodes.map((node) => [node.id, [] as string[]]));
+  edges.forEach((edge) => {
+    if (nodeIds.has(edge.source) && nodeIds.has(edge.target)) {
+      outgoing.get(edge.source)?.push(edge.target);
+    }
+  });
+  const reachable = new Set<string>();
+  const pending = [startNodeId];
+  while (pending.length) {
+    const current = pending.shift()!;
+    if (reachable.has(current)) continue;
+    reachable.add(current);
+    pending.push(...(outgoing.get(current) || []));
+  }
+  return reachable;
 }
 
 function buildDefaultParams(params: ParamSpecLike[]) {

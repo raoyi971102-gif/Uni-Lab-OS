@@ -19,7 +19,13 @@ async function importTypeScriptModule(path) {
   return import(tempFile);
 }
 
-const { createImportedDraft, createWorkflowRequest, layoutFlowGraph, workflowDraftKey } = await importTypeScriptModule(
+const {
+  createExecutionPlan,
+  createImportedDraft,
+  createWorkflowRequest,
+  layoutFlowGraph,
+  workflowDraftKey,
+} = await importTypeScriptModule(
   new URL('../src/workflowDraft.ts', import.meta.url),
 );
 const { collectOpcChanges, formatOpcValue } = await importTypeScriptModule(
@@ -177,6 +183,56 @@ assert.equal(restoredDraft.name, 'persisted_draft');
 assert.equal(restoredDraft.nodes[0].id, 'load');
 assert.deepEqual(restoredDraft.nodes[0].position, { x: 10, y: 20 }, '持久化草稿恢复后应保留坐标');
 assert.equal(restoredDraft.nodes[0].data.params.position, 5, '持久化草稿恢复后应保留参数');
+
+const restoredDisabledDraft = createImportedDraft(
+  createWorkflowRequest(
+    'persisted_disabled',
+    [{ ...importedDraft.nodes[0], data: { ...importedDraft.nodes[0].data, executionDisabled: true } }],
+    [],
+  ),
+  actionSpecs,
+  { autoLayout: false },
+);
+assert.equal(restoredDisabledDraft.nodes[0].data.executionDisabled, true, '持久化草稿恢复后应保留禁用状态');
+
+const executionPlan = createExecutionPlan(
+  [
+    { ...baseNodes[0], id: 'a', data: { ...baseNodes[0].data, label: 'A' } },
+    { ...baseNodes[0], id: 'b', data: { ...baseNodes[0].data, label: 'B' } },
+    { ...baseNodes[0], id: 'c', data: { ...baseNodes[0].data, label: 'C', executionDisabled: true } },
+    { ...baseNodes[0], id: 'd', data: { ...baseNodes[0].data, label: 'D' } },
+  ],
+  [
+    { id: 'a-b', source: 'a', target: 'b' },
+    { id: 'b-c', source: 'b', target: 'c' },
+    { id: 'c-d', source: 'c', target: 'd' },
+  ],
+  'b',
+);
+assert.deepEqual(executionPlan.executableNodes.map((node) => node.id), ['b']);
+assert.deepEqual(executionPlan.executableEdges, []);
+assert.equal(executionPlan.nodeStates.a.reason, 'beforeStart');
+assert.equal(executionPlan.nodeStates.b.reason, 'willRun');
+assert.equal(executionPlan.nodeStates.c.reason, 'disabled');
+assert.equal(executionPlan.nodeStates.d.reason, 'blockedByDisabled');
+assert.equal(executionPlan.startNodeId, 'b');
+assert.equal(executionPlan.disabledNodeId, 'c');
+
+const disabledBeforeStartPlan = createExecutionPlan(
+  [
+    { ...baseNodes[0], id: 'a', data: { ...baseNodes[0].data, executionDisabled: true } },
+    { ...baseNodes[0], id: 'b', data: { ...baseNodes[0].data } },
+    { ...baseNodes[0], id: 'c', data: { ...baseNodes[0].data } },
+  ],
+  [
+    { id: 'a-b', source: 'a', target: 'b' },
+    { id: 'b-c', source: 'b', target: 'c' },
+  ],
+  'b',
+);
+assert.deepEqual(disabledBeforeStartPlan.executableNodes.map((node) => node.id), ['b', 'c']);
+assert.equal(disabledBeforeStartPlan.nodeStates.a.reason, 'beforeStart');
+assert.equal(disabledBeforeStartPlan.disabledNodeId, null);
 
 const laidOut = layoutFlowGraph(
   [
