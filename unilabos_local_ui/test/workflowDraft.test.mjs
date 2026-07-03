@@ -337,7 +337,7 @@ assert.deepEqual(summary, {
 assert.deepEqual(
   groupActionsByDevice([
     {
-      method: 'submit_place_to_magnetic_stirrer',
+      method: 'submit_place_to_s04',
       label: '放置到 S04 磁搅位',
       description: '放置到 S04 磁搅位',
       device_id: 'szlab_mixer_robot',
@@ -362,7 +362,7 @@ assert.deepEqual(
       device: 'szlab_mixer_robot',
       actions: [
         {
-          method: 'submit_place_to_magnetic_stirrer',
+          method: 'submit_place_to_s04',
           label: '放置到 S04 磁搅位',
           description: '放置到 S04 磁搅位',
           device_id: 'szlab_mixer_robot',

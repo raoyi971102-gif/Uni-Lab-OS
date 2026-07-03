@@ -281,8 +281,8 @@ def test_szlab_mixer_ui_preset_uses_0623_csv_and_s04_s05_actions():
     assert runtime_config.device_factory.plc_device_id == "szlab_poly_plc"
     assert preset.actions["run_stirring"].device_id == "szlab_mixer_stirrer"
     assert preset.actions["take_photo"].device_id == "szlab_mixer_photoshotting"
-    assert preset.actions["submit_pick_from_magnetic_stirrer"].device_id == "szlab_mixer_robot"
-    assert preset.actions["submit_place_to_photo_station"].device_id == "szlab_mixer_robot"
+    assert preset.actions["submit_pick_from_s04"].device_id == "szlab_mixer_robot"
+    assert preset.actions["submit_place_to_s05"].device_id == "szlab_mixer_robot"
 
     workflow = build_graph_workflow(
         flow_nodes=[
@@ -306,7 +306,7 @@ def test_szlab_mixer_ui_preset_uses_0623_csv_and_s04_s05_actions():
                 "id": "place_photo",
                 "data": {
                     "device_id": "szlab_mixer_robot",
-                    "method": "submit_place_to_photo_station",
+                    "method": "submit_place_to_s05",
                     "params": {"sample_id": "sample-1"},
                 },
             },

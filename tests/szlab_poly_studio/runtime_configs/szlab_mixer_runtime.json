@@ -15,18 +15,18 @@
         "S05加工完成",
         "S05拍照结果"
       ],
-      "submit_pick_from_magnetic_stirrer": [
+      "submit_pick_from_s04": [
         "S04取放料编号",
         "PLC_R任务号"
       ],
-      "submit_place_to_magnetic_stirrer": [
+      "submit_place_to_s04": [
         "S04取放料编号",
         "PLC_R任务号"
       ],
-      "submit_pick_from_photo_station": [
+      "submit_pick_from_s05": [
         "PLC_R任务号"
       ],
-      "submit_place_to_photo_station": [
+      "submit_place_to_s05": [
         "PLC_R任务号"
       ],
       "submit_pick_from_s01": [

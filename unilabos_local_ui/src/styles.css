@@ -1492,9 +1492,9 @@ code {
 
 .demo-left-sections {
   min-height: 0;
-  overflow: auto;
-  display: grid;
-  align-content: start;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
   padding-right: 3px;
 }
@@ -1504,6 +1504,10 @@ code {
   border-radius: 14px;
   background: #ffffff;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
 }
 
 .demo-left-section-head {
@@ -1710,12 +1714,16 @@ code {
 }
 
 .demo-action-tree {
-  display: grid;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .demo-action-tree-group {
+  flex: 0 0 auto;
   border-bottom: 1px solid #e2e8f0;
 }
 
@@ -1725,19 +1733,43 @@ code {
 
 .demo-action-tree-parent {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
   gap: 2px 8px;
+  width: 100%;
+  border: 0;
   background: #f8fafc;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
   padding: 8px 10px;
 }
 
+.demo-action-tree-parent:hover {
+  background: #f1f5f9;
+}
+
+.demo-action-tree-chevron {
+  grid-row: 1 / span 2;
+  align-self: center;
+  color: #64748b;
+  font-size: 10px;
+  line-height: 1;
+  transition: transform 0.15s ease;
+}
+
+.demo-action-tree-parent[aria-expanded="false"] .demo-action-tree-chevron {
+  transform: rotate(-90deg);
+}
+
 .demo-action-tree-parent strong {
+  grid-column: 2;
   color: #0f172a;
   font-size: 12px;
 }
 
 .demo-action-tree-parent code {
-  grid-column: 1;
+  grid-column: 2;
   overflow: hidden;
   color: #64748b;
   font-size: 10px;
@@ -1745,8 +1777,8 @@ code {
   white-space: nowrap;
 }
 
-.demo-action-tree-parent span {
-  grid-column: 2;
+.demo-action-tree-parent > span:last-child {
+  grid-column: 3;
   grid-row: 1 / span 2;
   align-self: center;
   color: #1d4ed8;
@@ -1818,6 +1850,12 @@ code {
   width: 100%;
   border-collapse: collapse;
   font-size: 11px;
+}
+
+.demo-left-section.stack-entry .demo-stack-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 
 .demo-stack-resource-table th,

@@ -281,6 +281,7 @@ function App() {
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
   const [selectedLogNodeId, setSelectedLogNodeId] = useState<string | null>(null);
   const [leftTab, setLeftTab] = useState<'devices' | 'stacks'>('devices');
+  const [collapsedActionGroups, setCollapsedActionGroups] = useState<Record<string, boolean>>({});
   const [mainTab, setMainTab] = useState<'workflow' | 'sensors'>('workflow');
   const [sideTab, setSideTab] = useState<'control' | 'materials' | 'logs'>('control');
   const [selectedStackId, setSelectedStackId] = useState('');
@@ -309,6 +310,13 @@ function App() {
   const draftKey = useMemo(() => workflowDraftKey(workflowName, nodes, edges), [workflowName, nodes, edges]);
   const executionPlan = useMemo(() => createExecutionPlan(nodes, edges, startNodeId), [edges, nodes, startNodeId]);
   const actionGroups = useMemo(() => groupActionsByDevice(actions), [actions]);
+
+  const toggleActionGroup = useCallback((groupId: string) => {
+    setCollapsedActionGroups((current) => ({
+      ...current,
+      [groupId]: !current[groupId],
+    }));
+  }, []);
   const configuredOpcVariables = useMemo(() => {
     const nodeVariables = nodes.flatMap((node) => node.data.opcVariables || []);
     if (nodeVariables.length) return uniqueOpcVariables(nodeVariables);
@@ -727,13 +735,22 @@ function App() {
                   <span>Device actions</span>
                 </div>
                 <div className="demo-action-tree">
-                  {actionGroups.map((group) => (
+                  {actionGroups.map((group) => {
+                    const collapsed = Boolean(collapsedActionGroups[group.id]);
+                    return (
                     <section className="demo-action-tree-group" key={group.id}>
-                      <div className="demo-action-tree-parent">
+                      <button
+                        className="demo-action-tree-parent"
+                        type="button"
+                        aria-expanded={!collapsed}
+                        onClick={() => toggleActionGroup(group.id)}
+                      >
+                        <span className="demo-action-tree-chevron" aria-hidden="true">▼</span>
                         <strong>{group.title}</strong>
                         <code>{group.device}</code>
                         <span>{group.actions.length} 项</span>
-                      </div>
+                      </button>
+                      {!collapsed && (
                       <div className="demo-action-tree-children">
                         {group.actions.map((action) => (
                           <button className="demo-action-row" key={action.method} onClick={() => addActionNode(action)} type="button">
@@ -743,8 +760,10 @@ function App() {
                           </button>
                         ))}
                       </div>
+                      )}
                     </section>
-                  ))}
+                    );
+                  })}
                 </div>
               </section>
             )}
@@ -763,6 +782,7 @@ function App() {
                     {isRefreshingStack ? '刷新中' : '刷新堆栈'}
                   </button>
                 </div>
+                <div className="demo-stack-scroll">
                 <table className="demo-stack-resource-table">
                   <thead>
                     <tr>
@@ -801,6 +821,7 @@ function App() {
                     )}
                   </tbody>
                 </table>
+                </div>
               </section>
             )}
           </div>

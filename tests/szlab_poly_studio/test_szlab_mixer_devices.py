@@ -87,10 +87,6 @@ def test_szlab_robot_device_is_ast_scannable_from_own_package():
     assert set(result["devices"]) == {"szlab_mixer_robot"}
     actions = result["devices"]["szlab_mixer_robot"]["actions"]
     assert list(actions) == [
-        "submit_pick_from_magnetic_stirrer",
-        "submit_place_to_magnetic_stirrer",
-        "submit_pick_from_photo_station",
-        "submit_place_to_photo_station",
         "submit_pick_from_s01",
         "submit_pick_from_s01_position",
         "submit_place_to_s02",
@@ -632,7 +628,7 @@ def test_szlab_robot_s04_pick_requires_material_and_resets_pc_to_plc_variables()
     device = SzlabMixerRobotDevice(timeout=3.0, busy_start_timeout=3.0)
     device.set_plc_gateway(gateway)
 
-    result = device.submit_pick_from_magnetic_stirrer(position=1)
+    result = device.submit_pick_from_s04(position=1)
 
     assert result["success"] is True
     assert result["status"] == "completed"
@@ -656,7 +652,7 @@ def test_szlab_robot_s04_pick_rejects_empty_position_without_writing_task():
     device = SzlabMixerRobotDevice()
     device.set_plc_gateway(gateway)
 
-    result = device.submit_pick_from_magnetic_stirrer(position=1)
+    result = device.submit_pick_from_s04(position=1)
 
     assert result["success"] is False
     assert result["message"] == "S04 位置 1 无物料，机械臂不能取料"
@@ -668,7 +664,7 @@ def test_szlab_robot_s04_place_requires_empty_position_without_writing_task():
     device = SzlabMixerRobotDevice()
     device.set_plc_gateway(gateway)
 
-    result = device.submit_place_to_magnetic_stirrer(position=1)
+    result = device.submit_place_to_s04(position=1)
 
     assert result["success"] is False
     assert result["message"] == "S04 位置 1 已有物料，机械臂不能放料"
@@ -683,7 +679,7 @@ def test_szlab_robot_s04_place_writes_position_before_task_number():
     device = SzlabMixerRobotDevice(timeout=3.0, busy_start_timeout=3.0)
     device.set_plc_gateway(gateway)
 
-    result = device.submit_place_to_magnetic_stirrer(position=2, sample_id="sample-1")
+    result = device.submit_place_to_s04(position=2, sample_id="sample-1")
 
     assert result["success"] is True
     assert result["sample_id"] == "sample-1"
@@ -703,7 +699,7 @@ def test_szlab_robot_s05_only_writes_task_number_and_resets_it():
     device = SzlabMixerRobotDevice(timeout=3.0, busy_start_timeout=3.0)
     device.set_plc_gateway(gateway)
 
-    result = device.submit_place_to_photo_station(sample_id="sample-1")
+    result = device.submit_place_to_s05(sample_id="sample-1")
 
     assert result["success"] is True
     assert result["station"] == "S05"
@@ -805,7 +801,7 @@ def test_szlab_robot_busy_signal_blocks_task_before_pc_to_plc_write():
     device = SzlabMixerRobotDevice()
     device.set_plc_gateway(gateway)
 
-    result = device.submit_pick_from_magnetic_stirrer(position=1)
+    result = device.submit_pick_from_s04(position=1)
 
     assert result["success"] is False
     assert "不能提交新任务" in result["message"]
@@ -820,7 +816,7 @@ def test_szlab_robot_resets_written_pc_to_plc_variables_after_busy_timeout():
     device = SzlabMixerRobotDevice(timeout=0.0, busy_start_timeout=3.0)
     device.set_plc_gateway(gateway)
 
-    result = device.submit_pick_from_magnetic_stirrer(position=1)
+    result = device.submit_pick_from_s04(position=1)
 
     assert result["success"] is False
     assert "结束超时" in result["message"]
@@ -838,7 +834,7 @@ def test_szlab_mixer_registry_actions_expose_s04_s05_robot_actions():
 
     assert preset.actions["run_stirring"].device_id == "szlab_mixer_stirrer"
     assert preset.actions["take_photo"].device_id == "szlab_mixer_photoshotting"
-    assert preset.actions["submit_pick_from_magnetic_stirrer"].device_id == "szlab_mixer_robot"
+    assert preset.actions["submit_pick_from_s04"].device_id == "szlab_mixer_robot"
 
     workflow = build_graph_workflow(
         flow_nodes=[

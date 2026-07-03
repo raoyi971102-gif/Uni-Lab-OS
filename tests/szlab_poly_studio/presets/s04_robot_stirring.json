@@ -1,0 +1,75 @@
+{
+  "id": "s04_robot_stirring",
+  "title": "SZLab 机械臂 + S04 磁搅联调",
+  "target_device_id": "szlab_mixer_robot",
+  "target_device_ids": [
+    "szlab_mixer_robot",
+    "szlab_mixer_stirrer"
+  ],
+  "actions_source": "registry",
+  "runtime_config": "../runtime_configs/s04_robot_stirring_runtime.json",
+  "default_workflow_name": "s04_robot_stirring_workflow",
+  "default_config": {
+    "graph": "__generated__",
+    "url": "opc.tcp://jdht1471820.bohrium.tech:50001",
+    "csv": "szlab_plc_0623.csv",
+    "timeout": 300,
+    "no_subscription": true,
+    "show_csv": false
+  },
+  "path_roots": [
+    "unilabos/devices/workstation/szlab_poly_studio"
+  ],
+  "device_graph": {
+    "nodes": [
+      {
+        "id": "szlab_poly_plc",
+        "name": "szlab_poly_plc",
+        "children": [],
+        "parent": null,
+        "type": "device",
+        "class": "szlab_poly_plc",
+        "position": {"x": 0, "y": 0, "z": 0},
+        "config": {
+          "url": "${opcua_url}",
+          "csv_path": "${csv_path}",
+          "timeout": "${timeout}",
+          "no_subscription": true
+        },
+        "data": {}
+      },
+      {
+        "id": "szlab_mixer_stirrer",
+        "name": "szlab_mixer_stirrer",
+        "children": [],
+        "parent": null,
+        "type": "device",
+        "class": "szlab_mixer_stirrer",
+        "position": {"x": 200, "y": 0, "z": 0},
+        "config": {
+          "url": "${opcua_url}",
+          "timeout": "${timeout}",
+          "plc_device_id": "szlab_poly_plc",
+          "use_plc_gateway": true
+        },
+        "data": {}
+      },
+      {
+        "id": "szlab_mixer_robot",
+        "name": "szlab_mixer_robot",
+        "children": [],
+        "parent": null,
+        "type": "device",
+        "class": "szlab_mixer_robot",
+        "position": {"x": 400, "y": 0, "z": 0},
+        "config": {
+          "plc_device_id": "szlab_poly_plc",
+          "busy_variable_name": "机器人Busy信号",
+          "timeout": "${timeout}"
+        },
+        "data": {}
+      }
+    ],
+    "links": []
+  }
+}

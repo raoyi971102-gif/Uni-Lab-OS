@@ -301,47 +301,6 @@ class SzlabMixerRobotDevice(
             **self._last_task,
         }
 
-    @action(auto_prefix=True, description="从磁搅位置取料")
-    def submit_pick_from_magnetic_stirrer(self, position: int = 1) -> dict[str, Any]:
-        try:
-            return self._run_s04_pick(position=position)
-        except Exception as exc:
-            return {"success": False, "message": str(exc), "task": "pick", "station": "S04", "position": position}
-
-    @action(auto_prefix=True, description="向磁搅位置放料")
-    def submit_place_to_magnetic_stirrer(self, position: int = 1, sample_id: str = "") -> dict[str, Any]:
-        try:
-            return self._run_s04_place(position=position, sample_id=sample_id)
-        except Exception as exc:
-            return {
-                "success": False,
-                "message": str(exc),
-                "task": "place",
-                "station": "S04",
-                "position": position,
-                "sample_id": sample_id,
-            }
-
-    @action(auto_prefix=True, description="从拍照工位取料")
-    def submit_pick_from_photo_station(self, sample_id: str = "") -> dict[str, Any]:
-        try:
-            return self._run_s05_pick(sample_id=sample_id)
-        except Exception as exc:
-            return {"success": False, "message": str(exc), "task": "pick", "station": "S05", "sample_id": sample_id}
-
-    @action(auto_prefix=True, description="向拍照工位放料")
-    def submit_place_to_photo_station(self, sample_id: str = "") -> dict[str, Any]:
-        try:
-            return self._run_s05_place(sample_id=sample_id)
-        except Exception as exc:
-            return {
-                "success": False,
-                "message": str(exc),
-                "task": "place",
-                "station": "S05",
-                "sample_id": sample_id,
-            }
-
     @action(auto_prefix=True, description="S01 取料")
     def submit_pick_from_s01(
         self,
@@ -392,19 +351,44 @@ class SzlabMixerRobotDevice(
 
     @action(auto_prefix=True, description="S04 放料")
     def submit_place_to_s04(self, position: int = 1, sample_id: str = "") -> dict[str, Any]:
-        return self.submit_place_to_magnetic_stirrer(position=position, sample_id=sample_id)
+        try:
+            return self._run_s04_place(position=position, sample_id=sample_id)
+        except Exception as exc:
+            return {
+                "success": False,
+                "message": str(exc),
+                "task": "place",
+                "station": "S04",
+                "position": position,
+                "sample_id": sample_id,
+            }
 
     @action(auto_prefix=True, description="S04 取料")
     def submit_pick_from_s04(self, position: int = 1) -> dict[str, Any]:
-        return self.submit_pick_from_magnetic_stirrer(position=position)
+        try:
+            return self._run_s04_pick(position=position)
+        except Exception as exc:
+            return {"success": False, "message": str(exc), "task": "pick", "station": "S04", "position": position}
 
     @action(auto_prefix=True, description="S05 放料")
     def submit_place_to_s05(self, sample_id: str = "") -> dict[str, Any]:
-        return self.submit_place_to_photo_station(sample_id=sample_id)
+        try:
+            return self._run_s05_place(sample_id=sample_id)
+        except Exception as exc:
+            return {
+                "success": False,
+                "message": str(exc),
+                "task": "place",
+                "station": "S05",
+                "sample_id": sample_id,
+            }
 
     @action(auto_prefix=True, description="S05 取料")
     def submit_pick_from_s05(self, sample_id: str = "") -> dict[str, Any]:
-        return self.submit_pick_from_photo_station(sample_id=sample_id)
+        try:
+            return self._run_s05_pick(sample_id=sample_id)
+        except Exception as exc:
+            return {"success": False, "message": str(exc), "task": "pick", "station": "S05", "sample_id": sample_id}
 
     @action(auto_prefix=True, description="S06 放料")
     def submit_place_to_s06(self) -> dict[str, Any]:

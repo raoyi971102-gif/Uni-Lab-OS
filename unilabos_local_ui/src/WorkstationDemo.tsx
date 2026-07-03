@@ -60,9 +60,9 @@ const actionGroups: ActionGroupDemo[] = [
     hint: "负责堆栈、S04、S05 之间的 pick/place",
     actions: [
       { label: "从上料堆栈抓取孔板", subtitle: "pick_from_loading_stack(position)", status: "ready" },
-      { label: "放置到 S04 磁搅位", subtitle: "submit_place_to_magnetic_stirrer(position)", status: "selected" },
-      { label: "从 S04 磁搅位取走", subtitle: "submit_pick_from_magnetic_stirrer(position)", status: "ready" },
-      { label: "转运到 S05 拍照站", subtitle: "submit_place_to_photo_station()", status: "ready" },
+      { label: "放置到 S04 磁搅位", subtitle: "submit_place_to_s04(position)", status: "selected" },
+      { label: "从 S04 磁搅位取走", subtitle: "submit_pick_from_s04(position)", status: "ready" },
+      { label: "转运到 S05 拍照站", subtitle: "submit_place_to_s05()", status: "ready" },
     ],
   },
   {
