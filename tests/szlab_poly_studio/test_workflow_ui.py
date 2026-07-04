@@ -1,3 +1,4 @@
+import asyncio
 import csv
 import json
 import time
@@ -6,11 +7,13 @@ from pathlib import Path
 
 import pytest
 
+import scripts.run_workflow_local as run_workflow_local
 from scripts.run_workflow_local import (
     WorkflowLogger,
     WorkflowNode,
     _load_class,
     collect_snapshot_variables,
+    create_local_devices,
     load_runtime_config,
     run_nodes,
 )
@@ -26,6 +29,7 @@ from scripts.workflow_ui import (
     _run_node_with_live_opc_sampling,
     build_graph_workflow,
     build_linear_workflow,
+    create_app,
     build_local_device_graph,
     build_parser,
     load_preset,
@@ -218,83 +222,67 @@ def test_magnetic_stirring_preset_uses_s04_stirrer_config():
     stirrer_node = next(node for node in graph["nodes"] if node["id"] == "szlab_mixer_stirrer")
     assert stirrer_node["config"]["url"] == "opc.tcp://127.0.0.1:48405/"
     assert stirrer_node["config"]["csv_path"].endswith("magnetic_stirring/magnetic_stirring_nodes.csv")
-    assert stirrer_node["config"]["opcua_node_id_map"]["S041允许加工"] == "ns=4;s=上位机通讯|S041允许加工"
+    assert stirrer_node["config"]["opcua_node_id_map"]["S041允许加工"] == "ns=2;i=205"
+    assert stirrer_node["config"]["opcua_node_id_map"]["S041磁搅工艺选择"] == "ns=2;i=206"
+    assert stirrer_node["config"]["opcua_node_id_map"]["S041参数写入完成"] == "ns=2;i=207"
+    assert stirrer_node["config"]["opcua_node_id_map"]["S041加工完成"] == "ns=2;i=208"
     assert (
         stirrer_node["config"]["opcua_node_id_map"]["磁搅速度设置_上位机[0]"]
-        == "ns=4;s=上位机通讯|磁搅速度设置_上位机[0]"
+        == "ns=2;i=247"
     )
     assert (
         stirrer_node["config"]["opcua_node_id_map"]["磁搅温度反馈_上位机[0]"]
-        == "ns=4;s=上位机通讯|磁搅温度反馈_上位机[0]"
+        == "ns=2;i=240"
     )
     assert (
         stirrer_node["config"]["opcua_node_id_map"]["磁搅温度设置_上位机[0]"]
-        == "ns=4;s=上位机通讯|磁搅温度设置_上位机[0]"
+        == "ns=2;i=254"
     )
+    assert stirrer_node["config"]["opcua_node_id_map"]["磁搅时间设置_上位机[5]"] == "ns=2;i=266"
+    assert stirrer_node["config"]["opcua_node_id_map"]["磁搅安全温度设置_上位机[5]"] == "ns=2;i=273"
+    assert stirrer_node["config"]["opcua_node_id_map"]["S045允许加工"] == "ns=2;i=229"
+    assert stirrer_node["config"]["opcua_node_id_map"]["S045磁搅工艺选择"] == "ns=2;i=230"
+    assert stirrer_node["config"]["opcua_node_id_map"]["S046加工完成"] == "ns=2;i=238"
+    assert stirrer_node["config"]["opcua_node_id_map"]["S04取放料编号"] == "ns=2;i=515"
     assert _action_to_dict(preset.actions["run_stirring"], runtime_config)["opc_variables"] == []
 
 
-def test_s07_solid_addition_preset_uses_registry_actions_and_plc_gateway():
-    preset = load_preset("solid_addition_s07")
-    runtime_config = _load_preset_runtime_config(preset)
-    csv_path = _resolve_ui_path(preset.default_config["csv"], preset)
-    graph = build_local_device_graph(
-        opcua_url="opc.tcp://127.0.0.1:48507/",
-        csv_path=str(csv_path),
-        preset=preset,
+def test_single_device_runtime_does_not_force_missing_plc_gateway(monkeypatch, tmp_path):
+    class FakeStirrerDevice:
+        def __init__(self, **config):
+            self.config = config
+            self.plc_device_id = config.get("plc_device_id", "szlab_poly_plc")
+
+    monkeypatch.setattr(
+        run_workflow_local,
+        "load_ai4c_graph_config",
+        lambda _graph_file: {
+            "szlab_mixer_stirrer": {
+                "url": "opc.tcp://127.0.0.1:48405/",
+                "csv_path": "magnetic_stirring_nodes.csv",
+            }
+        },
     )
+    monkeypatch.setattr(run_workflow_local, "_load_class", lambda _class_path: FakeStirrerDevice)
+    runtime_config = load_runtime_config("tests/szlab_poly_studio/runtime_configs/magnetic_stirring_runtime.json")
 
-    assert preset.id == "solid_addition_s07"
-    assert csv_path.exists()
-    assert preset.target_device_ids == ["szlab_s07_solid_addition"]
-    assert list(preset.actions) == [
-        "scan_powder_cartridges",
-        "rotate_powder_cartridge_to_feed",
-        "dose_powder",
-    ]
-    assert runtime_config.device_factory.plc_device_id == "szlab_poly_plc"
-    assert runtime_config.device_factory.devices["szlab_s07_solid_addition"] == (
-        "unilabos.devices.workstation.szlab_poly_studio.s07_solid_addition.s07."
-        "SZLabS07SolidAdditionDevice"
-    )
-    assert collect_snapshot_variables("dose_powder", {}, runtime_config) == [
-        "S07原点信号",
-        "S07允许加工",
-        "S07工艺选择",
-        "S07参数写入完成",
-        "S07工艺完成",
-        "S07粗注粉位置号",
-        "S07精注粉位置号",
-        "S07注粉重量",
-    ]
+    devices = create_local_devices(tmp_path / "graph.json", runtime_config=runtime_config)
 
-    nodes = {node["id"]: node for node in graph["nodes"]}
-    assert nodes["szlab_poly_plc"]["config"]["url"] == "opc.tcp://127.0.0.1:48507/"
-    assert nodes["szlab_poly_plc"]["config"]["csv_path"].endswith("s07_solid_addition/s07_nodes.csv")
-    assert nodes["szlab_s07_solid_addition"]["config"]["plc_device_id"] == "szlab_poly_plc"
-    assert _action_to_dict(preset.actions["dose_powder"], runtime_config)["opc_variables"] == [
-        "S07原点信号",
-        "S07允许加工",
-        "S07工艺选择",
-        "S07参数写入完成",
-        "S07工艺完成",
-        "S07粗注粉位置号",
-        "S07精注粉位置号",
-        "S07注粉重量",
-    ]
+    assert "szlab_mixer_stirrer" in devices
+    assert devices["szlab_mixer_stirrer"].config.get("use_plc_gateway") is not True
 
 
-def test_szlab_mixer_ui_preset_uses_0622_csv_and_s04_s05_actions():
+def test_szlab_mixer_ui_preset_uses_0623_csv_and_s04_s05_actions():
     preset = load_preset("szlab_mixer")
     runtime_config = _load_preset_runtime_config(preset)
     graph_nodes = {node["id"]: node for node in preset.device_graph["nodes"]}
 
-    assert graph_nodes["szlab_poly_plc"]["config"]["csv_path"] == "苏州实验室_0622.csv"
+    assert graph_nodes["szlab_poly_plc"]["config"]["csv_path"].endswith("szlab_plc_0623.csv")
     assert runtime_config.device_factory.plc_device_id == "szlab_poly_plc"
     assert preset.actions["run_stirring"].device_id == "szlab_mixer_stirrer"
     assert preset.actions["take_photo"].device_id == "szlab_mixer_photoshotting"
-    assert preset.actions["submit_pick_from_magnetic_stirrer"].device_id == "szlab_mixer_robot"
-    assert preset.actions["submit_place_to_photo_station"].device_id == "szlab_mixer_robot"
+    assert preset.actions["submit_pick_from_s04"].device_id == "szlab_mixer_robot"
+    assert preset.actions["submit_place_to_s05"].device_id == "szlab_mixer_robot"
 
     workflow = build_graph_workflow(
         flow_nodes=[
@@ -318,7 +306,7 @@ def test_szlab_mixer_ui_preset_uses_0622_csv_and_s04_s05_actions():
                 "id": "place_photo",
                 "data": {
                     "device_id": "szlab_mixer_robot",
-                    "method": "submit_place_to_photo_station",
+                    "method": "submit_place_to_s05",
                     "params": {"sample_id": "sample-1"},
                 },
             },
@@ -521,6 +509,24 @@ def test_build_local_device_graph_keeps_csv_when_explicitly_configured():
 
     nodes = {node["id"]: node for node in graph["nodes"]}
     assert nodes["AI4C_plc"]["config"]["csv_path"] == "ai4c_sim_updated.csv"
+
+
+def test_s06_robot_generated_graph_maps_csv_node_ids_to_pump_device():
+    preset = load_preset("s06_robot")
+    csv_path = _resolve_ui_path(preset.default_config["csv"], preset)
+
+    graph = build_local_device_graph(
+        opcua_url=preset.default_config["url"],
+        csv_path=str(csv_path),
+        use_subscription=False,
+        preset=preset,
+    )
+
+    nodes = {node["id"]: node for node in graph["nodes"]}
+    node_id_map = nodes["szlab_mixer_pump"]["config"]["opcua_node_id_map"]
+
+    assert node_id_map["S06准备信号"] == "ns=4;s=上位机通讯|S06准备信号"
+    assert node_id_map["传感器状态_上位机[3].NO[1]"] == "ns=4;s=上位机通讯|传感器状态_上位机[3].NO[1]"
 
 
 def test_szlab_mixer_pump_runtime_snapshot_variables_are_mapped_for_production_opcua():
@@ -873,3 +879,94 @@ def test_run_nodes_logs_opc_summary_with_detail_instead_of_full_snapshots():
         "value_goal": {"success": True, "value": False},
         "after": {"success": True, "value": False},
     }
+
+
+def test_stack_status_api_returns_live_plc_stack_status(monkeypatch):
+    class FakePLC:
+        def __init__(self):
+            self.calls = []
+
+        def get_stack_status(self, group_names=None):
+            self.calls.append(group_names)
+            return {
+                "success": True,
+                "schema": "szlab_poly_studio.stack_status.v1",
+                "stacks": {
+                    "s10_liquid_reagent": {
+                        "id": "s10_liquid_reagent",
+                        "display_name": "S10液体试剂瓶仓",
+                        "warehouse_name": "S10液体试剂瓶仓占位",
+                        "managed_resource": "reagent",
+                        "content_type": ["liquid_reagent"],
+                        "slots": {"1-1": {"site_key": "1-1", "occupied": True}},
+                    }
+                },
+            }
+
+    fake_plc = FakePLC()
+
+    def fake_get_live_devices(self):
+        return {"szlab_poly_plc": fake_plc}
+
+    monkeypatch.setattr(WorkflowRunManager, "get_live_devices", fake_get_live_devices)
+
+    app = create_app("stack_s05_s06")
+    stack_status_endpoint = next(
+        route.endpoint
+        for route in app.routes
+        if getattr(route, "path", None) == "/api/stack-status"
+    )
+    response = asyncio.run(stack_status_endpoint())
+    second_response = asyncio.run(stack_status_endpoint())
+
+    payload = response
+    assert payload["success"] is True
+    assert payload["stacks"]["s10_liquid_reagent"]["slots"]["1-1"]["occupied"] is True
+    assert second_response["success"] is True
+    assert fake_plc.calls == [["s10_liquid_reagent", "powder_container"]]
+
+
+def test_stack_s05_s06_preset_uses_trimmed_csv_for_stack_camera_and_pump():
+    preset = load_preset("stack_s05_s06")
+    runtime_config = _load_preset_runtime_config(preset)
+    csv_path = _resolve_ui_path(preset.default_config["csv"], preset)
+
+    with csv_path.open(encoding="utf-8-sig", newline="") as handle:
+        variable_names = {row["变量名"] for row in csv.DictReader(handle)}
+
+    required_variables = {
+        "S05加工完成",
+        "S05拍照结果",
+        "S06准备信号",
+        "S06允许加工",
+        "S06工艺选择",
+        "S06_1号溶液添加量",
+        "S06_2号溶液添加量",
+        "S06参数写入完成",
+        "S06加工完成",
+        "传感器状态_上位机[4].NO[12]",
+        "传感器状态_上位机[5].NO[1]",
+        "传感器状态_上位机[3].NO[8]",
+        "传感器状态_上位机[3].NO[13]",
+    }
+
+    assert preset.id == "stack_s05_s06"
+    assert preset.default_config["csv"] == "stack_s05_s06_nodes.csv"
+    assert preset.target_device_ids == ["szlab_mixer_photoshotting", "szlab_mixer_pump"]
+    plc_node = next(node for node in preset.device_graph["nodes"] if node["id"] == "szlab_poly_plc")
+    assert plc_node["config"]["opcua_node_id_prefix"] == "ns=4;s=上位机通讯|"
+    assert plc_node["config"]["opcua_node_id_map"]["传感器状态_上位机[3].NO[8]"] == "ns=2;i=62"
+    assert plc_node["config"]["opcua_node_id_map"]["传感器状态_上位机[4].NO[12]"] == "ns=2;i=83"
+    pump_node = next(node for node in preset.device_graph["nodes"] if node["id"] == "szlab_mixer_pump")
+    assert pump_node["config"]["opcua_node_id_map"]["传感器状态_上位机[3].NO[1]"] == "ns=2;i=55"
+    assert pump_node["config"]["opcua_node_id_map"]["传感器状态_上位机[5].NO[1]"] == "ns=2;i=89"
+    take_photo_snapshot = collect_snapshot_variables("take_photo", {}, runtime_config)
+    assert "传感器状态_上位机[3].NO[8]" in take_photo_snapshot
+    assert "传感器状态_上位机[3].NO[13]" in take_photo_snapshot
+    assert "传感器状态_上位机[4].NO[12]" in take_photo_snapshot
+    assert "传感器状态_上位机[5].NO[15]" in take_photo_snapshot
+    assert runtime_config.device_factory.plc_device_id == "szlab_poly_plc"
+    assert "szlab_poly_plc" in runtime_config.device_factory.devices
+    assert "szlab_mixer_photoshotting" in runtime_config.device_factory.devices
+    assert "szlab_mixer_pump" in runtime_config.device_factory.devices
+    assert required_variables <= variable_names

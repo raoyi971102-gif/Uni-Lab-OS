@@ -1,0 +1,39 @@
+{
+  "name": "s06_robot_workflow",
+  "nodes": [
+    {
+      "uuid": "place-beaker",
+      "name": "auto-submit_place_to_s06",
+      "device_name": "szlab_mixer_robot",
+      "param": {}
+    },
+    {
+      "uuid": "run-solvent-addition",
+      "name": "auto-run_solvent_addition",
+      "device_name": "szlab_mixer_pump",
+      "param": {
+        "pump": 1,
+        "volume": 8,
+        "skip_level_check": false,
+        "skip_robot": true,
+        "beaker_true_means_present": true
+      }
+    },
+    {
+      "uuid": "pick-beaker",
+      "name": "auto-submit_pick_from_s06",
+      "device_name": "szlab_mixer_robot",
+      "param": {}
+    }
+  ],
+  "edges": [
+    {
+      "source_node_uuid": "place-beaker",
+      "target_node_uuid": "run-solvent-addition"
+    },
+    {
+      "source_node_uuid": "run-solvent-addition",
+      "target_node_uuid": "pick-beaker"
+    }
+  ]
+}

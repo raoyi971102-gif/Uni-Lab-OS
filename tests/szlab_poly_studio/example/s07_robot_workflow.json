@@ -1,0 +1,41 @@
+{
+  "name": "s07_robot_workflow",
+  "nodes": [
+    {
+      "uuid": "place-powder-can",
+      "name": "auto-submit_place_to_s071",
+      "device_name": "szlab_mixer_robot",
+      "param": {
+        "position": "1-1"
+      }
+    },
+    {
+      "uuid": "place-beaker-s072",
+      "name": "auto-submit_place_to_s072",
+      "device_name": "szlab_mixer_robot",
+      "param": {
+        "product_type": 1,
+        "position": 1
+      }
+    },
+    {
+      "uuid": "pick-product-s072",
+      "name": "auto-submit_pick_from_s072",
+      "device_name": "szlab_mixer_robot",
+      "param": {
+        "product_type": 1,
+        "position": 1
+      }
+    }
+  ],
+  "edges": [
+    {
+      "source_node_uuid": "place-powder-can",
+      "target_node_uuid": "place-beaker-s072"
+    },
+    {
+      "source_node_uuid": "place-beaker-s072",
+      "target_node_uuid": "pick-product-s072"
+    }
+  ]
+}

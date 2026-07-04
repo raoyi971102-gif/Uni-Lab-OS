@@ -37,6 +37,24 @@
                 "setup": true
             },
             "data": {}
+        },
+        {
+            "id": "szlab_s08_cap_station",
+            "name": "S08 开盖工位",
+            "children": [],
+            "parent": null,
+            "type": "device",
+            "class": "szlab_s08_cap_station",
+            "position": {
+                "x": 500,
+                "y": 0,
+                "z": 0
+            },
+            "config": {
+                "url": "opc.tcp://jdht1471820.bohrium.tech:50001",
+                "timeout": 300
+            },
+            "data": {}
         }
     ],
     "links": []

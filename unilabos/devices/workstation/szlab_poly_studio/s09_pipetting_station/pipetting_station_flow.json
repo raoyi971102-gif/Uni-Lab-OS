@@ -1,0 +1,27 @@
+{
+  "name": "szlab_mixer_pipetting_station",
+  "rules": [
+    {
+      "name": "S09 参数写入后翻转工艺完成",
+      "trigger": {
+        "node": "S09参数写入完成",
+        "value": true,
+        "edge": "rising"
+      },
+      "log_nodes": [
+        "S09工艺选择",
+        "S09TIP盒工位编号",
+        "S09TIP编号",
+        "S09液体瓶编号",
+        "S09抽液量",
+        "S09放液量"
+      ],
+      "actions": [
+        {"write": ["S09工艺完成", 0]},
+        {"sleep": 0.1},
+        {"write": ["S09工艺完成", 5]},
+        {"write": ["S09天平读数", 12.34]}
+      ]
+    }
+  ]
+}

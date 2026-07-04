@@ -12,6 +12,7 @@ from unilabos.devices.workstation.szlab_poly_studio.warehouses import (
     s11_used_beaker_warehouse,
     s11_used_sample_vial_warehouse,
 )
+from unilabos.devices.workstation.szlab_poly_studio.stack_status import build_stack_status
 from unilabos.registry.decorators import resource
 
 
@@ -70,3 +71,10 @@ class SZLabPolyStudioDeck(Deck):
         super().assign_child_resource(resource, location, reassign)
         self.warehouses[resource.name] = resource
         self.warehouse_locations[resource.name] = location
+
+    def build_stack_status(self, sensor_groups, reagent_bindings=None, updated_at: str | None = None):
+        return build_stack_status(
+            sensor_groups,
+            reagent_bindings=reagent_bindings,
+            updated_at=updated_at,
+        )

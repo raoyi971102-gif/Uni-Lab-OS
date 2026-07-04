@@ -1,0 +1,46 @@
+{
+  "name": "s04_robot_stirring_workflow",
+  "nodes": [
+    {
+      "uuid": "place-beaker",
+      "name": "auto-submit_place_to_s04",
+      "device_name": "szlab_mixer_robot",
+      "param": {
+        "position": 1,
+        "sample_id": "beaker-1"
+      }
+    },
+    {
+      "uuid": "run-stirring",
+      "name": "auto-run_stirring",
+      "device_name": "szlab_mixer_stirrer",
+      "param": {
+        "position": 1,
+        "mode": 3,
+        "speed": 300,
+        "temperature": 25,
+        "duration": 30,
+        "safe_temperature": 80,
+        "reset": false
+      }
+    },
+    {
+      "uuid": "pick-beaker",
+      "name": "auto-submit_pick_from_s04",
+      "device_name": "szlab_mixer_robot",
+      "param": {
+        "position": 1
+      }
+    }
+  ],
+  "edges": [
+    {
+      "source_node_uuid": "place-beaker",
+      "target_node_uuid": "run-stirring"
+    },
+    {
+      "source_node_uuid": "run-stirring",
+      "target_node_uuid": "pick-beaker"
+    }
+  ]
+}

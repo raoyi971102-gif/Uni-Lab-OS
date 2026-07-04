@@ -54,3 +54,26 @@ def test_temporary_top_level_workstation_package_path_is_removed():
 
     with pytest.raises(ModuleNotFoundError):
         __import__(removed_module_path)
+
+
+def test_szlab_poly_studio_deck_builds_frontend_stack_status_from_sensor_groups():
+    from unilabos.devices.workstation.szlab_poly_studio.stack_status import (
+        build_stack_status,
+    )
+
+    status = build_stack_status(
+        {
+            "s10_liquid_reagent": {"1-1": True, "1-2": False},
+            "powder_container": {"2-3": True},
+        }
+    )
+
+    assert status["success"] is True
+    assert status["schema"] == "szlab_poly_studio.stack_status.v1"
+    assert status["stacks"]["s10_liquid_reagent"]["warehouse_name"] == "S10液体试剂瓶仓占位"
+    assert status["stacks"]["s10_liquid_reagent"]["managed_resource"] == "reagent"
+    assert status["stacks"]["s10_liquid_reagent"]["slots"]["1-1"]["occupied"] is True
+    assert status["stacks"]["s10_liquid_reagent"]["slots"]["1-2"]["occupied"] is False
+    assert status["stacks"]["s10_liquid_reagent"]["slots"]["1-1"]["reagent_id"] is None
+    assert status["stacks"]["powder_container"]["slots"]["2-3"]["occupied"] is True
+    assert "s2_tip" not in status["stacks"]

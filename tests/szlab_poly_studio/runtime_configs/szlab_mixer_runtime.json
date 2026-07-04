@@ -5,7 +5,7 @@
       "szlab_poly_plc": "unilabos.devices.workstation.szlab_poly_studio.plc.SZLabPolyPLCDevice",
       "szlab_mixer_stirrer": "unilabos.devices.workstation.szlab_poly_studio.magnetic_stirring.magnetic_stirring.SzlabMixerMagneticStirrerDevice",
       "szlab_mixer_photoshotting": "unilabos.devices.workstation.szlab_poly_studio.photoshotting.photoshotting.SzlabMixerPhotoShottingDevice",
-      "szlab_mixer_robot": "unilabos.devices.workstation.szlab_poly_studio.szlab_mixer.robot.SzlabMixerRobotDevice"
+      "szlab_mixer_robot": "unilabos.devices.workstation.szlab_poly_studio.robot.robot.SzlabMixerRobotDevice"
     }
   },
   "opc_snapshot": {
@@ -15,18 +15,118 @@
         "S05加工完成",
         "S05拍照结果"
       ],
-      "submit_pick_from_magnetic_stirrer": [
+      "submit_pick_from_s04": [
         "S04取放料编号",
         "PLC_R任务号"
       ],
-      "submit_place_to_magnetic_stirrer": [
+      "submit_place_to_s04": [
         "S04取放料编号",
         "PLC_R任务号"
       ],
-      "submit_pick_from_photo_station": [
+      "submit_pick_from_s05": [
         "PLC_R任务号"
       ],
-      "submit_place_to_photo_station": [
+      "submit_place_to_s05": [
+        "PLC_R任务号"
+      ],
+      "submit_pick_from_s01": [
+        "S01出入料产品",
+        "PLC_R任务号"
+      ],
+      "submit_pick_from_s01_position": [
+        "S01取放料编号",
+        "PLC_R任务号"
+      ],
+      "submit_place_to_s02": [
+        "S02取放料编号",
+        "PLC_R任务号"
+      ],
+      "submit_pick_from_s02": [
+        "S02取放料编号",
+        "PLC_R任务号"
+      ],
+      "submit_place_to_s03": [
+        "S03取放料产品",
+        "S03取放料编号",
+        "PLC_R任务号"
+      ],
+      "submit_pick_from_s03": [
+        "S03取放料产品",
+        "S03取放料编号",
+        "PLC_R任务号"
+      ],
+      "submit_place_to_s04": [
+        "S04取放料编号",
+        "PLC_R任务号"
+      ],
+      "submit_pick_from_s04": [
+        "S04取放料编号",
+        "PLC_R任务号"
+      ],
+      "submit_place_to_s05": [
+        "PLC_R任务号"
+      ],
+      "submit_pick_from_s05": [
+        "PLC_R任务号"
+      ],
+      "submit_place_to_s06": [
+        "PLC_R任务号"
+      ],
+      "submit_pick_from_s06": [
+        "PLC_R任务号"
+      ],
+      "submit_place_to_s071": [
+        "S071取放料编号",
+        "PLC_R任务号"
+      ],
+      "submit_pick_from_s071": [
+        "S071取放料编号",
+        "PLC_R任务号"
+      ],
+      "submit_place_to_s072": [
+        "S072取放料产品",
+        "PLC_R任务号"
+      ],
+      "submit_pick_from_s072": [
+        "S072取放料产品",
+        "PLC_R任务号"
+      ],
+      "submit_place_to_s08": [
+        "S08取放料产品",
+        "S08取放料编号",
+        "PLC_R任务号"
+      ],
+      "submit_pick_from_s08": [
+        "S08取放料产品",
+        "S08取放料编号",
+        "PLC_R任务号"
+      ],
+      "submit_place_to_s09": [
+        "S09取放料产品",
+        "S09取放料编号",
+        "PLC_R任务号"
+      ],
+      "submit_pick_from_s09": [
+        "S09取放料产品",
+        "S09取放料编号",
+        "PLC_R任务号"
+      ],
+      "submit_place_to_s10": [
+        "S10取放料编号",
+        "PLC_R任务号"
+      ],
+      "submit_pick_from_s10": [
+        "S10取放料编号",
+        "PLC_R任务号"
+      ],
+      "submit_place_to_s11": [
+        "S11取放料产品",
+        "S11取放料编号",
+        "PLC_R任务号"
+      ],
+      "submit_pick_from_s11": [
+        "S11取放料产品",
+        "S11取放料编号",
         "PLC_R任务号"
       ]
     },

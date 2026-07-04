@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
+import os
 import re
 import sys
 import tempfile
@@ -31,6 +33,7 @@ from scripts.run_workflow_local import (
     collect_snapshot_variables,
     create_local_devices,
     format_snapshot_detail,
+    ignore_opcua_token_time_drift,
     load_workflow_nodes,
     load_runtime_config,
     method_name_from_template,
@@ -71,6 +74,7 @@ class WorkflowPreset:
     runtime_config: str | None
     default_workflow_name: str
     default_config: dict[str, Any]
+    debug_config: dict[str, Any]
     path_roots: list[str]
     device_graph: dict[str, Any]
     actions: dict[str, ActionSpec]
@@ -108,6 +112,7 @@ def load_preset(name: str = "ai4c") -> WorkflowPreset:
         runtime_config=data.get("runtime_config"),
         default_workflow_name=data.get("default_workflow_name", "szlab_canvas_workflow"),
         default_config=data.get("default_config", {}),
+        debug_config=data.get("debug_config", {}),
         path_roots=path_roots,
         device_graph=data.get("device_graph", {"nodes": [], "links": []}),
         actions=actions,
@@ -387,6 +392,7 @@ class WorkflowRunManager:
         self._active_run_id: str | None = None
         self._cached_device_key: tuple[Any, ...] | None = None
         self._cached_devices: dict[str, Any] = {}
+        self._stack_status_cache: tuple[float, dict[str, Any]] | None = None
 
     def start(self, payload: dict[str, Any]) -> RunRecord:
         with self._lock:
@@ -436,6 +442,53 @@ class WorkflowRunManager:
     def shutdown(self) -> None:
         self._disconnect_cached_devices()
 
+    def get_live_devices(self) -> dict[str, Any]:
+        with self._lock:
+            if self._cached_devices:
+                return self._cached_devices
+
+        default_config = self._preset.default_config
+        csv_value = str(default_config.get("csv") or "").strip()
+        csv_path = _resolve_ui_path(csv_value, self._preset) if csv_value else None
+        timeout = float(default_config.get("timeout") or 300.0)
+        no_subscription = bool(default_config.get("no_subscription", True))
+        graph_value = str(default_config.get("graph") or GENERATED_GRAPH_SENTINEL).strip()
+        opcua_url = str(default_config.get("url") or "").strip()
+
+        if graph_value == GENERATED_GRAPH_SENTINEL:
+            if not opcua_url:
+                raise ValueError("生成设备图需要填写 OPC UA URL，或指定已有 graph JSON")
+            generated_graph = build_local_device_graph(
+                opcua_url=opcua_url,
+                csv_path=str(csv_path or csv_value or default_config.get("csv") or ""),
+                use_subscription=not no_subscription,
+                preset=self._preset,
+            )
+            graph_file = _write_temp_json(generated_graph)
+        else:
+            graph_file = _resolve_ui_path(graph_value, self._preset)
+
+        device_key = (
+            self._preset.id,
+            graph_value,
+            opcua_url,
+            str(csv_path or ""),
+            no_subscription,
+            timeout,
+        )
+        return self._get_or_create_devices(
+            device_key,
+            {
+                "graph_file": graph_file,
+                "opcua_url": opcua_url or None,
+                "csv_path": csv_path,
+                "use_subscription": False if no_subscription else None,
+                "plc_action_timeout": timeout,
+                "runtime_config": self._runtime_config,
+            },
+            lambda message: None,
+        )
+
     def _get_or_create_devices(
         self,
         device_key: tuple[Any, ...],
@@ -449,6 +502,7 @@ class WorkflowRunManager:
             previous_devices = self._cached_devices
             self._cached_devices = {}
             self._cached_device_key = None
+            self._stack_status_cache = None
 
         if previous_devices:
             _disconnect_devices(previous_devices, log)
@@ -457,6 +511,7 @@ class WorkflowRunManager:
         with self._lock:
             self._cached_devices = devices
             self._cached_device_key = device_key
+            self._stack_status_cache = None
         return devices
 
     def _disconnect_cached_devices(self, devices: dict[str, Any] | None = None, log: Any = None) -> None:
@@ -466,8 +521,33 @@ class WorkflowRunManager:
                 return
             self._cached_devices = {}
             self._cached_device_key = None
+            self._stack_status_cache = None
 
         _disconnect_devices(target_devices, log)
+
+    def get_stack_status(self) -> dict[str, Any]:
+        now = time.monotonic()
+        with self._lock:
+            if self._stack_status_cache and now - self._stack_status_cache[0] < 2.0:
+                return self._stack_status_cache[1]
+
+        devices = self.get_live_devices()
+        plc_device_id = self._runtime_config.device_factory.plc_device_id or "szlab_poly_plc"
+        plc = devices.get(plc_device_id) or devices.get("szlab_poly_plc")
+        if plc is None or not hasattr(plc, "get_stack_status"):
+            status = {
+                "success": False,
+                "schema": "szlab_poly_studio.stack_status.v1",
+                "message": "当前设备图中没有可读取堆栈状态的 PLC 设备",
+                "stacks": {},
+            }
+        else:
+            group_names = self._preset.default_config.get("stack_status_groups")
+            status = plc.get_stack_status(group_names=group_names)
+
+        with self._lock:
+            self._stack_status_cache = (time.monotonic(), status)
+        return status
 
     def _run_payload(self, run_id: str, payload: dict[str, Any]) -> None:
         record = self.get(run_id)
@@ -501,6 +581,11 @@ class WorkflowRunManager:
             csv_value = str(payload.get("csv") or default_config.get("csv") or "").strip()
             csv_path = _resolve_ui_path(csv_value, self._preset) if csv_value else None
             timeout = float(payload.get("timeout") or default_config.get("timeout") or 300.0)
+            write_allowed_timeout = float(
+                payload.get("write_allowed_timeout")
+                or default_config.get("write_allowed_timeout")
+                or 5.0
+            )
             no_subscription = bool(payload.get("no_subscription", default_config.get("no_subscription", True)))
             graph_value = str(payload.get("graph") or default_config.get("graph") or GENERATED_GRAPH_SENTINEL).strip()
             opcua_url = str(payload.get("url") or default_config.get("url") or "").strip()
@@ -511,6 +596,8 @@ class WorkflowRunManager:
                 generated_graph = build_local_device_graph(
                     opcua_url=opcua_url,
                     csv_path=str(csv_path or csv_value or default_config.get("csv") or ""),
+                    timeout=timeout,
+                    write_allowed_timeout=write_allowed_timeout,
                     use_subscription=not no_subscription,
                     preset=self._preset,
                 )
@@ -714,6 +801,8 @@ def build_graph_workflow(
 def build_local_device_graph(
     opcua_url: str,
     csv_path: str = "",
+    timeout: float | int | None = None,
+    write_allowed_timeout: float | int | None = None,
     use_subscription: bool = True,
     preset: WorkflowPreset = DEFAULT_PRESET,
 ) -> dict[str, Any]:
@@ -726,6 +815,12 @@ def build_local_device_graph(
         {
             "opcua_url": opcua_url,
             "csv_path": csv_path,
+            "timeout": timeout if timeout is not None else preset.default_config.get("timeout", 300),
+            "write_allowed_timeout": (
+                write_allowed_timeout
+                if write_allowed_timeout is not None
+                else preset.default_config.get("write_allowed_timeout", 5.0)
+            ),
             "use_subscription": use_subscription,
         },
     )
@@ -735,12 +830,51 @@ def build_local_device_graph(
             if isinstance(config, dict):
                 config.pop("csv_path", None)
     else:
+        auto_map = _load_opcua_node_id_map_from_csv(csv_path)
         for node in graph.get("nodes", []):
             config = node.get("config")
             if isinstance(config, dict) and config.get("url") == opcua_url:
                 config["csv_path"] = csv_path
-                break
+                existing_map = dict(config.get("opcua_node_id_map") or {})
+                merged_map = {**auto_map, **existing_map}
+                if merged_map:
+                    config["opcua_node_id_map"] = merged_map
     return graph
+
+
+def _load_opcua_node_id_map_from_csv(csv_path: str) -> dict[str, str]:
+    node_id_map: dict[str, str] = {}
+    if not csv_path:
+        return node_id_map
+
+    for encoding in ("utf-8-sig", "utf-16", "utf-16-le", "gb18030", "gbk"):
+        for delimiter in (",", "\t"):
+            try:
+                with open(csv_path, newline="", encoding=encoding) as csv_file:
+                    reader = csv.DictReader(csv_file, delimiter=delimiter)
+                    fieldnames = reader.fieldnames or []
+                    if "变量名" not in fieldnames:
+                        continue
+                    node_id_field = next(
+                        (field for field in fieldnames if field.strip().lower() in {"node_id", "nodeid"}),
+                        None,
+                    )
+                    for row in reader:
+                        name = (row.get("变量名") or "").strip()
+                        if not name:
+                            continue
+                        if node_id_field:
+                            node_id = (row.get(node_id_field) or "").strip()
+                            if node_id:
+                                node_id_map[name] = node_id
+                                continue
+                        node_id_map[name] = f"ns=4;s=上位机通讯|{name}"
+                return node_id_map
+            except UnicodeError:
+                continue
+            except OSError:
+                return {}
+    return node_id_map
 
 
 def _load_preset_runtime_config(preset: WorkflowPreset) -> RuntimeConfig:
@@ -772,6 +906,7 @@ def _preset_for_runtime(preset: WorkflowPreset, runtime_config: RuntimeConfig) -
         runtime_config=preset.runtime_config,
         default_workflow_name=preset.default_workflow_name,
         default_config=preset.default_config,
+        debug_config=preset.debug_config,
         path_roots=preset.path_roots,
         device_graph=preset.device_graph,
         actions=actions,
@@ -809,6 +944,18 @@ def create_app(preset_name: str = "ai4c", runtime_config: RuntimeConfig | None =
             "default_config": active_preset.default_config,
             "actions": [_action_to_dict(action, runtime_config) for action in active_preset.actions.values()],
         }
+
+    @app.get("/api/stack-status", response_class=JSONResponse)
+    async def get_stack_status() -> dict[str, Any]:
+        try:
+            return manager.get_stack_status()
+        except Exception as exc:
+            return {
+                "success": False,
+                "schema": "szlab_poly_studio.stack_status.v1",
+                "message": str(exc),
+                "stacks": {},
+            }
 
     @app.post("/api/workflow/build", response_class=JSONResponse)
     async def build_workflow(payload: dict[str, Any]) -> dict[str, Any]:
@@ -897,6 +1044,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--preset", default="ai4c", help="服务使用的 workflow preset 名称或 JSON 路径")
     parser.add_argument("--runtime-config", type=Path, default=None, help="覆盖 preset 中的运行配置 JSON")
     parser.add_argument("--open-browser", action="store_true", help="服务启动后自动打开浏览器")
+    parser.add_argument("--debug", action="store_true", help="启用 preset.debug_config 中定义的调试环境变量")
     return parser
 
 
@@ -1091,6 +1239,28 @@ npm run build</pre>
     )
 
 
+def apply_preset_debug_config(preset_name: str) -> dict[str, str]:
+    preset = load_preset(preset_name)
+    applied: dict[str, str] = {}
+    skip_variables = preset.debug_config.get("skip_robot_precheck_variables", [])
+    if isinstance(skip_variables, list):
+        variable_names = [str(name).strip() for name in skip_variables if str(name).strip()]
+        if variable_names:
+            value = ",".join(variable_names)
+            os.environ["SKIP_ROBOT_PRECHECK_VARIABLES"] = value
+            applied["SKIP_ROBOT_PRECHECK_VARIABLES"] = value
+
+    env_values = preset.debug_config.get("env", {})
+    if isinstance(env_values, dict):
+        for name, value in env_values.items():
+            if not name:
+                continue
+            text_value = str(value)
+            os.environ[str(name)] = text_value
+            applied[str(name)] = text_value
+    return applied
+
+
 def main() -> None:
     import argparse
 
@@ -1100,9 +1270,13 @@ def main() -> None:
     parser.add_argument("--preset", default="ai4c", help="preset 名称，Docker 默认使用 szlab_mixer")
     parser.add_argument("--no-browser", action="store_true", help="启动时不自动打开浏览器")
     parser.add_argument("--runtime-config", type=Path, default=None, help="覆盖 preset 的 runtime config")
+    parser.add_argument("--debug", action="store_true", help="启用 preset.debug_config 中定义的调试环境变量")
     args = parser.parse_args()
 
     runtime_config = load_runtime_config(args.runtime_config) if args.runtime_config else None
+    ignore_opcua_token_time_drift()
+    if args.debug:
+        apply_preset_debug_config(args.preset)
     start_ui(
         host=args.host,
         port=args.port,
