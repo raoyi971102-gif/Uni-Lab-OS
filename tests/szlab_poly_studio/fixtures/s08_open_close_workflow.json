@@ -1,0 +1,30 @@
+{
+  "name": "s08_open_close_workflow",
+  "nodes": [
+    {
+      "uuid": "node_1",
+      "name": "process_cap",
+      "device_name": "szlab_s08_cap_station",
+      "param": {
+        "operation": "open",
+        "vial_type": "liquid_100ml",
+        "sample_id": [101, 102, 103],
+        "timeout": 300
+      }
+    },
+    {
+      "uuid": "node_2",
+      "name": "process_cap",
+      "device_name": "szlab_s08_cap_station",
+      "param": {
+        "operation": "close",
+        "vial_type": "liquid_100ml",
+        "sample_id": [101, 102, 103],
+        "timeout": 300
+      }
+    }
+  ],
+  "edges": [
+    {"source_node_uuid": "node_1", "target_node_uuid": "node_2"}
+  ]
+}

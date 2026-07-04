@@ -1,0 +1,63 @@
+{
+  "device_factory": {
+    "plc_device_id": "szlab_poly_plc",
+    "devices": {
+      "szlab_poly_plc": "unilabos.devices.workstation.szlab_poly_studio.plc.SZLabPolyPLCDevice",
+      "szlab_mixer_stirrer": "unilabos.devices.workstation.szlab_poly_studio.magnetic_stirring.magnetic_stirring.SzlabMixerMagneticStirrerDevice",
+      "szlab_mixer_robot": "unilabos.devices.workstation.szlab_poly_studio.robot.robot.SzlabMixerRobotDevice"
+    }
+  },
+  "opc_snapshot": {
+    "common_variables": [],
+    "action_variables": {
+      "submit_place_to_s04": [
+        "S04取放料编号",
+        "任务号"
+      ],
+      "submit_pick_from_s04": [
+        "S04取放料编号",
+        "任务号"
+      ]
+    },
+    "param_variables": {
+      "run_stirring": [
+        {
+          "param": "position",
+          "template": "S04{position}允许加工"
+        },
+        {
+          "param": "position",
+          "template": "S04{position}磁搅工艺选择"
+        },
+        {
+          "param": "position",
+          "template": "S04{position}参数写入完成"
+        },
+        {
+          "param": "position",
+          "template": "S04{position}加工完成"
+        },
+        {
+          "param": "position",
+          "template": "磁搅温度反馈_上位机[{position_minus_1}]"
+        },
+        {
+          "param": "position",
+          "template": "磁搅速度设置_上位机[{position_minus_1}]"
+        },
+        {
+          "param": "position",
+          "template": "磁搅温度设置_上位机[{position_minus_1}]"
+        },
+        {
+          "param": "position",
+          "template": "磁搅时间设置_上位机[{position_minus_1}]"
+        },
+        {
+          "param": "position",
+          "template": "磁搅安全温度设置_上位机[{position_minus_1}]"
+        }
+      ]
+    }
+  }
+}

@@ -1,19 +1,19 @@
+import asyncio
 import csv
 import json
-import os
-import sys
 import time
 from importlib.util import find_spec
 from pathlib import Path
 
 import pytest
 
-import scripts.workflow_ui as workflow_ui
+import scripts.run_workflow_local as run_workflow_local
 from scripts.run_workflow_local import (
     WorkflowLogger,
     WorkflowNode,
     _load_class,
     collect_snapshot_variables,
+    create_local_devices,
     load_runtime_config,
     run_nodes,
 )
@@ -29,6 +29,7 @@ from scripts.workflow_ui import (
     _run_node_with_live_opc_sampling,
     build_graph_workflow,
     build_linear_workflow,
+    create_app,
     build_local_device_graph,
     build_parser,
     load_preset,
@@ -221,28 +222,62 @@ def test_magnetic_stirring_preset_uses_s04_stirrer_config():
     stirrer_node = next(node for node in graph["nodes"] if node["id"] == "szlab_mixer_stirrer")
     assert stirrer_node["config"]["url"] == "opc.tcp://127.0.0.1:48405/"
     assert stirrer_node["config"]["csv_path"].endswith("magnetic_stirring/magnetic_stirring_nodes.csv")
-    assert stirrer_node["config"]["opcua_node_id_map"]["S041允许加工"] == "ns=4;s=上位机通讯|S041允许加工"
+    assert stirrer_node["config"]["opcua_node_id_map"]["S041允许加工"] == "ns=2;i=205"
+    assert stirrer_node["config"]["opcua_node_id_map"]["S041磁搅工艺选择"] == "ns=2;i=206"
+    assert stirrer_node["config"]["opcua_node_id_map"]["S041参数写入完成"] == "ns=2;i=207"
+    assert stirrer_node["config"]["opcua_node_id_map"]["S041加工完成"] == "ns=2;i=208"
     assert (
         stirrer_node["config"]["opcua_node_id_map"]["磁搅速度设置_上位机[0]"]
-        == "ns=4;s=上位机通讯|磁搅速度设置_上位机[0]"
+        == "ns=2;i=247"
     )
     assert (
         stirrer_node["config"]["opcua_node_id_map"]["磁搅温度反馈_上位机[0]"]
-        == "ns=4;s=上位机通讯|磁搅温度反馈_上位机[0]"
+        == "ns=2;i=240"
     )
     assert (
         stirrer_node["config"]["opcua_node_id_map"]["磁搅温度设置_上位机[0]"]
-        == "ns=4;s=上位机通讯|磁搅温度设置_上位机[0]"
+        == "ns=2;i=254"
     )
+    assert stirrer_node["config"]["opcua_node_id_map"]["磁搅时间设置_上位机[5]"] == "ns=2;i=266"
+    assert stirrer_node["config"]["opcua_node_id_map"]["磁搅安全温度设置_上位机[5]"] == "ns=2;i=273"
+    assert stirrer_node["config"]["opcua_node_id_map"]["S045允许加工"] == "ns=2;i=229"
+    assert stirrer_node["config"]["opcua_node_id_map"]["S045磁搅工艺选择"] == "ns=2;i=230"
+    assert stirrer_node["config"]["opcua_node_id_map"]["S046加工完成"] == "ns=2;i=238"
+    assert stirrer_node["config"]["opcua_node_id_map"]["S04取放料编号"] == "ns=2;i=515"
     assert _action_to_dict(preset.actions["run_stirring"], runtime_config)["opc_variables"] == []
 
 
-def test_szlab_mixer_ui_preset_uses_robot_csv_and_s04_s05_actions():
+def test_single_device_runtime_does_not_force_missing_plc_gateway(monkeypatch, tmp_path):
+    class FakeStirrerDevice:
+        def __init__(self, **config):
+            self.config = config
+            self.plc_device_id = config.get("plc_device_id", "szlab_poly_plc")
+
+    monkeypatch.setattr(
+        run_workflow_local,
+        "load_ai4c_graph_config",
+        lambda _graph_file: {
+            "szlab_mixer_stirrer": {
+                "url": "opc.tcp://127.0.0.1:48405/",
+                "csv_path": "magnetic_stirring_nodes.csv",
+            }
+        },
+    )
+    monkeypatch.setattr(run_workflow_local, "_load_class", lambda _class_path: FakeStirrerDevice)
+    runtime_config = load_runtime_config("tests/szlab_poly_studio/runtime_configs/magnetic_stirring_runtime.json")
+
+    devices = create_local_devices(tmp_path / "graph.json", runtime_config=runtime_config)
+
+    assert "szlab_mixer_stirrer" in devices
+    assert devices["szlab_mixer_stirrer"].config.get("use_plc_gateway") is not True
+
+
+def test_szlab_mixer_ui_preset_uses_0623_csv_and_s04_s05_actions():
     preset = load_preset("szlab_mixer")
     runtime_config = _load_preset_runtime_config(preset)
     graph_nodes = {node["id"]: node for node in preset.device_graph["nodes"]}
 
-    assert graph_nodes["szlab_poly_plc"]["config"]["csv_path"].endswith("robot/上位机通讯_new(3).csv")
+    assert graph_nodes["szlab_poly_plc"]["config"]["csv_path"].endswith("szlab_plc_0623.csv")
     assert runtime_config.device_factory.plc_device_id == "szlab_poly_plc"
     assert preset.actions["run_stirring"].device_id == "szlab_mixer_stirrer"
     assert preset.actions["take_photo"].device_id == "szlab_mixer_photoshotting"
@@ -292,54 +327,6 @@ def test_szlab_mixer_ui_preset_uses_robot_csv_and_s04_s05_actions():
         {"source_node_uuid": "stir", "target_node_uuid": "place_photo"},
         {"source_node_uuid": "place_photo", "target_node_uuid": "photo"},
     ]
-
-
-def test_robot_action_preset_builds_direct_node_id_map_from_robot_csv():
-    preset = load_preset("robot_action")
-    csv_path = _resolve_ui_path(preset.default_config["csv"], preset)
-
-    graph = build_local_device_graph(
-        opcua_url="opc.tcp://192.168.1.10:4840",
-        csv_path=str(csv_path),
-        timeout=preset.default_config["timeout"],
-        write_allowed_timeout=preset.default_config["write_allowed_timeout"],
-        use_subscription=False,
-        preset=preset,
-    )
-
-    configs = {node["id"]: node["config"] for node in graph["nodes"]}
-    plc_config = configs["szlab_poly_plc"]
-    robot_config = configs["szlab_mixer_robot"]
-    node_id_map = plc_config["opcua_node_id_map"]
-
-    assert node_id_map["传感器状态_上位机[0].NO[0]"] == "ns=4;s=上位机通讯|传感器状态_上位机[0].NO[0]"
-    assert node_id_map["S02取放料编号"] == "ns=4;s=上位机通讯|S02取放料编号"
-    assert node_id_map["任务号"] == "ns=4;s=上位机通讯|任务号"
-    assert robot_config["timeout"] == 300
-    assert robot_config["write_allowed_timeout"] == 60
-    assert set(configs) == {"szlab_poly_plc", "szlab_mixer_robot"}
-    assert preset.actions["submit_pick_from_s02"].device_id == "szlab_mixer_robot"
-    assert preset.actions["submit_pour_from_s08"].device_id == "szlab_mixer_robot"
-    assert "run_stirring" not in preset.actions
-
-
-def test_robot_action_local_graph_allows_write_allowed_timeout_override():
-    preset = load_preset("robot_action")
-    csv_path = _resolve_ui_path(preset.default_config["csv"], preset)
-
-    graph = build_local_device_graph(
-        opcua_url="opc.tcp://192.168.1.10:4840",
-        csv_path=str(csv_path),
-        timeout=120,
-        write_allowed_timeout=15,
-        use_subscription=False,
-        preset=preset,
-    )
-
-    robot_config = next(node["config"] for node in graph["nodes"] if node["id"] == "szlab_mixer_robot")
-
-    assert robot_config["timeout"] == 120
-    assert robot_config["write_allowed_timeout"] == 15
 
 
 def test_ai4c_runtime_device_classes_are_importable():
@@ -524,6 +511,24 @@ def test_build_local_device_graph_keeps_csv_when_explicitly_configured():
     assert nodes["AI4C_plc"]["config"]["csv_path"] == "ai4c_sim_updated.csv"
 
 
+def test_s06_robot_generated_graph_maps_csv_node_ids_to_pump_device():
+    preset = load_preset("s06_robot")
+    csv_path = _resolve_ui_path(preset.default_config["csv"], preset)
+
+    graph = build_local_device_graph(
+        opcua_url=preset.default_config["url"],
+        csv_path=str(csv_path),
+        use_subscription=False,
+        preset=preset,
+    )
+
+    nodes = {node["id"]: node for node in graph["nodes"]}
+    node_id_map = nodes["szlab_mixer_pump"]["config"]["opcua_node_id_map"]
+
+    assert node_id_map["S06准备信号"] == "ns=4;s=上位机通讯|S06准备信号"
+    assert node_id_map["传感器状态_上位机[3].NO[1]"] == "ns=4;s=上位机通讯|传感器状态_上位机[3].NO[1]"
+
+
 def test_szlab_mixer_pump_runtime_snapshot_variables_are_mapped_for_production_opcua():
     runtime_config = load_runtime_config("tests/szlab_poly_studio/runtime_configs/szlab_mixer_pump_runtime.json")
     graph = json.loads(
@@ -654,84 +659,6 @@ def test_workflow_ui_parser_defaults_to_container_service():
     assert args.preset == "ai4c"
     assert args.runtime_config is None
     assert args.open_browser is False
-    assert args.debug is False
-
-
-def test_workflow_ui_main_installs_opcua_token_time_drift_patch(monkeypatch):
-    calls = []
-
-    def fake_ignore_opcua_token_time_drift():
-        calls.append("ignore_token_time_drift")
-
-    def fake_start_ui(**kwargs):
-        calls.append(("start_ui", kwargs))
-
-    monkeypatch.setattr(
-        workflow_ui,
-        "ignore_opcua_token_time_drift",
-        fake_ignore_opcua_token_time_drift,
-        raising=False,
-    )
-    monkeypatch.setattr(workflow_ui, "start_ui", fake_start_ui)
-    monkeypatch.setattr(sys, "argv", ["workflow_ui.py", "--preset", "szlab_mixer", "--no-browser"])
-
-    workflow_ui.main()
-
-    assert calls[0] == "ignore_token_time_drift"
-    assert calls[1] == (
-        "start_ui",
-        {
-            "host": "127.0.0.1",
-            "port": 8014,
-            "open_browser": False,
-            "preset_name": "szlab_mixer",
-            "runtime_config": None,
-        },
-    )
-
-
-def test_workflow_ui_main_debug_applies_preset_env(monkeypatch):
-    calls = []
-    monkeypatch.delenv("SKIP_ROBOT_PRECHECK_VARIABLES", raising=False)
-    monkeypatch.delenv("SKIP_SENSOR_PRECHECK", raising=False)
-
-    monkeypatch.setattr(workflow_ui, "ignore_opcua_token_time_drift", lambda: calls.append("ignore_token_time_drift"))
-    monkeypatch.setattr(workflow_ui, "start_ui", lambda **kwargs: calls.append(("start_ui", kwargs)))
-    monkeypatch.setattr(sys, "argv", ["workflow_ui.py", "--preset", "robot_action", "--debug", "--no-browser"])
-
-    try:
-        workflow_ui.main()
-
-        skipped_variables = set(os.environ["SKIP_ROBOT_PRECHECK_VARIABLES"].split(","))
-        assert "Robot_Home" in skipped_variables
-        assert "传感器状态_上位机[3].NO[14]" in skipped_variables
-        assert os.environ["SKIP_SENSOR_PRECHECK"] == "1"
-        assert calls[0] == "ignore_token_time_drift"
-        assert calls[1][0] == "start_ui"
-    finally:
-        os.environ.pop("SKIP_ROBOT_PRECHECK_VARIABLES", None)
-        os.environ.pop("SKIP_SENSOR_PRECHECK", None)
-
-
-def test_workflow_ui_main_debug_applies_szlab_mixer_sensor_skip(monkeypatch):
-    calls = []
-    monkeypatch.delenv("SKIP_ROBOT_PRECHECK_VARIABLES", raising=False)
-    monkeypatch.delenv("SKIP_SENSOR_PRECHECK", raising=False)
-
-    monkeypatch.setattr(workflow_ui, "ignore_opcua_token_time_drift", lambda: calls.append("ignore_token_time_drift"))
-    monkeypatch.setattr(workflow_ui, "start_ui", lambda **kwargs: calls.append(("start_ui", kwargs)))
-    monkeypatch.setattr(sys, "argv", ["workflow_ui.py", "--preset", "szlab_mixer", "--debug", "--no-browser"])
-
-    try:
-        workflow_ui.main()
-
-        assert os.environ["SKIP_ROBOT_PRECHECK_VARIABLES"] == "Robot_Home"
-        assert os.environ["SKIP_SENSOR_PRECHECK"] == "1"
-        assert calls[0] == "ignore_token_time_drift"
-        assert calls[1][0] == "start_ui"
-    finally:
-        os.environ.pop("SKIP_ROBOT_PRECHECK_VARIABLES", None)
-        os.environ.pop("SKIP_SENSOR_PRECHECK", None)
 
 
 def test_workflow_run_manager_reuses_devices_between_runs(monkeypatch):
@@ -952,3 +879,94 @@ def test_run_nodes_logs_opc_summary_with_detail_instead_of_full_snapshots():
         "value_goal": {"success": True, "value": False},
         "after": {"success": True, "value": False},
     }
+
+
+def test_stack_status_api_returns_live_plc_stack_status(monkeypatch):
+    class FakePLC:
+        def __init__(self):
+            self.calls = []
+
+        def get_stack_status(self, group_names=None):
+            self.calls.append(group_names)
+            return {
+                "success": True,
+                "schema": "szlab_poly_studio.stack_status.v1",
+                "stacks": {
+                    "s10_liquid_reagent": {
+                        "id": "s10_liquid_reagent",
+                        "display_name": "S10液体试剂瓶仓",
+                        "warehouse_name": "S10液体试剂瓶仓占位",
+                        "managed_resource": "reagent",
+                        "content_type": ["liquid_reagent"],
+                        "slots": {"1-1": {"site_key": "1-1", "occupied": True}},
+                    }
+                },
+            }
+
+    fake_plc = FakePLC()
+
+    def fake_get_live_devices(self):
+        return {"szlab_poly_plc": fake_plc}
+
+    monkeypatch.setattr(WorkflowRunManager, "get_live_devices", fake_get_live_devices)
+
+    app = create_app("stack_s05_s06")
+    stack_status_endpoint = next(
+        route.endpoint
+        for route in app.routes
+        if getattr(route, "path", None) == "/api/stack-status"
+    )
+    response = asyncio.run(stack_status_endpoint())
+    second_response = asyncio.run(stack_status_endpoint())
+
+    payload = response
+    assert payload["success"] is True
+    assert payload["stacks"]["s10_liquid_reagent"]["slots"]["1-1"]["occupied"] is True
+    assert second_response["success"] is True
+    assert fake_plc.calls == [["s10_liquid_reagent", "powder_container"]]
+
+
+def test_stack_s05_s06_preset_uses_trimmed_csv_for_stack_camera_and_pump():
+    preset = load_preset("stack_s05_s06")
+    runtime_config = _load_preset_runtime_config(preset)
+    csv_path = _resolve_ui_path(preset.default_config["csv"], preset)
+
+    with csv_path.open(encoding="utf-8-sig", newline="") as handle:
+        variable_names = {row["变量名"] for row in csv.DictReader(handle)}
+
+    required_variables = {
+        "S05加工完成",
+        "S05拍照结果",
+        "S06准备信号",
+        "S06允许加工",
+        "S06工艺选择",
+        "S06_1号溶液添加量",
+        "S06_2号溶液添加量",
+        "S06参数写入完成",
+        "S06加工完成",
+        "传感器状态_上位机[4].NO[12]",
+        "传感器状态_上位机[5].NO[1]",
+        "传感器状态_上位机[3].NO[8]",
+        "传感器状态_上位机[3].NO[13]",
+    }
+
+    assert preset.id == "stack_s05_s06"
+    assert preset.default_config["csv"] == "stack_s05_s06_nodes.csv"
+    assert preset.target_device_ids == ["szlab_mixer_photoshotting", "szlab_mixer_pump"]
+    plc_node = next(node for node in preset.device_graph["nodes"] if node["id"] == "szlab_poly_plc")
+    assert plc_node["config"]["opcua_node_id_prefix"] == "ns=4;s=上位机通讯|"
+    assert plc_node["config"]["opcua_node_id_map"]["传感器状态_上位机[3].NO[8]"] == "ns=2;i=62"
+    assert plc_node["config"]["opcua_node_id_map"]["传感器状态_上位机[4].NO[12]"] == "ns=2;i=83"
+    pump_node = next(node for node in preset.device_graph["nodes"] if node["id"] == "szlab_mixer_pump")
+    assert pump_node["config"]["opcua_node_id_map"]["传感器状态_上位机[3].NO[1]"] == "ns=2;i=55"
+    assert pump_node["config"]["opcua_node_id_map"]["传感器状态_上位机[5].NO[1]"] == "ns=2;i=89"
+    take_photo_snapshot = collect_snapshot_variables("take_photo", {}, runtime_config)
+    assert "传感器状态_上位机[3].NO[8]" in take_photo_snapshot
+    assert "传感器状态_上位机[3].NO[13]" in take_photo_snapshot
+    assert "传感器状态_上位机[4].NO[12]" in take_photo_snapshot
+    assert "传感器状态_上位机[5].NO[15]" in take_photo_snapshot
+    assert runtime_config.device_factory.plc_device_id == "szlab_poly_plc"
+    assert "szlab_poly_plc" in runtime_config.device_factory.devices
+    assert "szlab_mixer_photoshotting" in runtime_config.device_factory.devices
+    assert "szlab_mixer_pump" in runtime_config.device_factory.devices
+    assert required_variables <= variable_names

@@ -1,0 +1,67 @@
+{
+  "name": "szlab_s08_cap_station",
+  "rules": [
+    {
+      "name": "complete S08 cap process after params are written",
+      "trigger": {
+        "node": "S08参数写入完成",
+        "value": true,
+        "edge": "rising"
+      },
+      "log_nodes": [
+        "S08工艺选择",
+        "S082瓶盖暂存位"
+      ],
+      "actions": [
+        {"sleep": 0.05},
+        {"write": {"node": "S08工艺完成", "value": 1}, "when": {"node": "S08工艺选择", "value": 1}},
+        {"write": {"node": "S08工艺完成", "value": 2}, "when": {"node": "S08工艺选择", "value": 2}},
+        {"write": {"node": "S08工艺完成", "value": 3}, "when": {"node": "S08工艺选择", "value": 3}},
+        {"write": {"node": "S08工艺完成", "value": 4}, "when": {"node": "S08工艺选择", "value": 4}},
+        {"write": {"node": "S08工艺完成", "value": 5}, "when": {"node": "S08工艺选择", "value": 5}},
+        {"write": {"node": "S08工艺完成", "value": 6}, "when": {"node": "S08工艺选择", "value": 6}},
+        {"write": {"node": "传感器状态_上位机[4].NO[0]", "value": true}, "when": [{"node": "S08工艺选择", "value": 1}, {"node": "S082瓶盖暂存位", "value": 1}]},
+        {"write": {"node": "传感器状态_上位机[4].NO[1]", "value": true}, "when": [{"node": "S08工艺选择", "value": 1}, {"node": "S082瓶盖暂存位", "value": 2}]},
+        {"write": {"node": "传感器状态_上位机[4].NO[2]", "value": true}, "when": [{"node": "S08工艺选择", "value": 1}, {"node": "S082瓶盖暂存位", "value": 3}]},
+        {"write": {"node": "传感器状态_上位机[4].NO[3]", "value": true}, "when": [{"node": "S08工艺选择", "value": 1}, {"node": "S082瓶盖暂存位", "value": 4}]},
+        {"write": {"node": "传感器状态_上位机[4].NO[4]", "value": true}, "when": [{"node": "S08工艺选择", "value": 1}, {"node": "S082瓶盖暂存位", "value": 5}]},
+        {"write": {"node": "传感器状态_上位机[4].NO[0]", "value": true}, "when": [{"node": "S08工艺选择", "value": 3}, {"node": "S082瓶盖暂存位", "value": 1}]},
+        {"write": {"node": "传感器状态_上位机[4].NO[1]", "value": true}, "when": [{"node": "S08工艺选择", "value": 3}, {"node": "S082瓶盖暂存位", "value": 2}]},
+        {"write": {"node": "传感器状态_上位机[4].NO[2]", "value": true}, "when": [{"node": "S08工艺选择", "value": 3}, {"node": "S082瓶盖暂存位", "value": 3}]},
+        {"write": {"node": "传感器状态_上位机[4].NO[3]", "value": true}, "when": [{"node": "S08工艺选择", "value": 3}, {"node": "S082瓶盖暂存位", "value": 4}]},
+        {"write": {"node": "传感器状态_上位机[4].NO[4]", "value": true}, "when": [{"node": "S08工艺选择", "value": 3}, {"node": "S082瓶盖暂存位", "value": 5}]},
+        {"write": {"node": "传感器状态_上位机[4].NO[0]", "value": true}, "when": [{"node": "S08工艺选择", "value": 5}, {"node": "S082瓶盖暂存位", "value": 1}]},
+        {"write": {"node": "传感器状态_上位机[4].NO[1]", "value": true}, "when": [{"node": "S08工艺选择", "value": 5}, {"node": "S082瓶盖暂存位", "value": 2}]},
+        {"write": {"node": "传感器状态_上位机[4].NO[2]", "value": true}, "when": [{"node": "S08工艺选择", "value": 5}, {"node": "S082瓶盖暂存位", "value": 3}]},
+        {"write": {"node": "传感器状态_上位机[4].NO[3]", "value": true}, "when": [{"node": "S08工艺选择", "value": 5}, {"node": "S082瓶盖暂存位", "value": 4}]},
+        {"write": {"node": "传感器状态_上位机[4].NO[4]", "value": true}, "when": [{"node": "S08工艺选择", "value": 5}, {"node": "S082瓶盖暂存位", "value": 5}]},
+        {"write": {"node": "传感器状态_上位机[4].NO[0]", "value": false}, "when": [{"node": "S08工艺选择", "value": 2}, {"node": "S082瓶盖暂存位", "value": 1}]},
+        {"write": {"node": "传感器状态_上位机[4].NO[1]", "value": false}, "when": [{"node": "S08工艺选择", "value": 2}, {"node": "S082瓶盖暂存位", "value": 2}]},
+        {"write": {"node": "传感器状态_上位机[4].NO[2]", "value": false}, "when": [{"node": "S08工艺选择", "value": 2}, {"node": "S082瓶盖暂存位", "value": 3}]},
+        {"write": {"node": "传感器状态_上位机[4].NO[3]", "value": false}, "when": [{"node": "S08工艺选择", "value": 2}, {"node": "S082瓶盖暂存位", "value": 4}]},
+        {"write": {"node": "传感器状态_上位机[4].NO[4]", "value": false}, "when": [{"node": "S08工艺选择", "value": 2}, {"node": "S082瓶盖暂存位", "value": 5}]},
+        {"write": {"node": "传感器状态_上位机[4].NO[0]", "value": false}, "when": [{"node": "S08工艺选择", "value": 4}, {"node": "S082瓶盖暂存位", "value": 1}]},
+        {"write": {"node": "传感器状态_上位机[4].NO[1]", "value": false}, "when": [{"node": "S08工艺选择", "value": 4}, {"node": "S082瓶盖暂存位", "value": 2}]},
+        {"write": {"node": "传感器状态_上位机[4].NO[2]", "value": false}, "when": [{"node": "S08工艺选择", "value": 4}, {"node": "S082瓶盖暂存位", "value": 3}]},
+        {"write": {"node": "传感器状态_上位机[4].NO[3]", "value": false}, "when": [{"node": "S08工艺选择", "value": 4}, {"node": "S082瓶盖暂存位", "value": 4}]},
+        {"write": {"node": "传感器状态_上位机[4].NO[4]", "value": false}, "when": [{"node": "S08工艺选择", "value": 4}, {"node": "S082瓶盖暂存位", "value": 5}]},
+        {"write": {"node": "传感器状态_上位机[4].NO[0]", "value": false}, "when": [{"node": "S08工艺选择", "value": 6}, {"node": "S082瓶盖暂存位", "value": 1}]},
+        {"write": {"node": "传感器状态_上位机[4].NO[1]", "value": false}, "when": [{"node": "S08工艺选择", "value": 6}, {"node": "S082瓶盖暂存位", "value": 2}]},
+        {"write": {"node": "传感器状态_上位机[4].NO[2]", "value": false}, "when": [{"node": "S08工艺选择", "value": 6}, {"node": "S082瓶盖暂存位", "value": 3}]},
+        {"write": {"node": "传感器状态_上位机[4].NO[3]", "value": false}, "when": [{"node": "S08工艺选择", "value": 6}, {"node": "S082瓶盖暂存位", "value": 4}]},
+        {"write": {"node": "传感器状态_上位机[4].NO[4]", "value": false}, "when": [{"node": "S08工艺选择", "value": 6}, {"node": "S082瓶盖暂存位", "value": 5}]}
+      ]
+    },
+    {
+      "name": "clear S08 process complete after UniLab resets params_written",
+      "trigger": {
+        "node": "S08参数写入完成",
+        "value": true,
+        "edge": "falling"
+      },
+      "actions": [
+        {"write": {"node": "S08工艺完成", "value": 0}}
+      ]
+    }
+  ]
+}

@@ -31,7 +31,10 @@ class SzlabRobotS04Mixin:
         return bool(self._read_variable(self._s04_sensor_variable(position), use_cache=False))
 
     def _ensure_s04_pick_allowed(self, position: int) -> dict[str, Any] | None:
+        sensor_variable = self._s04_sensor_variable(position)
         if os.environ.get("SKIP_SENSOR_PRECHECK") == "1":
+            return None
+        if self._should_skip_robot_precheck_variable(sensor_variable):
             return None
         occupied = self._read_s04_position_occupied(position)
         if occupied:
@@ -47,7 +50,10 @@ class SzlabRobotS04Mixin:
         }
 
     def _ensure_s04_place_allowed(self, position: int) -> dict[str, Any] | None:
+        sensor_variable = self._s04_sensor_variable(position)
         if os.environ.get("SKIP_SENSOR_PRECHECK") == "1":
+            return None
+        if self._should_skip_robot_precheck_variable(sensor_variable):
             return None
         occupied = self._read_s04_position_occupied(position)
         if not occupied:

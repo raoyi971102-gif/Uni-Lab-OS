@@ -392,6 +392,7 @@ class WorkflowRunManager:
         self._active_run_id: str | None = None
         self._cached_device_key: tuple[Any, ...] | None = None
         self._cached_devices: dict[str, Any] = {}
+        self._stack_status_cache: tuple[float, dict[str, Any]] | None = None
 
     def start(self, payload: dict[str, Any]) -> RunRecord:
         with self._lock:
@@ -441,6 +442,53 @@ class WorkflowRunManager:
     def shutdown(self) -> None:
         self._disconnect_cached_devices()
 
+    def get_live_devices(self) -> dict[str, Any]:
+        with self._lock:
+            if self._cached_devices:
+                return self._cached_devices
+
+        default_config = self._preset.default_config
+        csv_value = str(default_config.get("csv") or "").strip()
+        csv_path = _resolve_ui_path(csv_value, self._preset) if csv_value else None
+        timeout = float(default_config.get("timeout") or 300.0)
+        no_subscription = bool(default_config.get("no_subscription", True))
+        graph_value = str(default_config.get("graph") or GENERATED_GRAPH_SENTINEL).strip()
+        opcua_url = str(default_config.get("url") or "").strip()
+
+        if graph_value == GENERATED_GRAPH_SENTINEL:
+            if not opcua_url:
+                raise ValueError("生成设备图需要填写 OPC UA URL，或指定已有 graph JSON")
+            generated_graph = build_local_device_graph(
+                opcua_url=opcua_url,
+                csv_path=str(csv_path or csv_value or default_config.get("csv") or ""),
+                use_subscription=not no_subscription,
+                preset=self._preset,
+            )
+            graph_file = _write_temp_json(generated_graph)
+        else:
+            graph_file = _resolve_ui_path(graph_value, self._preset)
+
+        device_key = (
+            self._preset.id,
+            graph_value,
+            opcua_url,
+            str(csv_path or ""),
+            no_subscription,
+            timeout,
+        )
+        return self._get_or_create_devices(
+            device_key,
+            {
+                "graph_file": graph_file,
+                "opcua_url": opcua_url or None,
+                "csv_path": csv_path,
+                "use_subscription": False if no_subscription else None,
+                "plc_action_timeout": timeout,
+                "runtime_config": self._runtime_config,
+            },
+            lambda message: None,
+        )
+
     def _get_or_create_devices(
         self,
         device_key: tuple[Any, ...],
@@ -454,6 +502,7 @@ class WorkflowRunManager:
             previous_devices = self._cached_devices
             self._cached_devices = {}
             self._cached_device_key = None
+            self._stack_status_cache = None
 
         if previous_devices:
             _disconnect_devices(previous_devices, log)
@@ -462,6 +511,7 @@ class WorkflowRunManager:
         with self._lock:
             self._cached_devices = devices
             self._cached_device_key = device_key
+            self._stack_status_cache = None
         return devices
 
     def _disconnect_cached_devices(self, devices: dict[str, Any] | None = None, log: Any = None) -> None:
@@ -471,8 +521,33 @@ class WorkflowRunManager:
                 return
             self._cached_devices = {}
             self._cached_device_key = None
+            self._stack_status_cache = None
 
         _disconnect_devices(target_devices, log)
+
+    def get_stack_status(self) -> dict[str, Any]:
+        now = time.monotonic()
+        with self._lock:
+            if self._stack_status_cache and now - self._stack_status_cache[0] < 2.0:
+                return self._stack_status_cache[1]
+
+        devices = self.get_live_devices()
+        plc_device_id = self._runtime_config.device_factory.plc_device_id or "szlab_poly_plc"
+        plc = devices.get(plc_device_id) or devices.get("szlab_poly_plc")
+        if plc is None or not hasattr(plc, "get_stack_status"):
+            status = {
+                "success": False,
+                "schema": "szlab_poly_studio.stack_status.v1",
+                "message": "当前设备图中没有可读取堆栈状态的 PLC 设备",
+                "stacks": {},
+            }
+        else:
+            group_names = self._preset.default_config.get("stack_status_groups")
+            status = plc.get_stack_status(group_names=group_names)
+
+        with self._lock:
+            self._stack_status_cache = (time.monotonic(), status)
+        return status
 
     def _run_payload(self, run_id: str, payload: dict[str, Any]) -> None:
         record = self.get(run_id)
@@ -755,14 +830,15 @@ def build_local_device_graph(
             if isinstance(config, dict):
                 config.pop("csv_path", None)
     else:
+        auto_map = _load_opcua_node_id_map_from_csv(csv_path)
         for node in graph.get("nodes", []):
             config = node.get("config")
             if isinstance(config, dict) and config.get("url") == opcua_url:
                 config["csv_path"] = csv_path
-                node_id_map = _load_opcua_node_id_map_from_csv(csv_path)
-                if node_id_map:
-                    config["opcua_node_id_map"] = node_id_map
-                break
+                existing_map = dict(config.get("opcua_node_id_map") or {})
+                merged_map = {**auto_map, **existing_map}
+                if merged_map:
+                    config["opcua_node_id_map"] = merged_map
     return graph
 
 
@@ -773,12 +849,23 @@ def _load_opcua_node_id_map_from_csv(csv_path: str) -> dict[str, str]:
             try:
                 with open(csv_path, newline="", encoding=encoding) as csv_file:
                     reader = csv.DictReader(csv_file, delimiter=delimiter)
-                    if "变量名" not in (reader.fieldnames or []):
+                    fieldnames = reader.fieldnames or []
+                    if "变量名" not in fieldnames:
                         continue
+                    node_id_field = next(
+                        (field for field in fieldnames if field.strip().lower() in {"node_id", "nodeid"}),
+                        None,
+                    )
                     for row in reader:
                         name = (row.get("变量名") or "").strip()
-                        if name:
-                            node_id_map[name] = f"ns=4;s=上位机通讯|{name}"
+                        if not name:
+                            continue
+                        if node_id_field:
+                            node_id = (row.get(node_id_field) or "").strip()
+                            if node_id:
+                                node_id_map[name] = node_id
+                                continue
+                        node_id_map[name] = f"ns=4;s=上位机通讯|{name}"
                 return node_id_map
             except UnicodeDecodeError:
                 node_id_map.clear()
@@ -855,6 +942,18 @@ def create_app(preset_name: str = "ai4c", runtime_config: RuntimeConfig | None =
             "default_config": active_preset.default_config,
             "actions": [_action_to_dict(action, runtime_config) for action in active_preset.actions.values()],
         }
+
+    @app.get("/api/stack-status", response_class=JSONResponse)
+    async def get_stack_status() -> dict[str, Any]:
+        try:
+            return manager.get_stack_status()
+        except Exception as exc:
+            return {
+                "success": False,
+                "schema": "szlab_poly_studio.stack_status.v1",
+                "message": str(exc),
+                "stacks": {},
+            }
 
     @app.post("/api/workflow/build", response_class=JSONResponse)
     async def build_workflow(payload: dict[str, Any]) -> dict[str, Any]:

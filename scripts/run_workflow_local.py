@@ -99,6 +99,26 @@ class WorkflowLogger:
             self._file.flush()
 
 
+def iter_action_logs(result: Any) -> list[dict[str, Any]]:
+    if not isinstance(result, dict):
+        return []
+    logs = result.get("logs")
+    if logs is None and isinstance(result.get("data"), dict):
+        logs = result["data"].get("logs")
+    if not isinstance(logs, list):
+        return []
+
+    entries: list[dict[str, Any]] = []
+    for item in logs:
+        if isinstance(item, str):
+            entries.append({"message": item, "detail": None})
+        elif isinstance(item, dict):
+            message = item.get("message")
+            if message:
+                entries.append({"message": str(message), "detail": item.get("detail")})
+    return entries
+
+
 def method_name_from_template(template_name: str) -> str:
     """网页 workflow 中的 auto-* 节点名映射到 Python 方法名。"""
     return template_name.removeprefix("auto-")
@@ -391,13 +411,14 @@ def create_local_devices(
         devices: dict[str, Any] = {}
         device_items = list(device_factory.devices.items())
         device_items.sort(key=lambda item: item[0] != device_factory.plc_device_id)
+        has_plc_gateway = bool(device_factory.plc_device_id and device_factory.plc_device_id in device_factory.devices)
         for device_id, class_path in device_items:
             device_config = dict(graph_config.get(device_id, {}))
             if opcua_url:
                 device_config["url"] = opcua_url
             if csv_path:
                 device_config["csv_path"] = str(csv_path.resolve())
-            if device_id != device_factory.plc_device_id:
+            if has_plc_gateway and device_id != device_factory.plc_device_id:
                 device_config.setdefault("use_plc_gateway", True)
             if plc_action_timeout and "timeout" in device_config:
                 device_config["timeout"] = plc_action_timeout
@@ -496,6 +517,11 @@ def run_nodes(
             logger.log(
                 f"OPC状态变化: {len(diff_detail['changes'])}/{len(before)} 个变量变化",
                 detail=diff_detail,
+            )
+        for action_log in iter_action_logs(result):
+            logger.log(
+                action_log["message"],
+                detail={"node_uuid": node.uuid, "action_log": action_log.get("detail")},
             )
         logger.log(f"动作结果: {result}", detail={"result": result})
         results.append(

@@ -15,6 +15,7 @@ except ModuleNotFoundError as exc:
         raise
     BaseClient = object
     OpcUaNode = None
+from unilabos.devices.workstation.szlab_poly_studio.stack_status import build_stack_status
 from unilabos.registry.decorators import action, device, not_action, topic_config
 from unilabos.utils.log import logger
 
@@ -188,9 +189,10 @@ def _resolve_csv_path(csv_path: Optional[str]) -> str:
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), csv_path)
 
 
-def load_variable_names_from_csv(csv_path: str) -> List[str]:
-    """Load PLC variable names from the CSV column named '变量名'."""
+def load_variable_definitions_from_csv(csv_path: str) -> tuple[List[str], Dict[str, str]]:
+    """Load PLC variable names and optional NodeId mappings from CSV."""
     names: List[str] = []
+    node_id_map: Dict[str, str] = {}
     seen = set()
     last_error: Optional[UnicodeDecodeError] = None
     for encoding in ("utf-8-sig", "utf-16", "utf-16-le", "gb18030", "gbk"):
@@ -198,25 +200,73 @@ def load_variable_names_from_csv(csv_path: str) -> List[str]:
             try:
                 with open(csv_path, newline="", encoding=encoding) as csv_file:
                     reader = csv.DictReader(csv_file, delimiter=delimiter)
-                    if "变量名" not in (reader.fieldnames or []):
+                    fieldnames = reader.fieldnames or []
+                    if "变量名" not in fieldnames:
                         names.clear()
+                        node_id_map.clear()
                         seen.clear()
                         continue
+                    node_id_field = next(
+                        (field for field in fieldnames if field.strip().lower() in {"node_id", "nodeid"}),
+                        None,
+                    )
                     for row in reader:
                         name = (row.get("变量名") or "").strip()
+                        node_id = (row.get(node_id_field) or "").strip() if node_id_field else ""
+                        if node_id_field and not node_id:
+                            continue
                         if not name or name in seen:
                             continue
                         seen.add(name)
                         names.append(name)
-                return names
+                        if node_id:
+                            node_id_map[name] = node_id
+                return names, node_id_map
             except UnicodeDecodeError as exc:
                 names.clear()
+                node_id_map.clear()
                 seen.clear()
                 last_error = exc
                 break
     if last_error:
         raise last_error
+    return names, node_id_map
+
+
+def load_variable_names_from_csv(csv_path: str) -> List[str]:
+    """Load PLC variable names from the CSV column named '变量名'."""
+    names, _node_id_map = load_variable_definitions_from_csv(csv_path)
     return names
+
+
+def _patch_opcua_token_time_drift_check() -> None:
+    """兼容 PLC/OPC UA Server 时间严重漂移导致的 security token 超时。"""
+    from opcua.common.connection import SecureConnection
+
+    def _check_sym_header_ignore_prev_token_timeout(self: Any, security_header: Any) -> None:
+        assert isinstance(
+            security_header,
+            ua.SymmetricAlgorithmHeader,
+        ), "Expected SymAlgHeader, got: {0}".format(security_header)
+        if security_header.TokenId != self.security_token.TokenId:
+            if security_header.TokenId != self.next_security_token.TokenId:
+                if self._allow_prev_token and security_header.TokenId == self.prev_security_token.TokenId:
+                    return
+                raise ua.UaError(
+                    "Invalid security token id {}, expected {} or {}".format(
+                        security_header.TokenId,
+                        self.security_token.TokenId,
+                        self.next_security_token.TokenId,
+                    )
+                )
+            self.revolve_tokens()
+            self.security_policy.make_remote_symmetric_key(self.local_nonce, self.remote_nonce)
+            self.prev_security_token = ua.ChannelSecurityToken()
+        if self.prev_security_token.TokenId != 0:
+            self.security_policy.make_remote_symmetric_key(self.local_nonce, self.remote_nonce)
+            self.prev_security_token = ua.ChannelSecurityToken()
+
+    SecureConnection._check_sym_header = _check_sym_header_ignore_prev_token_timeout
 
 
 @device(
@@ -236,6 +286,8 @@ class SZLabPolyPLCDevice(BaseClient):
         auto_connect: bool = True,
         opcua_log_level: str = "WARNING",
         opcua_node_id_map: Optional[Dict[str, str]] = None,
+        opcua_node_id_prefix: Optional[str] = None,
+        ignore_opcua_token_time_drift: bool = False,
         *args,
         **kwargs,
     ):
@@ -246,15 +298,28 @@ class SZLabPolyPLCDevice(BaseClient):
         self.heartbeat_node = heartbeat_node
         self.heartbeat_on = False
         self._heartbeat_timer: Optional[threading.Timer] = None
-        self._direct_node_id_map = dict(opcua_node_id_map or {})
+        self._sensor_read_warning_names: set[str] = set()
 
+        variable_names, csv_node_id_map = load_variable_definitions_from_csv(self.csv_path)
         nodes = [
             OpcUaNode(name=name, node_type=NodeType.VARIABLE, data_type=None)
-            for name in load_variable_names_from_csv(self.csv_path)
+            for name in variable_names
         ]
+        prefix_node_id_map = (
+            {name: f"{opcua_node_id_prefix}{name}" for name in variable_names}
+            if opcua_node_id_prefix
+            else {}
+        )
+        self._direct_node_id_map = {
+            **prefix_node_id_map,
+            **csv_node_id_map,
+            **dict(opcua_node_id_map or {}),
+        }
         self.register_node_list(nodes)
 
         logging.getLogger("opcua").setLevel(getattr(logging, opcua_log_level.upper(), logging.WARNING))
+        if ignore_opcua_token_time_drift:
+            _patch_opcua_token_time_drift_check()
         client = Client(url)
         if username and password:
             client.set_user(username)
@@ -467,9 +532,22 @@ class SZLabPolyPLCDevice(BaseClient):
             try:
                 result[site_key] = bool(self.read_variable(variable_name))
             except Exception as exc:
-                logger.warning(f"读取传感器 {variable_name} 失败: {exc}")
+                if variable_name not in self._sensor_read_warning_names:
+                    logger.warning(f"读取传感器 {variable_name} 失败: {exc}")
+                    self._sensor_read_warning_names.add(variable_name)
+                else:
+                    logger.debug(f"读取传感器 {variable_name} 失败: {exc}")
                 result[site_key] = None
         return result
+
+    @not_action
+    def _read_stack_sensor_groups(self, group_names: Optional[List[str]] = None) -> Dict[str, Dict[str, Optional[bool]]]:
+        selected_groups = group_names or list(SENSOR_GROUPS)
+        return {
+            group_name: self._read_sensor_group(sensors)
+            for group_name, sensors in SENSOR_GROUPS.items()
+            if group_name in selected_groups
+        }
 
     @action(auto_prefix=True, always_free=True, description="启动苏州实验室 PLC 心跳")
     def start_heart_beat(self) -> Dict[str, Any]:
@@ -553,6 +631,10 @@ class SZLabPolyPLCDevice(BaseClient):
             "status": self._read_sensor_group(sensors),
         }
 
+    @action(auto_prefix=True, always_free=True, description="读取前端堆栈 JSON 状态")
+    def get_stack_status(self, group_names: Optional[List[str]] = None) -> Dict[str, Any]:
+        return build_stack_status(self._read_stack_sensor_groups(group_names=group_names))
+
     @action(auto_prefix=True, always_free=True, description="写入 S01 上料过渡仓取料编号和入料产品")
     def set_s1_loading_request(self, pick_index: int, product_type: int) -> Dict[str, Any]:
         try:
@@ -601,3 +683,7 @@ class SZLabPolyPLCDevice(BaseClient):
     @topic_config(period=5.0)
     def registered_variables(self) -> List[str]:
         return sorted(self._variables_to_find)
+
+    @topic_config(period=1.0)
+    def stack_status(self) -> Dict[str, Any]:
+        return self.get_stack_status()
