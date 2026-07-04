@@ -371,8 +371,12 @@ class SZLabPolyPLCDevice(BaseClient):
     @not_action
     def read_variable(self, node_name: str, use_cache: bool = True) -> Any:
         del use_cache  # BaseClient reads directly from the OPC UA node.
-        value, error = self.use_node(node_name).read()
+        node = self.use_node(node_name)
+        value, error = node.read()
         if error:
+            if node_name in self._direct_node_id_map:
+                direct_node_id = self._direct_node_id_map[node_name]
+                raise RuntimeError(f"读取 PLC 变量失败: {node_name}: 直连 NodeId 无效: {direct_node_id}")
             raise RuntimeError(f"读取 PLC 变量失败: {node_name}")
         return value
 
@@ -382,8 +386,21 @@ class SZLabPolyPLCDevice(BaseClient):
         try:
             self._write_value_only(node, value)
         except Exception as exc:
-            raise RuntimeError(f"写入 PLC 变量失败: {node_name}") from exc
+            if self._is_bad_node_id_unknown(exc):
+                direct_node_id = self._direct_node_id_map.get(node_name)
+                direct_node_detail = f": {direct_node_id}" if direct_node_id else ""
+                raise RuntimeError(f"写入 PLC 变量失败: {node_name}: 直连 NodeId 无效{direct_node_detail}") from exc
+            raise RuntimeError(f"写入 PLC 变量失败: {node_name}: {exc}") from exc
         return True
+
+    @not_action
+    def _is_bad_node_id_unknown(self, exc: Exception) -> bool:
+        current: BaseException | None = exc
+        while current is not None:
+            if "BadNodeIdUnknown" in str(current):
+                return True
+            current = current.__cause__ or current.__context__
+        return False
 
     @not_action
     def _write_value_only(self, node: Any, value: Any) -> None:

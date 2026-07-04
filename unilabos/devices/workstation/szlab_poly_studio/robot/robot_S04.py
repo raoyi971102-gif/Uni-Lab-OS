@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any
 
 S04_PLACE_TASK_NUMBER = 7
@@ -30,6 +31,11 @@ class SzlabRobotS04Mixin:
         return bool(self._read_variable(self._s04_sensor_variable(position), use_cache=False))
 
     def _ensure_s04_pick_allowed(self, position: int) -> dict[str, Any] | None:
+        sensor_variable = self._s04_sensor_variable(position)
+        if os.environ.get("SKIP_SENSOR_PRECHECK") == "1":
+            return None
+        if self._should_skip_robot_precheck_variable(sensor_variable):
+            return None
         occupied = self._read_s04_position_occupied(position)
         if occupied:
             return None
@@ -44,6 +50,11 @@ class SzlabRobotS04Mixin:
         }
 
     def _ensure_s04_place_allowed(self, position: int) -> dict[str, Any] | None:
+        sensor_variable = self._s04_sensor_variable(position)
+        if os.environ.get("SKIP_SENSOR_PRECHECK") == "1":
+            return None
+        if self._should_skip_robot_precheck_variable(sensor_variable):
+            return None
         occupied = self._read_s04_position_occupied(position)
         if not occupied:
             return None
@@ -64,7 +75,7 @@ class SzlabRobotS04Mixin:
             station="S04",
             task_number=S04_PICK_TASK_NUMBER,
             variables={S04_POSITION_VARIABLE: position},
-            reset_variables={S04_POSITION_VARIABLE: 0, "PLC_R任务号": 0},
+            reset_variables={S04_POSITION_VARIABLE: 0, "任务号": 0},
             precheck=lambda: self._ensure_s04_pick_allowed(position),
             position=position,
             sensor_variable=self._s04_sensor_variable(position),
@@ -77,7 +88,7 @@ class SzlabRobotS04Mixin:
             station="S04",
             task_number=S04_PLACE_TASK_NUMBER,
             variables={S04_POSITION_VARIABLE: position},
-            reset_variables={S04_POSITION_VARIABLE: 0, "PLC_R任务号": 0},
+            reset_variables={S04_POSITION_VARIABLE: 0, "任务号": 0},
             precheck=lambda: self._ensure_s04_place_allowed(position),
             position=position,
             sample_id=sample_id,

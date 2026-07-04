@@ -453,12 +453,16 @@ def test_s09_debug_csv_is_small_plc_input_with_remaining_volume_names():
     assert "S09参数写入完成" in text
 
 
-def test_s09_robot_actions_use_dev_robot_s09_task_contract():
+def test_s09_robot_actions_use_dev_robot_s09_task_contract(monkeypatch):
+    monkeypatch.setenv("SKIP_ROBOT_HANDSHAKE_CHECK", "1")
+
     class FakePlcGateway:
         def __init__(self):
             self.reads = []
             self.writes = []
-            self.busy_values = [False, True, False]
+            self.values = {
+                "Robot_任务完成": True,
+            }
 
         def read_variable(self, name, use_cache=False):
             del use_cache
@@ -466,11 +470,14 @@ def test_s09_robot_actions_use_dev_robot_s09_task_contract():
             if name == "传感器状态_上位机[4].NO[6]":
                 return False
             if name == "机器人Busy信号":
-                return self.busy_values.pop(0)
+                return False
+            if name in self.values:
+                return self.values[name]
             raise KeyError(name)
 
         def write_variable(self, name, value):
             self.writes.append((name, value))
+            self.values[name] = value
 
     gateway = FakePlcGateway()
     robot = SzlabMixerRobotDevice(timeout=3.0, busy_start_timeout=3.0)
@@ -483,8 +490,11 @@ def test_s09_robot_actions_use_dev_robot_s09_task_contract():
     assert gateway.writes == [
         ("S09取放料产品", 1),
         ("S09取放料编号", 2),
-        ("PLC_R任务号", 19),
-        ("PLC_R任务号", 0),
-        ("S09取放料编号", 0),
+        ("任务号", 19),
+        ("Robot_任务写入完成", False),
+        ("Robot_任务写入完成", True),
+        ("Robot_任务写入完成", False),
         ("S09取放料产品", 0),
+        ("S09取放料编号", 0),
+        ("任务号", 0),
     ]

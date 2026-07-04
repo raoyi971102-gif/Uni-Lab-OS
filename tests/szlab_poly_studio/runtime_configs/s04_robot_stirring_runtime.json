@@ -12,11 +12,11 @@
     "action_variables": {
       "submit_place_to_s04": [
         "S04取放料编号",
-        "PLC_R任务号"
+        "任务号"
       ],
       "submit_pick_from_s04": [
         "S04取放料编号",
-        "PLC_R任务号"
+        "任务号"
       ]
     },
     "param_variables": {

@@ -41,6 +41,17 @@
         "传感器状态_上位机[5].NO[1]"
       ]
     },
-    "param_variables": {}
+    "param_variables": {
+      "run_solvent_addition": [
+        {
+          "param": "pump",
+          "template": "S06工艺选择"
+        },
+        {
+          "param": "pump",
+          "template": "S06_{pump}号溶液添加量"
+        }
+      ]
+    }
   }
 }

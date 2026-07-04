@@ -14,9 +14,13 @@ from unilabos.devices.workstation.szlab_poly_studio.plc import (
 )
 from unilabos.devices.workstation.szlab_poly_studio.robot.robot_S04 import S04_SENSOR_BY_POSITION
 
-GateKind = Literal["pick", "place"]
+GateKind = Literal["pick", "place", "pour"]
 
-PLC_TASK_NUMBER_VARIABLE = "PLC_R任务号"
+ROBOT_HOME_VARIABLE = "Robot_Home"
+ROBOT_WRITE_ALLOWED_VARIABLE = "Robot_任务允许写入"
+ROBOT_WRITE_DONE_VARIABLE = "Robot_任务写入完成"
+ROBOT_TASK_NUMBER_VARIABLE = "任务号"
+ROBOT_TASK_COMPLETE_VARIABLE = "Robot_任务完成"
 S05_MATERIAL_SENSOR = "传感器状态_上位机[3].NO[0]"
 S06_MATERIAL_SENSOR = "传感器状态_上位机[3].NO[1]"
 S09_TIP_SENSORS = {
@@ -43,15 +47,7 @@ ROBOT_ACTION_SPECS: dict[str, RobotActionSpec] = {
         "pick",
         1,
         "S01 取料产品选择",
-        ("S01出入料产品",),
-    ),
-    "pick_from_s01_position": RobotActionSpec(
-        "pick_from_s01_position",
-        "S01",
-        "pick",
-        2,
-        "S01 取料位置选择",
-        ("S01取放料编号",),
+        ("S01出入料产品", "S01取放料编号"),
     ),
     "place_to_s02": RobotActionSpec("place_to_s02", "S02", "place", 3, "S02 放 TIP", ("S02取放料编号",)),
     "pick_from_s02": RobotActionSpec("pick_from_s02", "S02", "pick", 4, "S02 取 TIP", ("S02取放料编号",)),
@@ -97,6 +93,7 @@ ROBOT_ACTION_SPECS: dict[str, RobotActionSpec] = {
         "S08 取瓶",
         ("S08取放料产品", "S08取放料编号"),
     ),
+    "pour_from_s08": RobotActionSpec("pour_from_s08", "S08", "pour", 25, "S08 倒料", ("S08倒料产品选择",)),
     "place_to_s09": RobotActionSpec(
         "place_to_s09",
         "S09",

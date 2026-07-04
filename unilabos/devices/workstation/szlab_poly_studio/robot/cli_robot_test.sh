@@ -3,7 +3,7 @@ set -euo pipefail
 
 # SZLab mixer 机械臂按工位 CLI 调试脚本。
 # run Sxx 会生成该工位下 position/sensor 的一一对应测试用例，并覆盖 pick/place。
-# 默认会连接真实 OPC UA/PLC 并下发机器人任务号，运行前请确认现场安全、急停可用、目标工位状态正确。
+# 默认会连接真实 OPC UA/PLC 并下发机器人任务号，运行前请确认现场安全、Robot_Home/允许写入状态、急停可用、目标工位状态正确。
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || (cd "$SCRIPT_DIR/../../../../../.." && pwd))"
@@ -15,7 +15,7 @@ fi
 
 RUNNER="$REPO_ROOT/scripts/run_workflow_local.py"
 RUNTIME_CONFIG="$REPO_ROOT/tests/szlab_poly_studio/runtime_configs/szlab_mixer_runtime.json"
-CSV_PATH="${CSV_PATH:-$REPO_ROOT/unilabos/devices/workstation/szlab_poly_studio/szlab_plc_0623.csv}"
+CSV_PATH="${CSV_PATH:-$REPO_ROOT/unilabos/devices/workstation/szlab_poly_studio/robot/上位机通讯_new(3).csv}"
 OPCUA_URL="${OPCUA_URL:-opc.tcp://192.168.1.10:4840}"
 if [[ "$OPCUA_URL" != *"://"* ]]; then
   OPCUA_URL="opc.tcp://$OPCUA_URL"
@@ -31,8 +31,8 @@ LOG_DIR="${LOG_DIR:-$REPO_ROOT/unilabos_data/szlab_poly_studio/robot_cli_logs}"
 #   IGNORE_OPCUA_TOKEN_TIME_DRIFT=1  忽略 OPC UA token 时间漂移，仅用于现场调试
 #   CLEAR_PC_TO_PLC_BEFORE_RUN=1     每个真实用例执行前先清空 PC->PLC 写入变量
 #   SKIP_SENSOR_PRECHECK=1           跳过取/放传感器门禁，仅用于 PLC 连通性写入测试
-#   SKIP_BUSY_CHECK=1                跳过机器人 Busy 检查/等待，仅用于 PLC 连通性写入测试
-#   SKIP_RESET_AFTER_RUN=1           任务完成后不复位 PC->PLC 变量，便于观察上位机写入值
+#   SKIP_ROBOT_HANDSHAKE_CHECK=1     跳过 Robot_Home/允许写入/完成等待，仅用于 PLC 连通性写入测试
+#   SKIP_RESET_AFTER_RUN=1           任务完成后保留任务号/Sxx参数；默认完成后全部清零
 MODE="${MODE:-both}"
 DRY_RUN="${DRY_RUN:-0}"
 CONFIRM="${CONFIRM:-}"
@@ -40,9 +40,9 @@ CONTINUE_ON_ERROR="${CONTINUE_ON_ERROR:-1}"
 IGNORE_OPCUA_TOKEN_TIME_DRIFT="${IGNORE_OPCUA_TOKEN_TIME_DRIFT:-1}"
 CLEAR_PC_TO_PLC_BEFORE_RUN="${CLEAR_PC_TO_PLC_BEFORE_RUN:-1}"
 SKIP_SENSOR_PRECHECK="${SKIP_SENSOR_PRECHECK:-0}"
-SKIP_BUSY_CHECK="${SKIP_BUSY_CHECK:-0}"
-SKIP_RESET_AFTER_RUN="${SKIP_RESET_AFTER_RUN:-1}"
-export SKIP_SENSOR_PRECHECK SKIP_BUSY_CHECK SKIP_RESET_AFTER_RUN
+SKIP_ROBOT_HANDSHAKE_CHECK="${SKIP_ROBOT_HANDSHAKE_CHECK:-0}"
+SKIP_RESET_AFTER_RUN="${SKIP_RESET_AFTER_RUN:-0}"
+export SKIP_SENSOR_PRECHECK SKIP_ROBOT_HANDSHAKE_CHECK SKIP_RESET_AFTER_RUN
 
 # 参数覆盖:
 #   PRODUCT_TYPES="1 2 3"   产品类型。1=烧杯/TIP，2=250ml样品瓶，3=500ml样品瓶/烧杯(按动作定义)
@@ -70,6 +70,7 @@ usage() {
   - run Sxx 会自动枚举该工位下所有已知 position/sensor 对应关系。
   - MODE=both 默认同时生成 place 和 pick；S01 只有 pick。
   - S07 会同时覆盖 S071 和 S072；也可以单独 run S071 或 run S072。
+  - 正常运行要求 Robot_Home=True 且 Robot_任务允许写入=True，并等待 Robot_任务完成 非 0。
   - DRY_RUN=1 只打印将执行的用例，不连接真实 PLC。
 EOF
 }
@@ -289,8 +290,15 @@ S11_USED_SAMPLE_VIAL_SENSORS = {
 if station == "S01":
     for product_type in product_types():
         for position, sensor in S01_SENSOR_BY_POSITION.items():
-            emit("submit_pick_from_s01", {"product_type": product_type}, "S01", "pick", f"product-{product_type}", sensor, product_type)
-            emit("submit_pick_from_s01_position", {"position": position}, "S01", "pick", position, sensor)
+            emit(
+                "submit_pick_from_s01",
+                {"product_type": product_type, "position": position},
+                "S01",
+                "pick",
+                position,
+                sensor,
+                product_type,
+            )
 elif station == "S02":
     for position, sensor in S02_TIP_SENSORS.items():
         position_int = int(position)
@@ -441,7 +449,6 @@ graph = {
             "position": {"x": 420, "y": 0, "z": 0},
             "config": {
                 "plc_device_id": "szlab_poly_plc",
-                "busy_variable_name": "机器人Busy信号",
                 "timeout": float(timeout),
             },
             "data": {},
@@ -539,7 +546,7 @@ MODE: $MODE
 IGNORE_OPCUA_TOKEN_TIME_DRIFT: $IGNORE_OPCUA_TOKEN_TIME_DRIFT
 CLEAR_PC_TO_PLC_BEFORE_RUN: $CLEAR_PC_TO_PLC_BEFORE_RUN
 SKIP_SENSOR_PRECHECK: $SKIP_SENSOR_PRECHECK
-SKIP_BUSY_CHECK: $SKIP_BUSY_CHECK
+SKIP_ROBOT_HANDSHAKE_CHECK: $SKIP_ROBOT_HANDSHAKE_CHECK
 SKIP_RESET_AFTER_RUN: $SKIP_RESET_AFTER_RUN
 
 请确认现场安全、机械臂路径无障碍、目标工位状态与 pick/place 前置传感器条件匹配。
@@ -575,6 +582,7 @@ run_station() {
   echo "工位: $station"
   echo "测试用例数: $count"
   echo "DRY_RUN: $DRY_RUN"
+  echo "Robot握手: Robot_Home -> Robot_任务允许写入 -> Robot_任务写入完成 -> Robot_任务完成非0"
   confirm_real_run "$station" "$count"
 
   local index=0
