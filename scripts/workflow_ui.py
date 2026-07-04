@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import re
 import sys
@@ -810,12 +811,51 @@ def build_local_device_graph(
             if isinstance(config, dict):
                 config.pop("csv_path", None)
     else:
+        auto_map = _load_opcua_node_id_map_from_csv(csv_path)
         for node in graph.get("nodes", []):
             config = node.get("config")
             if isinstance(config, dict) and config.get("url") == opcua_url:
                 config["csv_path"] = csv_path
-                break
+                existing_map = dict(config.get("opcua_node_id_map") or {})
+                merged_map = {**auto_map, **existing_map}
+                if merged_map:
+                    config["opcua_node_id_map"] = merged_map
     return graph
+
+
+def _load_opcua_node_id_map_from_csv(csv_path: str) -> dict[str, str]:
+    node_id_map: dict[str, str] = {}
+    if not csv_path:
+        return node_id_map
+
+    for encoding in ("utf-8-sig", "utf-16", "utf-16-le", "gb18030", "gbk"):
+        for delimiter in (",", "\t"):
+            try:
+                with open(csv_path, newline="", encoding=encoding) as csv_file:
+                    reader = csv.DictReader(csv_file, delimiter=delimiter)
+                    fieldnames = reader.fieldnames or []
+                    if "变量名" not in fieldnames:
+                        continue
+                    node_id_field = next(
+                        (field for field in fieldnames if field.strip().lower() in {"node_id", "nodeid"}),
+                        None,
+                    )
+                    for row in reader:
+                        name = (row.get("变量名") or "").strip()
+                        if not name:
+                            continue
+                        if node_id_field:
+                            node_id = (row.get(node_id_field) or "").strip()
+                            if node_id:
+                                node_id_map[name] = node_id
+                                continue
+                        node_id_map[name] = f"ns=4;s=上位机通讯|{name}"
+                return node_id_map
+            except UnicodeError:
+                continue
+            except OSError:
+                return {}
+    return node_id_map
 
 
 def _load_preset_runtime_config(preset: WorkflowPreset) -> RuntimeConfig:

@@ -511,6 +511,24 @@ def test_build_local_device_graph_keeps_csv_when_explicitly_configured():
     assert nodes["AI4C_plc"]["config"]["csv_path"] == "ai4c_sim_updated.csv"
 
 
+def test_s06_robot_generated_graph_maps_csv_node_ids_to_pump_device():
+    preset = load_preset("s06_robot")
+    csv_path = _resolve_ui_path(preset.default_config["csv"], preset)
+
+    graph = build_local_device_graph(
+        opcua_url=preset.default_config["url"],
+        csv_path=str(csv_path),
+        use_subscription=False,
+        preset=preset,
+    )
+
+    nodes = {node["id"]: node for node in graph["nodes"]}
+    node_id_map = nodes["szlab_mixer_pump"]["config"]["opcua_node_id_map"]
+
+    assert node_id_map["S06准备信号"] == "ns=4;s=上位机通讯|S06准备信号"
+    assert node_id_map["传感器状态_上位机[3].NO[1]"] == "ns=4;s=上位机通讯|传感器状态_上位机[3].NO[1]"
+
+
 def test_szlab_mixer_pump_runtime_snapshot_variables_are_mapped_for_production_opcua():
     runtime_config = load_runtime_config("tests/szlab_poly_studio/runtime_configs/szlab_mixer_pump_runtime.json")
     graph = json.loads(
