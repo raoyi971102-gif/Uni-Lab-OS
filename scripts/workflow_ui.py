@@ -844,6 +844,9 @@ def build_local_device_graph(
 
 def _load_opcua_node_id_map_from_csv(csv_path: str) -> dict[str, str]:
     node_id_map: dict[str, str] = {}
+    if not csv_path:
+        return node_id_map
+
     for encoding in ("utf-8-sig", "utf-16", "utf-16-le", "gb18030", "gbk"):
         for delimiter in (",", "\t"):
             try:
@@ -867,10 +870,9 @@ def _load_opcua_node_id_map_from_csv(csv_path: str) -> dict[str, str]:
                                 continue
                         node_id_map[name] = f"ns=4;s=上位机通讯|{name}"
                 return node_id_map
-            except UnicodeDecodeError:
-                node_id_map.clear()
-                break
-            except FileNotFoundError:
+            except UnicodeError:
+                continue
+            except OSError:
                 return {}
     return node_id_map
 

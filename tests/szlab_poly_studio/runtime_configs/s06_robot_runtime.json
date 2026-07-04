@@ -11,10 +11,10 @@
     "common_variables": [],
     "action_variables": {
       "submit_place_to_s06": [
-        "任务号"
+        "PLC_R任务号"
       ],
       "submit_pick_from_s06": [
-        "任务号"
+        "PLC_R任务号"
       ],
       "run_solvent_addition": [
         "S06准备信号",
