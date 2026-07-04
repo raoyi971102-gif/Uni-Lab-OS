@@ -513,6 +513,7 @@ def test_build_local_device_graph_keeps_csv_when_explicitly_configured():
 
 def test_s06_robot_generated_graph_maps_csv_node_ids_to_pump_device():
     preset = load_preset("s06_robot")
+    assert not Path(preset.default_config["csv"]).is_absolute()
     csv_path = _resolve_ui_path(preset.default_config["csv"], preset)
 
     graph = build_local_device_graph(
