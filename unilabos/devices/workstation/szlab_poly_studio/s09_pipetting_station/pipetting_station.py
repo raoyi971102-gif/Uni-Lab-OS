@@ -234,6 +234,55 @@ class SzlabMixerPipettingStationDevice:
         return int(raw_volume) / 10.0
 
     @not_action
+    def _raw_volume_to_ml(self, raw_volume: int) -> float:
+        return int(raw_volume) / 10000.0
+
+    @not_action
+    def _read_remaining_volume(self, bottle: int) -> float:
+        bottle = validate_liquid_bottle(bottle)
+        return float(self._read_variable(s09_remaining_volume_var(bottle), use_cache=False))
+
+    @not_action
+    def _ensure_sufficient_remaining_volume(
+        self,
+        bottle: int,
+        raw_volume: int,
+    ) -> dict[str, Any]:
+        bottle = validate_liquid_bottle(bottle)
+        current = self._read_remaining_volume(bottle)
+        needed_ml = self._raw_volume_to_ml(raw_volume)
+        if current + 1e-9 < needed_ml:
+            raise ValueError(
+                f"S09 液体瓶 {bottle} 剩余液量不足：当前 {current:g} mL，需要 {needed_ml:g} mL"
+            )
+        return {
+            "bottle": bottle,
+            "variable": s09_remaining_volume_var(bottle),
+            "remaining_volume": current,
+            "required_volume_ml": needed_ml,
+        }
+
+    @not_action
+    def _deduct_remaining_volume(self, bottle: int, raw_volume: int) -> dict[str, Any]:
+        bottle = validate_liquid_bottle(bottle)
+        variable = s09_remaining_volume_var(bottle)
+        current = self._read_remaining_volume(bottle)
+        deduct_ml = self._raw_volume_to_ml(raw_volume)
+        new_volume = round(current - deduct_ml, 6)
+        if new_volume < 0:
+            raise ValueError(
+                f"S09 液体瓶 {bottle} 剩余液量不足：当前 {current:g} mL，需要 {deduct_ml:g} mL"
+            )
+        self._write_variable(variable, new_volume)
+        return {
+            "bottle": bottle,
+            "variable": variable,
+            "previous_remaining_volume": current,
+            "deducted_volume_ml": deduct_ml,
+            "remaining_volume": new_volume,
+        }
+
+    @not_action
     def _split_raw_volume(self, raw_volume: int) -> list[int]:
         raw_volume = int(raw_volume)
         chunks: list[int] = []
@@ -420,6 +469,7 @@ class SzlabMixerPipettingStationDevice:
         dispense_volume: int = 0,
         volume_unit: str = "raw",
         require_allow: bool = False,
+        skip_level_check: bool = False,
         reset_delay: float = 0.1,
     ) -> dict[str, Any]:
         logs: list[dict[str, Any]] = []
@@ -454,6 +504,19 @@ class SzlabMixerPipettingStationDevice:
                 )
                 if not self._wait_allow_process():
                     return {"success": False, "message": "等待 S09 允许加工超时", "logs": logs}
+            except Exception as exc:
+                return {"success": False, "message": str(exc), "logs": logs}
+
+        if process in {7, 9} and aspirate_volume > 0 and not skip_level_check:
+            try:
+                level_check = self._ensure_sufficient_remaining_volume(liquid_bottle_index, aspirate_volume)
+                self._append_log(
+                    logs,
+                    f"S09 液体瓶 {liquid_bottle_index} 剩余液量校验通过",
+                    level_check,
+                )
+            except ValueError as exc:
+                return {"success": False, "message": str(exc), "logs": logs}
             except Exception as exc:
                 return {"success": False, "message": str(exc), "logs": logs}
 
@@ -518,6 +581,23 @@ class SzlabMixerPipettingStationDevice:
                 {"variable": S09_PROCESS_DONE_VAR, "expected": process},
             )
 
+            if process in {7, 9} and aspirate_volume > 0:
+                try:
+                    remaining_update = self._deduct_remaining_volume(liquid_bottle_index, aspirate_volume)
+                    data["remaining_volume_update"] = remaining_update
+                    self._append_log(
+                        logs,
+                        (
+                            f"S09 液体瓶 {liquid_bottle_index} 剩余液量已更新："
+                            f"{remaining_update['previous_remaining_volume']:g} -> "
+                            f"{remaining_update['remaining_volume']:g} mL"
+                        ),
+                        remaining_update,
+                    )
+                except Exception as exc:
+                    self._status = "Error"
+                    return {"success": False, "message": str(exc), "data": data, "logs": logs}
+
             if process in {9, 10}:
                 self._append_log(logs, "读取 S09 天平读数", {"process": process})
                 balance = self.read_balance(require_stable=False)
@@ -559,6 +639,7 @@ class SzlabMixerPipettingStationDevice:
         aspirate_volume: int = 1,
         dispense_volume: int = 1,
         volume_unit: str = "raw",
+        skip_level_check: bool = False,
     ) -> dict[str, Any]:
         steps: list[dict[str, Any]] = []
         logs: list[dict[str, Any]] = []
@@ -594,6 +675,7 @@ class SzlabMixerPipettingStationDevice:
                 aspirate_volume=aspirate_chunk,
                 dispense_volume=dispense_chunk,
                 volume_unit="raw",
+                skip_level_check=skip_level_check,
             )
             steps.append({"step": step_name, **result})
             logs.extend(result.get("logs") or [])

@@ -68,7 +68,7 @@ def test_s09_process_labels_cover_plc_processes_1_to_10():
 
 
 def test_s09_run_process_writes_expected_variables_and_waits_done():
-    client = PseudoSzlabS09OpcUaClient()
+    client = PseudoSzlabS09OpcUaClient({"S09液体瓶3剩余液量": 100.0})
     device = make_pipetting_device(client)
 
     result = device.run_process(
@@ -81,11 +81,13 @@ def test_s09_run_process_writes_expected_variables_and_waits_done():
 
     assert result["success"] is True
     assert [item["message"] for item in result["logs"]] == [
+        "S09 液体瓶 3 剩余液量校验通过",
         f"S09 工艺 7 参数写入开始：{S09_PROCESS_LABELS[7]}",
         "S09 工艺 7 参数写入完成",
         "S09 参数写入完成信号已触发",
         "等待 S09 工艺 7 完成",
         "S09 工艺 7 完成信号已确认",
+        "S09 液体瓶 3 剩余液量已更新：100 -> 99.995 mL",
         "S09 工艺参数清零开始",
         "S09 工艺参数清零完成",
     ]
@@ -96,7 +98,8 @@ def test_s09_run_process_writes_expected_variables_and_waits_done():
     assert ("S09工艺选择", 7) in client.writes
     assert client.pulses == ["S09参数写入完成"]
     assert client.wait_equal_calls == [("S09工艺完成", 7)]
-    assert client.writes[-7:] == [
+    assert client.writes[-8:] == [
+        ("S09液体瓶3剩余液量", 99.995),
         ("S09参数写入完成", False),
         ("S09工艺选择", 0),
         ("S09TIP盒工位编号", 0),
@@ -122,7 +125,7 @@ def test_s09_run_process_waits_for_new_completion_cycle_when_done_is_stale():
 
 
 def test_s09_add_liquid_runs_plc_process_sequence_5_7_8_6():
-    client = PseudoSzlabS09OpcUaClient()
+    client = PseudoSzlabS09OpcUaClient({"S09液体瓶4剩余液量": 100.0})
     device = make_pipetting_device(client)
 
     result = device.add_liquid(
@@ -142,7 +145,7 @@ def test_s09_add_liquid_runs_plc_process_sequence_5_7_8_6():
 
 
 def test_s09_run_process_converts_ul_to_plc_raw_volume():
-    client = PseudoSzlabS09OpcUaClient()
+    client = PseudoSzlabS09OpcUaClient({"S09液体瓶1剩余液量": 10.0})
     device = make_pipetting_device(client)
 
     result = device.run_process(
@@ -158,6 +161,7 @@ def test_s09_run_process_converts_ul_to_plc_raw_volume():
     assert ("S09抽液量", 50000) in client.writes
     assert result["data"]["aspirate_volume"] == 50000
     assert result["data"]["aspirate_volume_ul"] == 5000.0
+    assert result["data"]["remaining_volume_update"]["remaining_volume"] == 5.0
 
 
 def test_s09_run_process_rejects_single_transfer_over_tip_range():
@@ -177,7 +181,7 @@ def test_s09_run_process_rejects_single_transfer_over_tip_range():
 
 
 def test_s09_add_liquid_splits_ml_volume_over_5ml():
-    client = PseudoSzlabS09OpcUaClient()
+    client = PseudoSzlabS09OpcUaClient({"S09液体瓶4剩余液量": 10.0})
     device = make_pipetting_device(client)
 
     result = device.add_liquid(
@@ -214,8 +218,50 @@ def test_s09_add_liquid_splits_ml_volume_over_5ml():
     ]
 
 
+def test_s09_run_process_deducts_remaining_volume_after_take_liquid():
+    client = PseudoSzlabS09OpcUaClient({"S09液体瓶1剩余液量": 10.0})
+    device = make_pipetting_device(client)
+
+    result = device.run_process(
+        process=7,
+        tip_box_index=1,
+        tip_index=1,
+        liquid_bottle_index=1,
+        aspirate_volume=2,
+        volume_unit="mL",
+    )
+
+    assert result["success"] is True
+    assert client.values["S09液体瓶1剩余液量"] == 8.0
+    assert result["data"]["remaining_volume_update"] == {
+        "bottle": 1,
+        "variable": s09_remaining_volume_var(1),
+        "previous_remaining_volume": 10.0,
+        "deducted_volume_ml": 2.0,
+        "remaining_volume": 8.0,
+    }
+
+
+def test_s09_run_process_rejects_take_liquid_when_remaining_volume_insufficient():
+    client = PseudoSzlabS09OpcUaClient({"S09液体瓶1剩余液量": 1.0})
+    device = make_pipetting_device(client)
+
+    result = device.run_process(
+        process=7,
+        tip_box_index=1,
+        tip_index=1,
+        liquid_bottle_index=1,
+        aspirate_volume=2,
+        volume_unit="mL",
+    )
+
+    assert result["success"] is False
+    assert "剩余液量不足" in result["message"]
+    assert client.writes == []
+
+
 def test_s09_density_process_returns_balance_reading():
-    client = PseudoSzlabS09OpcUaClient({"S09天平读数": 12.34})
+    client = PseudoSzlabS09OpcUaClient({"S09天平读数": 12.34, "S09液体瓶1剩余液量": 10.0})
     device = make_pipetting_device(client)
 
     result = device.run_process(
@@ -300,7 +346,7 @@ def test_s09_go_to_safe_position_reads_allow_then_writes_process_params():
 
 
 def test_s09_run_nodes_orchestration_emits_action_logs_to_workflow_logger():
-    client = PseudoSzlabS09OpcUaClient({"S09允许加工": True})
+    client = PseudoSzlabS09OpcUaClient({"S09允许加工": True, "S09液体瓶1剩余液量": 10.0})
     device = make_pipetting_device(client)
     records = []
     logger = WorkflowLogger(writer=lambda message, **kwargs: records.append((message, kwargs)))

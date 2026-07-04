@@ -67,6 +67,11 @@ usage() {
   set-volume          写入 LIQUID_BOTTLE_INDEX 的剩余液量
   balance             读取天平读数
   process             执行 PROCESSES 中的单个 PLC 工艺
+  take-tip            取 TIP（工艺 5）
+  take-liquid         液体瓶取液（工艺 7）
+  dispense            烧杯放液（工艺 8）
+  release-tip         放 TIP（工艺 6）
+  liquid-steps        按顺序执行 take-tip -> take-liquid -> dispense -> release-tip
   add-liquid          执行业务单次加液: 5 -> 7 -> 8 -> 6
   workflow            执行包含一个液体步骤的 run_liquid_workflow
 
@@ -78,6 +83,11 @@ usage() {
   CONFIRM=YES HOME_POSITIONS="2" ./cli_pipetting_station_test.sh run go-home
   CONFIRM=YES HOME_POSITIONS="3" ./cli_pipetting_station_test.sh run go-home
   CONFIRM=YES HOME_POSITIONS="4" ./cli_pipetting_station_test.sh run go-home
+  CONFIRM=YES ./cli_pipetting_station_test.sh run take-tip
+  CONFIRM=YES VOLUME_UNIT=mL ASPIRATE_VOLUME=2 ./cli_pipetting_station_test.sh run take-liquid
+  CONFIRM=YES VOLUME_UNIT=mL DISPENSE_VOLUME=2 ./cli_pipetting_station_test.sh run dispense
+  CONFIRM=YES ./cli_pipetting_station_test.sh run release-tip
+  CONFIRM=YES VOLUME_UNIT=mL ASPIRATE_VOLUME=2 DISPENSE_VOLUME=2 ./cli_pipetting_station_test.sh run liquid-steps
   CONFIRM=YES VOLUME_UNIT=mL ASPIRATE_VOLUME=6 DISPENSE_VOLUME=6 ./cli_pipetting_station_test.sh run add-liquid
   CONFIRM=YES TIP_INDEX=3 LIQUID_BOTTLE_INDEX=2 ASPIRATE_VOLUME=50 DISPENSE_VOLUME=50 ./cli_pipetting_station_test.sh run add-liquid
   CONFIRM=YES ./cli_pipetting_station_test.sh run balance
@@ -115,6 +125,11 @@ S09 移液站调试动作:
   set-volume    set_liquid_bottle_remaining_volume
   balance       read_balance
   process       run_process(process=5/7/8/6/9/10 by default)
+  take-tip      run_process(process=5)
+  take-liquid   run_process(process=7)
+  dispense      run_process(process=8)
+  release-tip   run_process(process=6)
+  liquid-steps  依次执行 5 -> 7 -> 8 -> 6
   add-liquid    add_liquid
   workflow      run_liquid_workflow
 
@@ -355,6 +370,19 @@ def emit(action, params, label):
     print("\t".join([action, json.dumps(params, ensure_ascii=False, separators=(",", ":")), label]))
 
 
+def emit_run_process(process, label):
+    params = {
+        **common,
+        "process": process,
+        "aspirate_volume": float(aspirate_volume) if process in {7, 9} else 0,
+        "dispense_volume": float(dispense_volume) if process in {8, 10} else 0,
+        "volume_unit": volume_unit,
+        "require_allow": bool_value(require_allow),
+        "reset_delay": float(reset_delay),
+    }
+    emit("run_process", params, label)
+
+
 common = {
     "tip_box_index": int(tip_box_index),
     "tip_index": int(tip_index),
@@ -393,16 +421,20 @@ elif action_group == "balance":
     emit("read_balance", {"require_stable": False}, "读取 S09 天平读数")
 elif action_group == "process":
     for process in [int(item) for item in processes_text.replace(",", " ").split()]:
-        params = {
-            **common,
-            "process": process,
-            "aspirate_volume": float(aspirate_volume) if process in {7, 9} else 0,
-            "dispense_volume": float(dispense_volume) if process in {8, 10} else 0,
-            "volume_unit": volume_unit,
-            "require_allow": bool_value(require_allow),
-            "reset_delay": float(reset_delay),
-        }
-        emit("run_process", params, f"执行 S09 工艺 {process}")
+        emit_run_process(process, f"执行 S09 工艺 {process}")
+elif action_group == "take-tip":
+    emit_run_process(5, "执行 S09 工艺 5：取 TIP")
+elif action_group == "take-liquid":
+    emit_run_process(7, "执行 S09 工艺 7：液体瓶取液")
+elif action_group == "dispense":
+    emit_run_process(8, "执行 S09 工艺 8：烧杯放液")
+elif action_group == "release-tip":
+    emit_run_process(6, "执行 S09 工艺 6：放 TIP")
+elif action_group == "liquid-steps":
+    emit_run_process(5, "执行 S09 工艺 5：取 TIP")
+    emit_run_process(7, "执行 S09 工艺 7：液体瓶取液")
+    emit_run_process(8, "执行 S09 工艺 8：烧杯放液")
+    emit_run_process(6, "执行 S09 工艺 6：放 TIP")
 elif action_group == "add-liquid":
     emit("add_liquid", {**common, **volume_params}, "执行 S09 单次业务加液 5->7->8->6")
 elif action_group == "workflow":
