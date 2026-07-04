@@ -3,7 +3,7 @@
     "plc_device_id": "szlab_poly_plc",
     "devices": {
       "szlab_poly_plc": "unilabos.devices.workstation.szlab_poly_studio.plc.SZLabPolyPLCDevice",
-      "szlab_s07_solid_addition": "unilabos.devices.workstation.szlab_poly_studio.solid_addition-s07.s07.SZLabS07SolidAdditionDevice"
+      "szlab_s07_solid_addition": "unilabos.devices.workstation.szlab_poly_studio.s07_solid_addition.s07.SZLabS07SolidAdditionDevice"
     }
   },
   "opc_snapshot": {

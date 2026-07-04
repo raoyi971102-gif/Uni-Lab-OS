@@ -15,7 +15,7 @@
     "show_csv": false
   },
   "path_roots": [
-    "unilabos/devices/workstation/szlab_poly_studio/solid_addition-s07"
+    "unilabos/devices/workstation/szlab_poly_studio/s07_solid_addition"
   ],
   "device_graph": {
     "nodes": [

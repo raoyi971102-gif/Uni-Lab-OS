@@ -8,8 +8,12 @@ import time
 from pathlib import Path
 from typing import Any
 
-from rclpy.action import ActionClient
-from unilabos_msgs.action import StrSingleInput
+try:
+    from rclpy.action import ActionClient
+    from unilabos_msgs.action import StrSingleInput
+except ModuleNotFoundError:
+    ActionClient = None
+    StrSingleInput = None
 
 from unilabos.registry.decorators import action, device, not_action
 from unilabos.resources.resource_tracker import JSON_UNILABOS_PARAM, PARAM_SAMPLE_UUIDS
@@ -63,10 +67,12 @@ class SZLabS07SolidAdditionDevice:
         self.poll_interval = poll_interval
         self.require_station_ready = require_station_ready
         self._ros_node = None
-        self._plc_command_client: ActionClient | None = None
+        self._plc_command_client: Any = None
 
     @not_action
     def post_init(self, ros_node) -> None:
+        if ActionClient is None or StrSingleInput is None:
+            raise RuntimeError("S07 固体加料工位需要 ROS2 rclpy 和 unilabos_msgs 才能连接 PLC action")
         self._ros_node = ros_node
         self._plc_command_client = ActionClient(
             ros_node,

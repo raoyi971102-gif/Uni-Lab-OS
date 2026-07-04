@@ -1,7 +1,7 @@
 """探测 SZLab 真机 OPC UA 的 S07 节点。
 
 用法：
-    PYTHONPATH=. python unilabos/devices/workstation/szlab_poly_studio/solid_addition-s07/probe_real_opcua.py
+    PYTHONPATH=. python unilabos/devices/workstation/szlab_poly_studio/s07_solid_addition/probe_real_opcua.py
 """
 
 from __future__ import annotations

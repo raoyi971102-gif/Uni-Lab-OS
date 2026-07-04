@@ -254,7 +254,7 @@ def test_s07_solid_addition_preset_uses_registry_actions_and_plc_gateway():
     ]
     assert runtime_config.device_factory.plc_device_id == "szlab_poly_plc"
     assert runtime_config.device_factory.devices["szlab_s07_solid_addition"] == (
-        "unilabos.devices.workstation.szlab_poly_studio.solid_addition-s07.s07."
+        "unilabos.devices.workstation.szlab_poly_studio.s07_solid_addition.s07."
         "SZLabS07SolidAdditionDevice"
     )
     assert collect_snapshot_variables("dose_powder", {}, runtime_config) == [
@@ -270,7 +270,7 @@ def test_s07_solid_addition_preset_uses_registry_actions_and_plc_gateway():
 
     nodes = {node["id"]: node for node in graph["nodes"]}
     assert nodes["szlab_poly_plc"]["config"]["url"] == "opc.tcp://127.0.0.1:48507/"
-    assert nodes["szlab_poly_plc"]["config"]["csv_path"].endswith("solid_addition-s07/s07_nodes.csv")
+    assert nodes["szlab_poly_plc"]["config"]["csv_path"].endswith("s07_solid_addition/s07_nodes.csv")
     assert nodes["szlab_s07_solid_addition"]["config"]["plc_device_id"] == "szlab_poly_plc"
     assert _action_to_dict(preset.actions["dose_powder"], runtime_config)["opc_variables"] == [
         "S07原点信号",

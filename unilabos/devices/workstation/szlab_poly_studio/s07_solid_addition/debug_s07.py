@@ -1,7 +1,7 @@
 """SZLab S07 固体加料工位单独调试脚本。
 
 运行：
-    PYTHONPATH=. python unilabos/devices/workstation/szlab_poly_studio/solid_addition-s07/debug_s07.py --mode all
+    PYTHONPATH=. python unilabos/devices/workstation/szlab_poly_studio/s07_solid_addition/debug_s07.py --mode all
 """
 
 from __future__ import annotations
@@ -82,9 +82,9 @@ def run_s07_debug(config_path: Path, *, use_production: bool) -> dict[str, Any]:
     device_cfg = config["device"]
     action_cfg = dict(config["action"])
     action_name = action_cfg.pop("name")
-    module = importlib.import_module("unilabos.devices.workstation.szlab_poly_studio.solid_addition-s07.s07")
+    module = importlib.import_module("unilabos.devices.workstation.szlab_poly_studio.s07_solid_addition.s07")
     opcua_module = importlib.import_module(
-        "unilabos.devices.workstation.szlab_poly_studio.solid_addition-s07.opcua_client"
+        "unilabos.devices.workstation.szlab_poly_studio.s07_solid_addition.opcua_client"
     )
     device = module.SZLabS07SolidAdditionDevice(
         plc_device_id="debug_s07_plc",
@@ -116,13 +116,13 @@ def run_s07_debug(config_path: Path, *, use_production: bool) -> dict[str, Any]:
 
 def reset_plc_signals(config_path: Path, *, use_production: bool) -> None:
     sensors = importlib.import_module(
-        "unilabos.devices.workstation.szlab_poly_studio.solid_addition-s07.sensors"
+        "unilabos.devices.workstation.szlab_poly_studio.s07_solid_addition.sensors"
     )
 
     config = load_s07_debug_config(config_path, use_production=use_production)
     device_cfg = config["device"]
     opcua_module = importlib.import_module(
-        "unilabos.devices.workstation.szlab_poly_studio.solid_addition-s07.opcua_client"
+        "unilabos.devices.workstation.szlab_poly_studio.s07_solid_addition.opcua_client"
     )
     client = opcua_module.S07OpcUaClient(
         config["resolved_opcua_url"],

@@ -8,7 +8,7 @@ from typing import Any
 
 from unilabos.registry.ast_registry_scanner import scan_directory
 
-S07_PACKAGE = "unilabos.devices.workstation.szlab_poly_studio.solid_addition-s07"
+S07_PACKAGE = "unilabos.devices.workstation.szlab_poly_studio.s07_solid_addition"
 s07_module = importlib.import_module(f"{S07_PACKAGE}.s07")
 sensors = importlib.import_module(f"{S07_PACKAGE}.sensors")
 opcua_client = importlib.import_module(f"{S07_PACKAGE}.opcua_client")
@@ -45,7 +45,7 @@ def make_s07_device(plc: FakeS07Plc | None = None) -> SZLabS07SolidAdditionDevic
 
 
 def test_s07_solid_addition_device_is_ast_scannable_from_own_package():
-    root = Path("unilabos/devices/workstation/szlab_poly_studio/solid_addition-s07")
+    root = Path("unilabos/devices/workstation/szlab_poly_studio/s07_solid_addition")
     with ThreadPoolExecutor(max_workers=2) as executor:
         result = scan_directory(root, python_path=Path(".").resolve(), executor=executor)
 
@@ -60,7 +60,7 @@ def test_s07_solid_addition_device_is_ast_scannable_from_own_package():
 
 
 def test_s07_debug_config_references_existing_local_files():
-    config_path = Path("unilabos/devices/workstation/szlab_poly_studio/solid_addition-s07/s07_debug.json")
+    config_path = Path("unilabos/devices/workstation/szlab_poly_studio/s07_solid_addition/s07_debug.json")
     config = json.loads(config_path.read_text(encoding="utf-8"))
 
     assert Path(config["virtual_opcua"]["csv"]).exists()
@@ -70,7 +70,7 @@ def test_s07_debug_config_references_existing_local_files():
 
 
 def test_s07_debug_helpers_match_pump_style_layout():
-    device_dir = Path("unilabos/devices/workstation/szlab_poly_studio/solid_addition-s07")
+    device_dir = Path("unilabos/devices/workstation/szlab_poly_studio/s07_solid_addition")
 
     assert (device_dir / "opcua_client.py").exists()
     assert (device_dir / "probe_real_opcua.py").exists()
