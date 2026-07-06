@@ -1,0 +1,23 @@
+{
+  "name": "szlab_mixer_pump",
+  "rules": [
+    {
+      "name": "S06 参数写入后翻转加工完成",
+      "trigger": {
+        "node": "S06参数写入完成",
+        "value": true,
+        "edge": "rising"
+      },
+      "log_nodes": [
+        "S06工艺选择",
+        "S06_1号溶液添加量",
+        "S06_2号溶液添加量"
+      ],
+      "actions": [
+        {"write": ["S06加工完成", false]},
+        {"sleep": 0.1},
+        {"write": ["S06加工完成", true]}
+      ]
+    }
+  ]
+}

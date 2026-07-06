@@ -1,0 +1,25 @@
+{
+  "name": "szlab_s07_solid_addition",
+  "rules": [
+    {
+      "name": "S07 参数写入后完成扫码盘点",
+      "trigger": {
+        "node": "S07参数写入完成",
+        "value": true,
+        "edge": "rising"
+      },
+      "log_nodes": [
+        "S07工艺选择",
+        "S07上下料位置",
+        "S07粗注粉位置号",
+        "S07精注粉位置号",
+        "S07注粉重量"
+      ],
+      "actions": [
+        {"write": ["S07工艺完成", 0]},
+        {"sleep": 0.1},
+        {"write": ["S07工艺完成", 1]}
+      ]
+    }
+  ]
+}
