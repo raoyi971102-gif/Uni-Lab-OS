@@ -14,8 +14,13 @@ import threading
 from unilabos.utils.log import logger
 import logging
 
-from unilabos.utils.decorator import not_action
-from unilabos.registry.decorators import topic_config
+from unilabos.registry.decorators import (
+    action,
+    device,
+    not_action,
+    topic_config,
+    NodeType,
+)
 
 # 导入通讯基类
 from unilabos.devices.workstation.XUSE.base_opcua_client import OpcUaClientWithSubscription
@@ -33,6 +38,14 @@ from unilabos.devices.workstation.XUSE.XUSE_CONSTS import ARM_LOCK_MAP, ARM_STAT
 
 # 定义 XUSE 设备通信类
 # 包含三个机械臂，一个罐架区，一个加珠区，一个开罐区，一个刮粉区，一个过筛区，一个加粉区，一个球磨区，一个马弗炉区，一个出料区
+@device(
+    id="XUSE_station",
+    category=["XUSE_station"],
+    description="厦门大学固态实验工站（XUSE），包含 3 个机械臂、罐架区、加珠区、开罐区、刮粉区、过筛区、加粉区、球磨区、马弗炉区和出料区",
+    display_name="XUSE 厦大固态实验工站",
+    icon="XUSE_station.png",
+    version="1.0.0",
+)
 class XUSEDevice(OpcUaClientWithSubscription):
     """
     XUSE 设备类
@@ -373,16 +386,29 @@ class XUSEDevice(OpcUaClientWithSubscription):
             time.sleep(interval)
 
     # 初始化工站
-    def trigger_init(self, **kwargs) -> dict:
+    @action(
+        always_free=True,
+        node_type=NodeType.MANUAL_CONFIRM,
+        placeholder_keys={"assignee_user_ids": "unilabos_manual_confirm"},
+        goal_default={"timeout_seconds": 3600, "assignee_user_ids": []},
+        feedback_interval=300,
+        description="工站初始化（人工确认节点：确认通过后停止机械臂触发，触发工站初始化，等待初始化完成）",
+    )
+    def trigger_init(
+        self,
+        timeout_seconds: int = 3600,
+        assignee_user_ids: Optional[list] = None,
+        **kwargs,
+    ) -> dict:
         """
         初始化函数（人工确认节点：云端确认通过后才会执行）：
         - 停止 3 个机械臂触发
         - 触发工站初始化
         - 等待初始化完成
 
-        参数:
-            **kwargs: 用于接收云端人工确认透传过来的 timeout_seconds、assignee_user_ids 等
-                     字段（仅 UI / 后端使用，PLC 初始化逻辑本身用不到）
+        Args:
+            timeout_seconds[超时时间]: 人工确认超时时间，单位秒。
+            assignee_user_ids[确认人]: 指定处理人工确认任务的用户 ID 列表。
 
         Returns:
             dict: 包含 success 和 message
@@ -596,6 +622,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(f"小坩埚出料位编号必须在 1-4 范围内，当前值: {position}")
         return self.get_node_value(f"Small_Crucible_Discharge_Occupied_{position}")
     
+    @not_action
     def get_small_crucible_discharge_current_position(self) -> int:
         """
         获取小坩埚出料当前位置
@@ -605,6 +632,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         """
         return self.get_node_value("Small_Crucible_Discharge_Current_Position")
     
+    @not_action
     def get_large_crucible_feed_current_position(self) -> int:
         """
         获取大坩埚入料当前位置
@@ -647,6 +675,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         """
         return self.get_node_value("Lower_Product_Rack_Occupied")
     
+    @action()
     def pick_can_from_can_rack(self, rack_position: int) -> dict:
         """
         从罐架区取球磨罐
@@ -701,6 +730,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
         
+    @action()
     def place_empty_can_to_open_can_position(self) -> dict:
         """
         将空罐放置到开盖区
@@ -743,6 +773,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
         
+    @action()
     def open_can_lid(self) -> dict:
         """
         打开罐上盖
@@ -787,6 +818,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
         
         
+    @action()
     def pick_empty_can_from_open_can_position(self) -> dict:
         """
         从开盖区抓取空罐
@@ -829,6 +861,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
 
+    @action()
     def place_can_to_add_powder_position(self) -> dict:
         """
         将罐体放置到加粉区
@@ -870,34 +903,88 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
         
-    def add_powder(self) -> dict:
+    @action()
+    def add_powder(
+        self,
+        powder_name: str = "",
+        position_number: str = "",
+        weight: str = "",
+    ) -> dict:
         """
-        加粉
-        - 检查加样是否占位
-        - 等待加粉完成
-        - 返回成功
+        加样（加粉）—— 可选下发本罐参数 + 触发加粉。
+
+        3 个入参对应本罐加样的实时参数（原"设置加样参数"内容）：粉末名称/位置号/重量。
+        - 任一非空即写入对应节点：粉末名称(STRING) / 加样_位置号(INT16) / 加样_重量(FLOAT)。
+        - 有任一参数写入 → 触发"加样参数下发"握手；全部留空 → 跳过下发直接进入加粉。
+        - 通用工艺参数（1ML/500NL 开口量/落粉均速/旋转速度/提前停止量/震荡最高速度、粉末号）不走本动作，
+          请通过 set_add_powder_params 提前下发。
+
+        Args:
+            powder_name[粉末名称]: 粉末名称，STRING（可选；留空即跳过）。
+            position_number[加样_位置号]: 加样位置号，INT16（可选；留空即跳过）。
+            weight[加样_重量]: 加样重量（克），FLOAT（可选；留空即跳过）。
         """
-        logger.info("加粉...")     
+        logger.info("加粉...")
+
+        # ---------- 1) 可选下发本罐参数 ----------
+        written = 0
+        errors = []
+
+        # (节点名, 用户输入, 类型转换器)
+        params = [
+            ("粉末名称", powder_name, lambda s: str(s).strip()),
+            ("加样_位置号", position_number, lambda s: int(float(s))),
+            ("加样_重量", weight, lambda s: float(s)),
+        ]
+        for node_name, raw, caster in params:
+            if raw is None:
+                continue
+            s = str(raw).strip()
+            if s == "":
+                continue
+            try:
+                value = caster(s)
+                if self.set_node_value(node_name, value):
+                    written += 1
+                else:
+                    errors.append(f"{node_name} 写入失败")
+            except ValueError:
+                errors.append(f"{node_name} 无法解析: {raw!r}")
+            except Exception as e:
+                errors.append(f"{node_name} 写入出错: {e}")
+
+        if written > 0:
+            self._send_param_handshake(
+                "Add_Sample_Parameter_Send",
+                "Add_Sample_Parameter_Send_Complete",
+                description="加样参数下发",
+            )
+            logger.info(f"加样参数下发完成，共 {written} 项（粉末:{powder_name} 位置:{position_number} 重量:{weight}）")
+        else:
+            logger.info("本罐加样参数全部为空，跳过参数下发")
+
+        # ---------- 2) 触发加粉 ----------
         if not self._wait_condition(lambda: self.is_add_sample_occupied()):
             error_msg = "没有罐体，无法加粉"
             logger.error(error_msg)
             raise ValueError(error_msg)
-        
-        logger.info("to do: 有罐体，开始加粉...")
 
+        logger.info("有罐体，开始加粉...")
         if self._wait_until_true("Add_Sample_Request_Process", description="加样请求加工"):
             logger.info("接收到加样请求加工")
-            self.set_node_value("Add_Sample_Start_Process", True) # 开始加工
+            self.set_node_value("Add_Sample_Start_Process", True)  # 开始加工
             if self._wait_until_true("Add_Sample_Process_Complete", description="加样加工完成"):
                 logger.info("加样加工完成")
-                self.set_node_value("Add_Sample_Start_Process", False) # 复位加工
+                self.set_node_value("Add_Sample_Start_Process", False)  # 复位加工
                 return {
                     "success": True,
                     "message": "加样加工完成",
+                    "data": {"params_written": written},
+                    "error": errors,
                 }
             else:
                 logger.error("加样加工失败，动作超时")
-                self.set_node_value("Add_Sample_Start_Process", False) # 复位加工
+                self.set_node_value("Add_Sample_Start_Process", False)  # 复位加工
                 raise ValueError("加样加工失败，动作超时")
         else:
             error_msg = "加样失败，未收到加样请求"
@@ -905,6 +992,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
 
     
+    @action()
     def pick_can_from_add_powder_position(self) -> dict:
         """
         从加粉区取罐体
@@ -947,6 +1035,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
 
 
+    @action()
     def place_can_to_add_bead_position(self) -> dict:
         """
         将罐体放置到加珠区
@@ -989,6 +1078,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
         
     
+    @action()
     def add_bead(self) -> dict:
         """
         进行加珠操作
@@ -1022,6 +1112,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
 
     
+    @action()
     def pick_can_from_add_bead_position(self) -> dict:
         """
         从加珠区取罐体
@@ -1064,6 +1155,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
     
 
+    @action()
     def place_can_with_powder_and_bead_to_open_can_position(self) -> dict:
         """
         将带有粉珠的球磨罐放置到开盖区
@@ -1107,6 +1199,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
         
     
+    @action()
     def close_can_lid(self) -> dict:
         """
         关闭罐上盖
@@ -1151,6 +1244,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
         
     
+    @action()
     def pick_can_with_powder_and_bead_from_open_can_position(self) -> dict:
         """
         从开盖区抓取带有粉珠的球磨罐
@@ -1194,6 +1288,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
         
     
+    @action()
     def place_can_to_ball_mill(self, mill_position: int) -> dict:
         """
         将罐体放置到球磨区
@@ -1242,6 +1337,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
 
+    @action()
     def ball_mill(self, require_full: bool = True) -> dict:
         """
         进行球磨
@@ -1290,6 +1386,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
     
     
+    @action()
     def pick_can_from_ball_mill(self, mill_position: int) -> dict:
         """
         从球磨区抓取罐体
@@ -1339,6 +1436,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
 
     
+    @action()
     def place_milled_can_to_open_can_position(self, mill_position: int) -> dict:
         """
         将研磨后球磨罐放到开盖区
@@ -1388,6 +1486,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
 
 
+    @action()
     def pick_milled_can_from_open_can_position(self, mill_position: int) -> dict:
         """
         从开盖区抓取研磨后球磨罐
@@ -1437,6 +1536,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
 
 
+    @action()
     def place_milled_can_to_sieve_position(self, mill_position: int) -> dict:
         """
         将研磨后球磨罐放到过筛区
@@ -1486,6 +1586,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
 
 
+    @action()
     def sieve(self) -> dict:
         """
         过筛
@@ -1524,6 +1625,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
 
 
+    @action()
     def pick_milled_can_from_sieve_position(self, mill_position: int) -> dict:
         """
         从过筛区抓取研磨后球磨罐
@@ -1572,6 +1674,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
 
 
+    @action()
     def place_milled_can_to_scrape_position(self, mill_position: int) -> dict:
         """
         将研磨后球磨罐放到刮粉区
@@ -1621,6 +1724,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
         
     
+    @action()
     def scrape_powder(self) -> dict:
         """
         刮粉
@@ -1659,6 +1763,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
         
 
+    @action()
     def pick_milled_can_from_scrape_position(self, mill_position: int) -> dict:
         """
         从刮粉区取下研磨后球磨罐
@@ -1708,6 +1813,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
         
     
+    @action()
     def place_sieved_can_to_open_can_position(self, mill_position: int) -> dict:
         """
         将过筛后球磨罐放到开罐区位置
@@ -1757,6 +1863,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
         
     
+    @action()
     def pick_sieved_can_from_open_can_position(self, mill_position: int) -> dict:
         """
         将过筛后球磨罐从开罐区位置取下
@@ -1806,6 +1913,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
         
     
+    @action()
     def place_can_to_can_rack(self, rack_position: int) -> dict:
         """
         将球磨罐放到罐架区
@@ -1861,6 +1969,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
         
     
+    @action()
     def pick_small_crucible_from_crucible_rack(self, rack_position: int) -> dict:
         """
         从坩锅架区取小坩埚
@@ -1904,6 +2013,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
         
     
+    @action()
     def place_small_crucible_to_sieve_position(self) -> dict:
         """
         将小坩埚放到过筛区
@@ -1946,6 +2056,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
 
 
+    @action()
     def pick_funnel_from_crucible_rack(self, rack_position: int) -> dict:
         """
         从漏斗架区取漏斗
@@ -1995,6 +2106,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
 
 
+    @action()
     def place_funnel_to_sieve_position(self) -> dict:
         """
         将漏斗放到过筛区
@@ -2037,6 +2149,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
 
 
+    @action()
     def pick_small_crucible_from_sieve_position(self) -> dict:
         """
         将小坩埚从过筛区取出
@@ -2079,6 +2192,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
 
 
+    @action()
     def place_small_crucible_to_moving_position(self, moving_position: int)  -> dict:
         """
         将小坩锅放到搬运位置
@@ -2130,6 +2244,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
 
 
+    @action()
     def pick_funnel_from_sieve_position(self) -> dict:
         """
         将漏斗从过筛区取出
@@ -2172,6 +2287,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
 
 
+    @action()
     def place_funnel_to_crucible_rack(self, rack_position: int) -> dict:
         """
         将漏斗放到漏斗架
@@ -2221,6 +2337,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
         
 
+    @action()
     def small_crucible_discharge(self) -> dict:
         """
         小坩锅出料
@@ -2264,6 +2381,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
         
     
+    @action()
     def small_crucible_feed(self) -> dict:
         """
         小坩锅上料
@@ -2299,6 +2417,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
 
 
+    @action()
     def large_crucible_discharge(self) -> dict:
         """
         大坩锅搬运位出料
@@ -2334,6 +2453,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
         
     
+    @action()
     def large_crucible_feed(self) -> dict:
         """
         大坩锅搬运位置上料
@@ -2369,6 +2489,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
 
 
+    @action()
     def pick_large_crucible_from_moving_position(self) -> dict:
         """
         从搬运区取大坩埚
@@ -2412,6 +2533,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
 
 
+    @action()
     def place_large_crucible_to_muffle_furnace(self, muffle_furnace_position: int) -> dict:
         """
         把大坩埚放到马弗炉
@@ -2463,6 +2585,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
 
 
+    @action()
     def muffle_furnace_sintering(self, muffle_furnace_position: int) -> dict:
         """
         马弗炉烧结
@@ -2503,6 +2626,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
 
 
+    @action()
     def pick_large_crucible_from_muffle_furnace(self, muffle_furnace_position: int) -> dict:
         """
         从马弗炉取大坩埚
@@ -2554,6 +2678,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
 
 
+    @action()
     def place_large_crucible_to_upper_product_rack(self) -> dict:
         """
         放大坩埚到成品出料上位置
@@ -2597,6 +2722,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
 
 
+    @action()
     def place_large_crucible_to_lower_product_rack(self) -> dict:
         """
         放大坩埚到成品出料下位置
@@ -2640,6 +2766,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
         
     
+    @action()
     def trigger_all_process(self) -> dict:
         logger.info(f"触发所有过程...")
         time.sleep(1)
@@ -2898,6 +3025,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             "message": f"整体流程运行完成",
         } 
 
+    @action()
     def set_muffle_furnace_params(self, param_file: str) -> dict:
         """
         设置马弗炉烧结参数（6 台分别设置）。
@@ -2983,6 +3111,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             "error": errors,
         }
 
+    @action()
     def set_ball_mill_params(self, param_file: str) -> dict:
         """
         设置球磨工艺参数。
@@ -3052,58 +3181,144 @@ class XUSEDevice(OpcUaClientWithSubscription):
             "error": errors,
         }
 
-    def set_add_powder_params(self, powder_name: str, position_number: int, weight: float) -> dict:
+    @action()
+    def set_add_powder_params(
+        self,
+        param_file: str = "",
+        vibration_max_speed_1ml: str = "",
+        vibration_max_speed_500nl: str = "",
+        powder_number: str = "",
+    ) -> dict:
         """
-        设置加样参数（下发粉末名称/位置号/重量，并触发加样参数下发握手）。
+        设置加样工艺参数（xlsx 数组参数 + 3 个单值参数）。
 
-        将 3 个参数分别写入对应节点：粉末名称(STRING)、加样_位置号(INT16)、加样_重量(FLOAT)，
-        写入后触发"加样参数下发"并等待下发完成、复位（与其它参数下发动作一致）。
+        1) xlsx 数组参数：
+           - param_file：Excel(.xlsx)，含若干 sheet，sheet 名 = 数组索引（默认模板给出 0~4 共 5 组）。
+             每个 sheet 两列：第一列"参数名"（不带索引后缀 [N]，也可带上），第二列"参数值"；首行为表头。
+             支持的基础参数名（8 项）：
+               加样_1ML开口量、加样_1ML落粉均速、加样_1ML旋转速度、加样_1ML提前停止量、
+               加样_500NL开口量、加样_500NL落粉均速、加样_500NL旋转速度、加样_500NL提前停止量
+             最终写入节点为 <基础名>[<sheet 索引>]；单元格为空的参数会跳过。
+        2) 单值参数（不走 xlsx）：
+           - vibration_max_speed_1ml：加样_1ML震荡最高速度（INT16）
+           - vibration_max_speed_500nl：加样_500NL震荡最高速度（INT16）
+           - powder_number：加样_粉末号（INT16）
+        3) 只要有任一参数落地写入，就触发"加样参数下发"握手；全部为空 → 不做任何写入与握手。
+
+        本罐参数（粉末名称/位置号/重量）请在 add_powder 中作为入参传入，不在本动作范畴。
 
         Args:
-            powder_name[粉末名称]: 粉末名称（字符串）。
-            position_number[加样_位置号]: 加样位置号（整数）。
-            weight[加样_重量]: 加样重量（克，浮点数）。
+            param_file[加样参数文件]: 加样参数 Excel(.xlsx) 文件路径（可选；留空 = 不下发 xlsx 参数）。
+            vibration_max_speed_1ml[加样_1ML震荡最高速度]: 1ML 震荡最高速度，INT16（可选；留空即跳过）。
+            vibration_max_speed_500nl[加样_500NL震荡最高速度]: 500NL 震荡最高速度，INT16（可选；留空即跳过）。
+            powder_number[加样_粉末号]: 加样粉末号，INT16（可选；留空即跳过）。
         """
-        if powder_name is None or str(powder_name).strip() == "":
-            error_msg = "加样参数下发失败：粉末名称不能为空"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
+        import re
+        import openpyxl
 
         written = 0
         errors = []
-        # 待下发参数：节点名 -> 值（节点名与 CSV 中 Name 一致）
-        params = [
-            ("粉末名称", str(powder_name).strip()),
-            ("加样_位置号", int(position_number)),
-            ("加样_重量", float(weight)),
-        ]
-        for node_name, value in params:
+
+        # xlsx 数组参数：<基础名>[sheet_idx]
+        _base_type_map = {
+            "加样_1ML开口量": int,
+            "加样_1ML落粉均速": float,
+            "加样_1ML旋转速度": int,
+            "加样_1ML提前停止量": int,
+            "加样_500NL开口量": int,
+            "加样_500NL落粉均速": float,
+            "加样_500NL旋转速度": int,
+            "加样_500NL提前停止量": int,
+        }
+        if param_file:
+            param_file = param_file.strip().strip('"').strip("'")
+            if not os.path.isfile(param_file):
+                error_msg = f"加样参数文件不存在: {param_file}"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
             try:
-                if self.set_node_value(node_name, value):
+                wb = openpyxl.load_workbook(param_file, data_only=True)
+            except Exception as e:
+                error_msg = f"无法打开加样参数文件 {param_file}: {e}"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+
+            for sheet in wb.worksheets:
+                try:
+                    sheet_idx = int(str(sheet.title).strip())
+                except ValueError:
+                    logger.warning(f"跳过无法识别索引的 sheet: {sheet.title}")
+                    continue
+                for row_idx, row in enumerate(sheet.iter_rows(values_only=True), start=1):
+                    if row_idx == 1:  # 跳过表头
+                        continue
+                    if not row or row[0] is None or str(row[0]).strip() == "":
+                        continue
+                    raw_name = str(row[0]).strip()
+                    base_name = re.sub(r"\[\d+\]$", "", raw_name)  # 允许带/不带 [N]
+                    node_name = f"{base_name}[{sheet_idx}]"
+                    value = row[1] if len(row) > 1 else None
+                    if value is None or str(value).strip() == "":
+                        continue
+                    caster = _base_type_map.get(base_name)
+                    if caster is None:
+                        errors.append(f"未知参数名: {raw_name} (sheet={sheet.title})")
+                        continue
+                    try:
+                        coerced = caster(float(value))
+                        logger.info(
+                            f"[加样参数下发] 写入 {node_name} = {coerced!r} "
+                            f"(xlsx原始值={value!r} type={type(value).__name__} 目标类型={caster.__name__})"
+                        )
+                        if self.set_node_value(node_name, coerced):
+                            written += 1
+                        else:
+                            errors.append(f"{node_name} 写入失败")
+                    except Exception as e:
+                        errors.append(f"{node_name} 写入出错: {e}")
+
+        # 单值参数——留空即跳过
+        single_params = [
+            ("加样_1ML震荡最高速度", vibration_max_speed_1ml),
+            ("加样_500NL震荡最高速度", vibration_max_speed_500nl),
+            ("加样_粉末号", powder_number),
+        ]
+        for node_name, raw in single_params:
+            if raw is None:
+                continue
+            s = str(raw).strip()
+            if s == "":
+                continue
+            try:
+                if self.set_node_value(node_name, int(float(s))):
                     written += 1
                 else:
                     errors.append(f"{node_name} 写入失败")
+            except ValueError:
+                errors.append(f"{node_name} 无法解析为整数: {raw!r}")
             except Exception as e:
                 errors.append(f"{node_name} 写入出错: {e}")
 
+        # 有任意参数写入 → 触发参数下发握手；全空 → 直接返回
         if written == 0:
-            error_msg = f"加样参数下发失败，未写入任何参数（粉末名称: {powder_name}）"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
+            logger.info("加样参数全部为空，未做任何写入")
+            return {
+                "success": True,
+                "message": "加样参数全部为空，未做任何写入",
+                "data": {"written": 0},
+                "error": errors,
+            }
 
-        # 触发加样参数下发，等待下发完成并复位
         self._send_param_handshake(
             "Add_Sample_Parameter_Send",
             "Add_Sample_Parameter_Send_Complete",
             description="加样参数下发",
         )
-
-        logger.info(f"加样参数下发完成，共 {written} 项（粉末:{powder_name} 位置:{position_number} 重量:{weight}）")
+        logger.info(f"加样参数下发完成，共 {written} 项")
         return {
             "success": True,
             "message": f"加样参数下发完成，共写入 {written} 项",
-            "data": {"written": written, "powder_name": powder_name,
-                     "position_number": position_number, "weight": weight},
+            "data": {"written": written},
             "error": errors,
         }
 
