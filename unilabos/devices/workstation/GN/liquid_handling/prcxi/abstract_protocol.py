@@ -27,7 +27,7 @@ from pylabrobot.liquid_handling.standard import (
 from pylabrobot.resources import Tip, Deck, Plate, Well, TipRack, Resource, Container, Coordinate, TipSpot, Trash
 from traitlets import Int
 
-from unilabos.devices.liquid_handling.liquid_handler_abstract import LiquidHandlerAbstract
+from unilabos.devices.workstation.GN.liquid_handling.liquid_handler_abstract import LiquidHandlerAbstract
 
 
 

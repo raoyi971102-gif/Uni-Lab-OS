@@ -196,7 +196,7 @@ Uni-Lab 支持两种格式的设备图文件：
       "config": {
         "deck": {
           "_resource_child_name": "PRCXI_Deck_9300",
-          "_resource_type": "unilabos.devices.liquid_handling.prcxi.prcxi:PRCXI9300Deck"
+          "_resource_type": "unilabos.devices.workstation.GN.liquid_handling.prcxi.prcxi:PRCXI9300Deck"
         },
         "host": "10.181.214.132",
         "port": 9999,

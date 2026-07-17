@@ -3470,7 +3470,7 @@ liquid_handler.prcxi:
           title: transfer_liquid参数
           type: object
         type: UniLabJsonCommandAsync
-    module: unilabos.devices.liquid_handling.prcxi.prcxi:PRCXI9300Handler
+    module: unilabos.devices.workstation.GN.liquid_handling.prcxi.prcxi:PRCXI9300Handler
     status_types:
       reset_ok: bool
     type: python

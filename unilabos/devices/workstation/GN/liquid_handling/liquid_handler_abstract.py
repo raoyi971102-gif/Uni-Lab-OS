@@ -29,7 +29,7 @@ from pylabrobot.resources import (
 )
 from typing_extensions import TypedDict
 
-from unilabos.devices.liquid_handling.liquid_history import (
+from unilabos.devices.workstation.GN.liquid_handling.liquid_history import (
     LiquidHistoryEntry,
     append_liquid_history as _append_liquid_history,
     capture_tip_liquid_name as _capture_tip_liquid_name,
@@ -39,7 +39,6 @@ from unilabos.devices.liquid_handling.liquid_history import (
     same_liquid_via_liquids_pair as _same_liquid_via_liquids_pair,
     well_current_liquid_name as _well_current_liquid_name,
 )
-from unilabos.devices.liquid_handling.rviz_backend import UniLiquidHandlerRvizBackend
 from unilabos.registry.placeholder_type import ResourceSlot
 from unilabos.resources.resource_tracker import (
     ResourceTreeSet,
@@ -82,6 +81,8 @@ class LiquidHandlerMiddleware(LiquidHandler):
         joint_config = kwargs.get("joint_config", None)
         if simulator:
             if joint_config:
+                from unilabos.devices.workstation.GN.liquid_handling.rviz_backend import UniLiquidHandlerRvizBackend
+
                 self._simulate_backend = UniLiquidHandlerRvizBackend(
                     channel_num, kwargs["total_height"], joint_config=joint_config, lh_device_id=deck.name,
                     simulate_rviz=kwargs.get("simulate_rviz", True)

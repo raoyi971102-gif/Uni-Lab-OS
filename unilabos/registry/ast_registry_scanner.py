@@ -482,7 +482,7 @@ def _collect_imports(tree: ast.Module, module_path: str = "") -> Dict[str, str]:
         {"SendCmd": "unilabos_msgs.action:SendCmd",
          "StrSingleInput": "unilabos_msgs.action:StrSingleInput",
          "InputHandle": "unilabos.registry.decorators:InputHandle",
-         "SetLiquidReturn": "unilabos.devices.liquid_handling.liquid_handler_abstract:SetLiquidReturn",
+         "SetLiquidReturn": "unilabos.devices.workstation.GN.liquid_handling.liquid_handler_abstract:SetLiquidReturn",
          ...}
     """
     import_map: Dict[str, str] = {}

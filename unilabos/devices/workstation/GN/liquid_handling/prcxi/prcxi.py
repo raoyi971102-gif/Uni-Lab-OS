@@ -51,14 +51,14 @@ from pylabrobot.resources import (
     create_homogeneous_resources,
 )
 
-from unilabos.devices.liquid_handling.liquid_handler_abstract import (
+from unilabos.devices.workstation.GN.liquid_handling.liquid_handler_abstract import (
     LiquidHandlerAbstract,
     SimpleReturn,
     SetLiquidReturn,
     SetLiquidFromPlateReturn,
     TransferLiquidReturn,
 )
-from unilabos.devices.liquid_handling.prcxi.flatten_utils import (
+from unilabos.devices.workstation.GN.liquid_handling.prcxi.flatten_utils import (
     flatten_multi_channel_kwargs as _flatten_multi_channel_kwargs_impl,
     normalize_pip_setting as _normalize_pip_setting,
     select_axis as _select_axis,
@@ -337,7 +337,7 @@ class PipettingPos:
     def to_rpc_dict(self) -> Dict[str, Any]:
         return {
             "Id": self.id,
-            "CreateTime": self.create_time,
+            "CreateTime": _v04_create_time(self.create_time),
             "UpdateTime": self.update_time,
             "BoardDetailId": self.board_detail_id,
             "AxisEnum": self.axis_enum,
@@ -385,7 +385,7 @@ class GripperPos:
     def to_rpc_dict(self) -> Dict[str, Any]:
         return {
             "Id": self.id,
-            "CreateTime": self.create_time,
+            "CreateTime": _v04_create_time(self.create_time),
             "UpdateTime": self.update_time,
             "BoardDetailId": self.board_detail_id,
             "AxisEnum": self.axis_enum,
@@ -424,7 +424,7 @@ class BoardPosition:
     def to_rpc_dict(self) -> Dict[str, Any]:
         return {
             "Id": self.id,
-            "CreateTime": self.create_time,
+            "CreateTime": _v04_create_time(self.create_time),
             "UpdateTime": self.update_time,
             "BoardDetailId": self.board_detail_id,
             "BoardName": self.board_name,
@@ -476,7 +476,7 @@ class BoardDetail:
     def to_rpc_dict(self) -> Dict[str, Any]:
         return {
             "Id": self.id,
-            "CreateTime": self.create_time,
+            "CreateTime": _v04_create_time(self.create_time),
             "UpdateTime": self.update_time,
             "BoardId": self.board_id,
             "Name": self.name,
@@ -520,7 +520,7 @@ class Board:
     def to_rpc_dict(self) -> Dict[str, Any]:
         return {
             "Id": self.id,
-            "CreateTime": self.create_time,
+            "CreateTime": _v04_create_time(self.create_time),
             "UpdateTime": self.update_time,
             "Name": self.name,
             "Rows": self.rows,
@@ -528,6 +528,11 @@ class Board:
             "DeviceType": self.device_type,
             "Details": [d.to_rpc_dict() for d in self.details],
         }
+
+
+def _v04_create_time(value: Optional[str] = None) -> str:
+    """V04 RPC 要求 CreateTime 为 DateTime 字符串，不能为 null。"""
+    return value or time.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _pick_material_id(material: Dict[str, Any], is_v04: bool) -> Optional[str]:
@@ -563,6 +568,8 @@ def worktablets_to_board(
     tablets = list(matrix_info.get("WorkTablets", []) or [])
     if columns <= 0:
         columns = 4
+    matrix_id = matrix_info.get("MatrixId")
+    create_time = _v04_create_time()
     max_number = 0
     details: List[BoardDetail] = []
     for wt in tablets:
@@ -572,8 +579,12 @@ def worktablets_to_board(
         idx = max(number - 1, 0)
         row = idx // columns + 1
         col = idx % columns + 1
+        detail_id = f"{matrix_id}_T{number}" if matrix_id else str(uuid.uuid4())
         details.append(
             BoardDetail(
+                id=detail_id,
+                create_time=create_time,
+                board_id=matrix_id,
                 name=wt.get("Code") or f"T{number}",
                 number=number,
                 row=row,
@@ -588,7 +599,8 @@ def worktablets_to_board(
         rows = (max_number + columns - 1) // columns if max_number else 0
 
     return Board(
-        id=matrix_info.get("MatrixId"),
+        id=matrix_id,
+        create_time=create_time,
         name=matrix_info.get("MatrixName"),
         rows=rows,
         columns=columns,
@@ -622,7 +634,7 @@ def prc_sites_to_board(
         board_id = f"auto_board_{int(time.time() * 1000)}"
 
     # CreateTime 按 boards.json 的机器时间格式（本地时间 "YYYY-MM-DD HH:MM:SS"）；UpdateTime 留空。
-    create_time = time.strftime("%Y-%m-%d %H:%M:%S")
+    create_time = _v04_create_time()
 
     row_nums = int(row_nums)
     column_nums = int(column_nums)
@@ -6025,7 +6037,7 @@ if __name__ == "__main__":
                 "config": {
                     "deck": {
                         "_resource_child_name": "PRCXI_Deck",
-                        "_resource_type": "unilabos.devices.liquid_handling.prcxi.prcxi:PRCXI9300Deck",
+                        "_resource_type": "unilabos.devices.workstation.GN.liquid_handling.prcxi.prcxi:PRCXI9300Deck",
                     },
                     "host": "127.0.0.1",
                     "port": 9999,

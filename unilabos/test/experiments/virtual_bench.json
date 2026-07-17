@@ -39,7 +39,7 @@
             "config": {
                 "axis": "Left",
                 "deck": {
-                    "_resource_type": "unilabos.devices.liquid_handling.prcxi.prcxi:PRCXI9300Deck",
+                    "_resource_type": "unilabos.devices.workstation.GN.liquid_handling.prcxi.prcxi:PRCXI9300Deck",
                     "_resource_child_name": "PRCXI_Deck"
                 },
                 "host": "10.20.30.184",

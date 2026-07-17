@@ -1,0 +1,24 @@
+PRCXI_trash:
+  category:
+  - prcxi
+  - trash
+  class:
+    module: 'unilabos.devices.workstation.GN.liquid_handling.prcxi.prcxi_labware:PRCXI_trash'
+    type: pylabrobot
+  description: '废弃槽 (Code: q1)'
+  handles: []
+  icon: ''
+  init_param_schema: {}
+  version: 1.0.0
+PRCXI_trash_x2:
+  category:
+  - prcxi
+  - trash
+  class:
+    module: 'unilabos.devices.workstation.GN.liquid_handling.prcxi.prcxi_labware:PRCXI_trash_x2'
+    type: pylabrobot
+  description: '废弃槽X2 (Code: 1111)'
+  handles: []
+  icon: ''
+  init_param_schema: {}
+  version: 1.0.0
