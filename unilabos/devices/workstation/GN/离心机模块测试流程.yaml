@@ -1,0 +1,60 @@
+﻿name: Flow Pipeline
+metadata:
+  author: Prcxi
+  source: Prcxi
+  version: "1.0"
+  description: This is a simple flow pipeline.
+stages:
+  stage1:
+    name: stage1
+    jobs:
+      job1:
+        name: job1
+        steps:
+          step0:
+            step: PutMaterial
+            name: 放入物料
+            with:
+              YPos: -1700
+              Z1Pos: 1000
+              Z2Pos: 3450
+              RPM: 0
+              Time: 0
+              YSpeed: 300
+              ZSpeed: 300
+              CentrifugeAuto: PutMaterial
+              PlateNo: 1
+              Row: 0
+              Col: 0
+          step1:
+            step: RunCentrifuge
+            name: 离心机启动
+            with:
+              YPos: 0
+              Z1Pos: 0
+              Z2Pos: 0
+              RPM: 1000
+              Time: 1
+              YSpeed: 0
+              ZSpeed: 0
+              CentrifugeAuto: RunCentrifuge
+              PlateNo: 0
+              Row: 0
+              Col: 0
+          step2:
+            step: TakeMaterial
+            name: 取出物料
+            with:
+              YPos: -1700
+              Z1Pos: 1000
+              Z2Pos: 3450
+              RPM: 0
+              Time: 0
+              YSpeed: 300
+              ZSpeed: 300
+              CentrifugeAuto: TakeMaterial
+              PlateNo: 0
+              Row: 0
+              Col: 0
+        with: {}
+        plugins: {}

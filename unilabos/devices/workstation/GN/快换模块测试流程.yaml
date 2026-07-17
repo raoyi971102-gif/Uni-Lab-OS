@@ -1,0 +1,57 @@
+﻿name: Flow Pipeline
+metadata:
+  author: Prcxi
+  source: Prcxi
+  version: "1.0"
+  description: This is a simple flow pipeline.
+stages:
+  stage1:
+    name: stage1
+    jobs:
+      job1:
+        name: job1
+        steps:
+          step0:
+            step: MaterialPushOut
+            name: 物料顶出
+            with:
+              XPos: 0
+              Z1Pos: -830
+              Z2Pos: 1800
+              PushBoardPos: 240
+              Z3Pos: 0
+              XSpeed: 300
+              Z1Speed: 100
+              Z2Speed: 100
+              PushBoardSpeed: 50
+              Z3Speed: 0
+              RPM: 0
+              Temp: 0
+              Time: 0
+              QuickChangeJog: MaterialPushOut
+              PlateNo: 0
+              Row: 0
+              Col: 0
+          step1:
+            step: MaterialPlace
+            name: 物料放置
+            with:
+              XPos: 1800
+              Z1Pos: 0
+              Z2Pos: 1600
+              PushBoardPos: 240
+              Z3Pos: 2100
+              XSpeed: 300
+              Z1Speed: 100
+              Z2Speed: 100
+              PushBoardSpeed: 50
+              Z3Speed: 100
+              RPM: 0
+              Temp: 0
+              Time: 0
+              QuickChangeJog: MaterialPlace
+              PlateNo: 0
+              Row: 0
+              Col: 0
+        with: {}
+        plugins: {}
