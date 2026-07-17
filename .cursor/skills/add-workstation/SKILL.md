@@ -434,7 +434,7 @@ class ROS2SerialNode(BaseROS2DeviceNode):
 ```json
 "config": {
     "deck": {
-        "_resource_type": "unilabos.devices.liquid_handling.prcxi.prcxi:PRCXI9300Deck",
+        "_resource_type": "unilabos.devices.workstation.GN.liquid_handling.prcxi.prcxi:PRCXI9300Deck",
         "_resource_child_name": "PRCXI_Deck"
     }
 }

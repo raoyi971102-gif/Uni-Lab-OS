@@ -43,7 +43,7 @@
             "config": {
                 "deck": {
                     "_resource_child_name": "PRCXI_Deck",
-                    "_resource_type": "unilabos.devices.liquid_handling.prcxi.prcxi:PRCXI9300Deck"
+                    "_resource_type": "unilabos.devices.workstation.GN.liquid_handling.prcxi.prcxi:PRCXI9300Deck"
                 },
                 "host": "192.168.216.1",
                 "port": 18000,
