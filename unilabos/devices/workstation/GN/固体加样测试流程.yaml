@@ -1,0 +1,167 @@
+﻿name: Flow Pipeline
+metadata:
+  author: Prcxi
+  source: Prcxi
+  version: "1.0"
+  description: This is a simple flow pipeline.
+stages:
+  stage1:
+    name: stage1
+    jobs:
+      job1:
+        name: job1
+        steps:
+          step0:
+            step: GripperTake
+            name: 夹爪夹取
+            with:
+              XPos: 20
+              YPos: 2100
+              MaterialZPos: 0
+              GripperZPos: 2200
+              DoorPos: 0
+              VoluneWeight: 0
+              XSpeed: 300
+              YSpeed: 300
+              MaterialZSpeed: 0
+              GripperZSpeed: 300
+              DoorSpeed: 0
+              SolidFeedCmd: GripperTake
+              PlateNo: 0
+              Row: 0
+              Col: 0
+          step1:
+            step: GripperPut
+            name: 夹爪放置
+            with:
+              XPos: -1730
+              YPos: 1540
+              MaterialZPos: 0
+              GripperZPos: 1130
+              DoorPos: 0
+              VoluneWeight: 0
+              XSpeed: 300
+              YSpeed: 300
+              MaterialZSpeed: 0
+              GripperZSpeed: 300
+              DoorSpeed: 0
+              SolidFeedCmd: GripperPut
+              PlateNo: 0
+              Row: 0
+              Col: 0
+          step2:
+            step: TakeMaterialYBackward
+            name: 取料筒后向外
+            with:
+              XPos: -1900
+              YPos: 2220
+              MaterialZPos: 235000
+              GripperZPos: 0
+              DoorPos: 0
+              VoluneWeight: 0
+              XSpeed: 500
+              YSpeed: 500
+              MaterialZSpeed: 0
+              GripperZSpeed: 0
+              DoorSpeed: 0
+              SolidFeedCmd: TakeMaterialYBackward
+              PlateNo: 0
+              Row: 0
+              Col: 0
+          step3:
+            step: SolidFeed
+            name: 料筒加样
+            with:
+              XPos: -300
+              YPos: 700
+              MaterialZPos: 40000
+              GripperZPos: 0
+              DoorPos: 3700
+              VoluneWeight: 500
+              XSpeed: 500
+              YSpeed: 500
+              MaterialZSpeed: 0
+              GripperZSpeed: 0
+              DoorSpeed: 150
+              SolidFeedCmd: SolidFeed
+              PlateNo: 0
+              Row: 0
+              Col: 0
+          step4:
+            step: PutMaterialYForward
+            name: 放料筒向里
+            with:
+              XPos: -1900
+              YPos: 2220
+              MaterialZPos: 235000
+              GripperZPos: 0
+              DoorPos: 0
+              VoluneWeight: 0
+              XSpeed: 500
+              YSpeed: 500
+              MaterialZSpeed: 0
+              GripperZSpeed: 0
+              DoorSpeed: 0
+              SolidFeedCmd: PutMaterialYForward
+              PlateNo: 0
+              Row: 0
+              Col: 0
+          step5:
+            step: GripperTake
+            name: 夹爪夹取
+            with:
+              XPos: -1730
+              YPos: 1540
+              MaterialZPos: 0
+              GripperZPos: 1130
+              DoorPos: 0
+              VoluneWeight: 0
+              XSpeed: 300
+              YSpeed: 300
+              MaterialZSpeed: 0
+              GripperZSpeed: 300
+              DoorSpeed: 0
+              SolidFeedCmd: GripperTake
+              PlateNo: 0
+              Row: 0
+              Col: 0
+          step6:
+            step: GripperPut
+            name: 夹爪放置
+            with:
+              XPos: 20
+              YPos: 2100
+              MaterialZPos: 0
+              GripperZPos: 2180
+              DoorPos: 0
+              VoluneWeight: 0
+              XSpeed: 300
+              YSpeed: 300
+              MaterialZSpeed: 0
+              GripperZSpeed: 300
+              DoorSpeed: 0
+              SolidFeedCmd: GripperPut
+              PlateNo: 0
+              Row: 0
+              Col: 0
+          step7:
+            step: solidfeedreset
+            name: 固体加样复位
+            with:
+              XPos: 0
+              YPos: 0
+              MaterialZPos: 0
+              GripperZPos: 0
+              DoorPos: 0
+              VoluneWeight: 0
+              XSpeed: 0
+              YSpeed: 0
+              MaterialZSpeed: 0
+              GripperZSpeed: 0
+              DoorSpeed: 0
+              SolidFeedCmd: Reset
+              PlateNo: 0
+              Row: 0
+              Col: 0
+        with: {}
+        plugins: {}

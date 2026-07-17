@@ -1,0 +1,123 @@
+﻿name: Flow Pipeline
+metadata:
+  author: Prcxi
+  source: Prcxi
+  version: "1.0"
+  description: This is a simple flow pipeline.
+stages:
+  stage1:
+    name: stage1
+    jobs:
+      job1:
+        name: job1
+        steps:
+          step0:
+            step: GripperPick
+            name: 1.夹取耗材
+            with:
+              XPos: 3700
+              YPos: 930
+              Z1Pos: 0
+              Z2Pos: 1105
+              XSpeed: 500
+              YSpeed: 500
+              Z1Speed: 500
+              Z2Speed: 500
+              JawPosition: 30
+              JawForce: 0.1
+              LockCmd: GripperTake
+              PlateNo: 0
+              Row: 0
+              Col: 0
+          step1:
+            step: "GripperPlace "
+            name: 2.放置耗材
+            with:
+              XPos: 760
+              YPos: 780
+              Z1Pos: 0
+              Z2Pos: 1150
+              XSpeed: 500
+              YSpeed: 500
+              Z1Speed: 500
+              Z2Speed: 500
+              JawPosition: 11
+              JawForce: 0.1
+              LockCmd: GripperPut
+              PlateNo: 0
+              Row: 0
+              Col: 0
+          step2:
+            step: GripperPick
+            name: 3.夹取盖板
+            with:
+              XPos: 2290
+              YPos: 980
+              Z1Pos: 0
+              Z2Pos: 875
+              XSpeed: 500
+              YSpeed: 500
+              Z1Speed: 500
+              Z2Speed: 500
+              JawPosition: 65
+              JawForce: 0.1
+              LockCmd: GripperTake
+              PlateNo: 0
+              Row: 0
+              Col: 0
+          step3:
+            step: "GripperPlace "
+            name: 4.放置盖板
+            with:
+              XPos: 760
+              YPos: 740
+              Z1Pos: 0
+              Z2Pos: 760
+              XSpeed: 500
+              YSpeed: 500
+              Z1Speed: 500
+              Z2Speed: 500
+              JawPosition: 65
+              JawForce: 0.1
+              LockCmd: GripperPut
+              PlateNo: 0
+              Row: 0
+              Col: 0
+          step4:
+            step: Loosen
+            name: "5.取螺丝 * N"
+            with:
+              XPos: 1086
+              YPos: 430
+              Z1Pos: 1070
+              Z2Pos: 0
+              XSpeed: 500
+              YSpeed: 500
+              Z1Speed: 500
+              Z2Speed: 500
+              JawPosition: 0
+              JawForce: 0
+              LockCmd: ScrewdriverRelease
+              PlateNo: 0
+              Row: 0
+              Col: 0
+          step5:
+            step: "Tighten "
+            name: "6.拧螺丝 * N"
+            with:
+              XPos: 1270
+              YPos: 2030
+              Z1Pos: 1065
+              Z2Pos: 0
+              XSpeed: 500
+              YSpeed: 500
+              Z1Speed: 500
+              Z2Speed: 500
+              JawPosition: 0
+              JawForce: 0
+              LockCmd: ScrewdriverTighten
+              PlateNo: 0
+              Row: 0
+              Col: 0
+        with: {}
+        plugins: {}

@@ -1,0 +1,35 @@
+﻿name: 机械手夹取放回堆栈位置1
+metadata:
+  author: Prcxi
+  source: Prcxi
+  version: "1.0"
+  description: This is a simple flow pipeline.
+stages:
+  stage1:
+    name: stage1
+    jobs:
+      job1:
+        name: job1
+        steps:
+          step0:
+            step: robotgrippertake
+            name: 夹爪夹料1
+            with:
+              XPos: 3274
+              ModuleNo: Stack
+              Action: 1
+              XSpeed: 300
+              ManipulatorCmd: GripperTake
+              IsWait: false
+          step1:
+            step: robotgripperput
+            name: 夹爪放料1
+            with:
+              XPos: 3274
+              ModuleNo: Stack
+              Action: 1
+              XSpeed: 300
+              ManipulatorCmd: GripperPut
+              IsWait: "false"
+        with: {}
+        plugins: {}
