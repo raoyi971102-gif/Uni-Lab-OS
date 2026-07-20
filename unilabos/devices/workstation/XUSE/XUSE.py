@@ -904,66 +904,21 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
         
     @action()
-    def add_powder(
-        self,
-        powder_name: str = "",
-        position_number: str = "",
-        weight: str = "",
-    ) -> dict:
+    def add_powder(self) -> dict:
         """
-        加样（加粉）—— 可选下发本罐参数 + 触发加粉。
+        加样（加粉）—— 只触发加粉动作，不含参数下发。
 
-        3 个入参对应本罐加样的实时参数（原"设置加样参数"内容）：粉末名称/位置号/重量。
-        - 任一非空即写入对应节点：粉末名称(STRING) / 加样_位置号(INT16) / 加样_重量(FLOAT)。
-        - 有任一参数写入 → 触发"加样参数下发"握手；全部留空 → 跳过下发直接进入加粉。
-        - 通用工艺参数（1ML/500NL 开口量/落粉均速/旋转速度/提前停止量/震荡最高速度、粉末号）不走本动作，
-          请通过 set_add_powder_params 提前下发。
+        本动作只负责触发一次加粉：
+        - 等待罐体占位
+        - 等待 Add_Sample_Request_Process 上升沿
+        - 触发 Add_Sample_Start_Process
+        - 等待 Add_Sample_Process_Complete 后复位
 
-        Args:
-            powder_name[粉末名称]: 粉末名称，STRING（可选；留空即跳过）。
-            position_number[加样_位置号]: 加样位置号，INT16（可选；留空即跳过）。
-            weight[加样_重量]: 加样重量（克），FLOAT（可选；留空即跳过）。
+        所有加样相关参数（本罐参数：粉末名称/位置号/重量；工艺参数：xlsx 数组参数、震荡最高速度、粉末号）
+        请通过 set_add_powder_params 在本动作之前下发。
         """
         logger.info("加粉...")
 
-        # ---------- 1) 可选下发本罐参数 ----------
-        written = 0
-        errors = []
-
-        # (节点名, 用户输入, 类型转换器)
-        params = [
-            ("粉末名称", powder_name, lambda s: str(s).strip()),
-            ("加样_位置号", position_number, lambda s: int(float(s))),
-            ("加样_重量", weight, lambda s: float(s)),
-        ]
-        for node_name, raw, caster in params:
-            if raw is None:
-                continue
-            s = str(raw).strip()
-            if s == "":
-                continue
-            try:
-                value = caster(s)
-                if self.set_node_value(node_name, value):
-                    written += 1
-                else:
-                    errors.append(f"{node_name} 写入失败")
-            except ValueError:
-                errors.append(f"{node_name} 无法解析: {raw!r}")
-            except Exception as e:
-                errors.append(f"{node_name} 写入出错: {e}")
-
-        if written > 0:
-            self._send_param_handshake(
-                "Add_Sample_Parameter_Send",
-                "Add_Sample_Parameter_Send_Complete",
-                description="加样参数下发",
-            )
-            logger.info(f"加样参数下发完成，共 {written} 项（粉末:{powder_name} 位置:{position_number} 重量:{weight}）")
-        else:
-            logger.info("本罐加样参数全部为空，跳过参数下发")
-
-        # ---------- 2) 触发加粉 ----------
         if not self._wait_condition(lambda: self.is_add_sample_occupied()):
             error_msg = "没有罐体，无法加粉"
             logger.error(error_msg)
@@ -979,8 +934,6 @@ class XUSEDevice(OpcUaClientWithSubscription):
                 return {
                     "success": True,
                     "message": "加样加工完成",
-                    "data": {"params_written": written},
-                    "error": errors,
                 }
             else:
                 logger.error("加样加工失败，动作超时")
@@ -3184,30 +3137,40 @@ class XUSEDevice(OpcUaClientWithSubscription):
     @action()
     def set_add_powder_params(
         self,
+        powder_name: str = "",
+        position_number: str = "",
+        weight: str = "",
         param_file: str = "",
         vibration_max_speed_1ml: str = "",
         vibration_max_speed_500nl: str = "",
         powder_number: str = "",
     ) -> dict:
         """
-        设置加样工艺参数（xlsx 数组参数 + 3 个单值参数）。
+        设置加样参数（本罐参数 + xlsx 数组参数 + 3 个工艺单值参数）。
 
-        1) xlsx 数组参数：
+        1) 本罐参数（每次加样通常都会变，作为直接入参）：
+           - powder_name：粉末名称（STRING）
+           - position_number：加样_位置号（INT16）
+           - weight：加样_重量（FLOAT）
+        2) xlsx 数组参数：
            - param_file：Excel(.xlsx)，含若干 sheet，sheet 名 = 数组索引（默认模板给出 0~4 共 5 组）。
              每个 sheet 两列：第一列"参数名"（不带索引后缀 [N]，也可带上），第二列"参数值"；首行为表头。
              支持的基础参数名（8 项）：
                加样_1ML开口量、加样_1ML落粉均速、加样_1ML旋转速度、加样_1ML提前停止量、
                加样_500NL开口量、加样_500NL落粉均速、加样_500NL旋转速度、加样_500NL提前停止量
              最终写入节点为 <基础名>[<sheet 索引>]；单元格为空的参数会跳过。
-        2) 单值参数（不走 xlsx）：
+        3) 工艺单值参数（不走 xlsx）：
            - vibration_max_speed_1ml：加样_1ML震荡最高速度（INT16）
            - vibration_max_speed_500nl：加样_500NL震荡最高速度（INT16）
            - powder_number：加样_粉末号（INT16）
-        3) 只要有任一参数落地写入，就触发"加样参数下发"握手；全部为空 → 不做任何写入与握手。
+        4) 只要有任一参数落地写入，就触发"加样参数下发"握手；全部为空 → 不做任何写入与握手。
 
-        本罐参数（粉末名称/位置号/重量）请在 add_powder 中作为入参传入，不在本动作范畴。
+        add_powder 只负责触发加粉动作，不再接收参数；请先调本动作把要用的参数下发完成，再调 add_powder。
 
         Args:
+            powder_name[粉末名称]: 粉末名称，STRING（可选；留空即跳过）。
+            position_number[加样_位置号]: 加样位置号，INT16（可选；留空即跳过）。
+            weight[加样_重量]: 加样重量（克），FLOAT（可选；留空即跳过）。
             param_file[加样参数文件]: 加样参数 Excel(.xlsx) 文件路径（可选；留空 = 不下发 xlsx 参数）。
             vibration_max_speed_1ml[加样_1ML震荡最高速度]: 1ML 震荡最高速度，INT16（可选；留空即跳过）。
             vibration_max_speed_500nl[加样_500NL震荡最高速度]: 500NL 震荡最高速度，INT16（可选；留空即跳过）。
@@ -3277,25 +3240,35 @@ class XUSEDevice(OpcUaClientWithSubscription):
                     except Exception as e:
                         errors.append(f"{node_name} 写入出错: {e}")
 
-        # 单值参数——留空即跳过
+        # 单值参数（本罐参数 + 工艺单值）——留空即跳过；类型分别为 STRING / INT / FLOAT
+        _cast_str = lambda s: str(s).strip()
+        _cast_int = lambda s: int(float(s))
+        _cast_float = lambda s: float(s)
         single_params = [
-            ("加样_1ML震荡最高速度", vibration_max_speed_1ml),
-            ("加样_500NL震荡最高速度", vibration_max_speed_500nl),
-            ("加样_粉末号", powder_number),
+            # 本罐参数（每次加样通常都会变）
+            ("粉末名称", powder_name, _cast_str),
+            ("加样_位置号", position_number, _cast_int),
+            ("加样_重量", weight, _cast_float),
+            # 工艺单值参数
+            ("加样_1ML震荡最高速度", vibration_max_speed_1ml, _cast_int),
+            ("加样_500NL震荡最高速度", vibration_max_speed_500nl, _cast_int),
+            ("加样_粉末号", powder_number, _cast_int),
         ]
-        for node_name, raw in single_params:
+        for node_name, raw, caster in single_params:
             if raw is None:
                 continue
             s = str(raw).strip()
             if s == "":
                 continue
             try:
-                if self.set_node_value(node_name, int(float(s))):
+                coerced = caster(s)
+                logger.info(f"[加样参数下发] 写入 {node_name} = {coerced!r} (原始值={raw!r})")
+                if self.set_node_value(node_name, coerced):
                     written += 1
                 else:
                     errors.append(f"{node_name} 写入失败")
             except ValueError:
-                errors.append(f"{node_name} 无法解析为整数: {raw!r}")
+                errors.append(f"{node_name} 无法解析: {raw!r}")
             except Exception as e:
                 errors.append(f"{node_name} 写入出错: {e}")
 
