@@ -1017,14 +1017,29 @@ class LiquidHandlerMiddleware(LiquidHandler):
         volume: float,
         offset: Coordinate = Coordinate.zero(),
         flow_rate: Optional[float] = None,
+        liquid_height: Optional[float] = None,
         blow_out_air_volume: Optional[float] = None,
         **backend_kwargs,
     ):
         if self._simulator:
             return await self._simulate_handler.aspirate96(
-                resource, volume, offset, flow_rate, blow_out_air_volume, **backend_kwargs
+                resource,
+                volume,
+                offset,
+                flow_rate,
+                liquid_height=liquid_height,
+                blow_out_air_volume=blow_out_air_volume,
+                **backend_kwargs,
             )
-        return await super().aspirate96(resource, volume, offset, flow_rate, blow_out_air_volume, **backend_kwargs)
+        return await super().aspirate96(
+            resource,
+            volume,
+            offset,
+            flow_rate=flow_rate,
+            liquid_height=liquid_height,
+            blow_out_air_volume=blow_out_air_volume,
+            **backend_kwargs,
+        )
 
     async def dispense96(
         self,
@@ -1032,14 +1047,29 @@ class LiquidHandlerMiddleware(LiquidHandler):
         volume: float,
         offset: Coordinate = Coordinate.zero(),
         flow_rate: Optional[float] = None,
+        liquid_height: Optional[float] = None,
         blow_out_air_volume: Optional[float] = None,
         **backend_kwargs,
     ):
         if self._simulator:
             return await self._simulate_handler.dispense96(
-                resource, volume, offset, flow_rate, blow_out_air_volume, **backend_kwargs
+                resource,
+                volume,
+                offset,
+                flow_rate,
+                liquid_height=liquid_height,
+                blow_out_air_volume=blow_out_air_volume,
+                **backend_kwargs,
             )
-        return await super().dispense96(resource, volume, offset, flow_rate, blow_out_air_volume, **backend_kwargs)
+        return await super().dispense96(
+            resource,
+            volume,
+            offset,
+            flow_rate=flow_rate,
+            liquid_height=liquid_height,
+            blow_out_air_volume=blow_out_air_volume,
+            **backend_kwargs,
+        )
 
     async def stamp(
         self,
@@ -2390,18 +2420,35 @@ class LiquidHandlerAbstract(LiquidHandlerMiddleware):
                     pass
 
         if is_96_well:
-            pass  # This mode is not verified.
+            # 96 孔整板模式：走 PLR 96 头 API（pickup96 →[mix]→ asp96 → disp96 →[mix]→ drop96）。
+            return await self._transfer_liquid_96well(
+                sources,
+                targets,
+                tip_racks,
+                asp_vols=asp_vols,
+                dis_vols=dis_vols,
+                asp_flow_rates=asp_flow_rates,
+                dis_flow_rates=dis_flow_rates,
+                offsets=offsets,
+                touch_tip=touch_tip,
+                liquid_height=liquid_height,
+                blow_out_air_volume=blow_out_air_volume,
+                mix_stage=mix_stage,
+                mix_times=mix_times,
+                mix_vol=mix_vol,
+                mix_rate=mix_rate,
+                mix_liquid_height=mix_liquid_height,
+            )
+        # 转换体积参数为列表
+        if isinstance(asp_vols, (int, float)):
+            asp_vols = [float(asp_vols)]
         else:
-            # 转换体积参数为列表
-            if isinstance(asp_vols, (int, float)):
-                asp_vols = [float(asp_vols)]
-            else:
-                asp_vols = [float(v) for v in asp_vols]
+            asp_vols = [float(v) for v in asp_vols]
 
-            if isinstance(dis_vols, (int, float)):
-                dis_vols = [float(dis_vols)]
-            else:
-                dis_vols = [float(v) for v in dis_vols]
+        if isinstance(dis_vols, (int, float)):
+            dis_vols = [float(dis_vols)]
+        else:
+            dis_vols = [float(v) for v in dis_vols]
 
         # 统一混合次数为标量，防止数组/列表与 int 比较时报错
         if mix_times is not None and not isinstance(mix_times, (int, float)):
@@ -2676,6 +2723,247 @@ class LiquidHandlerAbstract(LiquidHandlerMiddleware):
             sources=ResourceTreeSet.from_plr_resources(list(sources), known_newly_created=False).dump(),  # type: ignore
             targets=ResourceTreeSet.from_plr_resources(list(targets), known_newly_created=False).dump(),  # type: ignore
         )
+
+    async def _transfer_liquid_96well(
+        self,
+        sources: Sequence[Container],
+        targets: Sequence[Container],
+        tip_racks: Sequence[TipRack],
+        *,
+        asp_vols: Union[List[float], float],
+        dis_vols: Union[List[float], float],
+        asp_flow_rates: Optional[List[Optional[float]]] = None,
+        dis_flow_rates: Optional[List[Optional[float]]] = None,
+        offsets: Optional[List[Coordinate]] = None,
+        touch_tip: bool = False,
+        liquid_height: Optional[List[Optional[float]]] = None,
+        blow_out_air_volume: Optional[List[Optional[float]]] = None,
+        mix_stage: Optional[Literal["none", "before", "after", "both"]] = "none",
+        mix_times: Optional[List[int]] = None,
+        mix_vol: Optional[int] = None,
+        mix_rate: Optional[int] = None,
+        mix_liquid_height: Optional[float] = None,
+    ) -> TransferLiquidReturn:
+        """96 孔整板转移：pickup96 →[mix-before]→ aspirate96 → dispense96 →[mix-after]→ drop96。
+
+        整板一次动作 = 单一体积 / 单一参数，各列表参数取首元素（``_first``）。full 参数按 96 头
+        API 能力映射（offset / flow_rate / liquid_height / blow_out_air_volume / mix / touch_tip）。
+        丢枪头优先送到 deck 上的 ``Trash``；无 trash 时回收到取头用的 tip_rack。
+        """
+
+        def _first(seq):
+            if seq is None:
+                return None
+            if isinstance(seq, (list, tuple)):
+                return seq[0] if len(seq) else None
+            return seq
+
+        def _resolve_plate(res) -> Plate:
+            if isinstance(res, Plate):
+                return res
+            parent = getattr(res, "parent", None)
+            if isinstance(parent, Plate):
+                return parent
+            return res  # 兜底：按 plate-like 处理
+
+        source_plate = _resolve_plate(sources[0])
+        target_plate = _resolve_plate(targets[0])
+        tip_rack = tip_racks[0] if isinstance(tip_racks[0], TipRack) else tip_racks[0].parent
+
+        self.set_tiprack(tip_racks)
+
+        asp_vol = float(_first(asp_vols))
+        dis_vol = float(_first(dis_vols))
+        _offset = _first(offsets) or Coordinate.zero()
+        _asp_rate = _first(asp_flow_rates)
+        _dis_rate = _first(dis_flow_rates)
+        _blow = _first(blow_out_air_volume)
+        _liquid_h = _first(liquid_height)
+
+        # mix 次数可能是 list / 标量，统一收敛为 int（0 表示不 mix）。
+        _mt = _first(mix_times)
+        try:
+            _mix_times = int(_mt) if _mt is not None else 0
+        except (TypeError, ValueError):
+            _mix_times = 0
+        _mix_vol = float(mix_vol) if mix_vol else None
+        _do_mix_before = bool(mix_stage in ("before", "both") and _mix_times > 0 and _mix_vol)
+        _do_mix_after = bool(mix_stage in ("after", "both") and _mix_times > 0 and _mix_vol)
+
+        # 整板吸/放液的体积追踪兜底：与非 96 路径一致，PLR 会对每个孔做 remove_liquid，
+        # 若源孔在 tracker 里未被 set_liquid 播种（记为 0），会抛 TooLittleLiquidError；
+        # 此时改用 no_volume_tracking() 重试（真机不依赖 tracker，追踪仅尽力而为）。
+        # aspirate/dispense 各自独立兜底：若 aspirate 走了 no_volume_tracking（tip 未记账），
+        # dispense 的 tip.remove_liquid 也会失败并同样 fallback，从而两端保持一致。
+        async def _asp96(plate: Plate, vol: float, **kw):
+            try:
+                await self.aspirate96(plate, vol, **kw)
+            except (TooLittleLiquidError, TooLittleVolumeError) as e:
+                if hasattr(self, "_ros_node") and self._ros_node is not None:
+                    self._ros_node.lab_logger().warning(
+                        f"[aspirate96] fallback no_volume_tracking. error={e}, vol={vol}"
+                    )
+                with no_volume_tracking():
+                    await self.aspirate96(plate, vol, **kw)
+
+        async def _disp96(plate: Plate, vol: float, **kw):
+            try:
+                await self.dispense96(plate, vol, **kw)
+            except (TooLittleLiquidError, TooLittleVolumeError) as e:
+                if hasattr(self, "_ros_node") and self._ros_node is not None:
+                    self._ros_node.lab_logger().warning(
+                        f"[dispense96] fallback no_volume_tracking. error={e}, vol={vol}"
+                    )
+                with no_volume_tracking():
+                    await self.dispense96(plate, vol, **kw)
+
+        async def _mix_plate(plate: Plate):
+            for _ in range(_mix_times):
+                await _asp96(
+                    plate,
+                    _mix_vol,
+                    offset=_offset,
+                    flow_rate=mix_rate,
+                    liquid_height=mix_liquid_height,
+                )
+                await _disp96(
+                    plate,
+                    _mix_vol,
+                    offset=_offset,
+                    flow_rate=mix_rate,
+                    liquid_height=mix_liquid_height,
+                )
+
+        # 1) 整板取枪头
+        await self.pick_up_tips96(tip_rack, offset=_offset)
+
+        # 2) mix-before（对源板整板混匀）
+        if _do_mix_before:
+            await _mix_plate(source_plate)
+
+        # 3) 整板吸液
+        await _asp96(
+            source_plate,
+            asp_vol,
+            offset=_offset,
+            flow_rate=_asp_rate,
+            liquid_height=_liquid_h,
+            blow_out_air_volume=_blow,
+        )
+
+        # 4) 整板放液
+        await _disp96(
+            target_plate,
+            dis_vol,
+            offset=_offset,
+            flow_rate=_dis_rate,
+            liquid_height=_liquid_h,
+            blow_out_air_volume=_blow,
+        )
+
+        # 5) mix-after（对目标板整板混匀）
+        if _do_mix_after:
+            await _mix_plate(target_plate)
+
+        # 6) touch_tip：native 靠壁由 backend 在 dispense96 内处理；此处覆盖 software/both 模式
+        #    （backend 无 software 语义时子类 touch_tip 会自行短路，安全无副作用）。
+        if touch_tip:
+            _tt_targets = [c for c in targets if isinstance(c, Well)]
+            if not _tt_targets:
+                _tt_targets = list(getattr(target_plate, "children", []) or [])
+            if _tt_targets:
+                await self.touch_tip(_tt_targets)
+
+        # 7) 丢枪头：优先 deck 上的 Trash，无 trash 回收到 tip_rack。
+        drop_target: Union[TipRack, Trash] = tip_rack
+        for child in getattr(self.deck, "children", []) or []:
+            if isinstance(child, Trash):
+                drop_target = child
+                break
+        await self.drop_tips96(drop_target)
+
+        # 8) 同步孔板液体状态并上报 web：整板路径下 aspirate96/dispense96 不像单通道
+        #    dispense 那样回推 update_resource，且体积追踪被 no_volume_tracking 兜底关掉，
+        #    孔状态不会自动变化 → web 端看不到孔板更新。这里显式补齐（best-effort，不阻断主流程）。
+        try:
+            self._reflect_96well_transfer(source_plate, target_plate, dis_vol)
+        except Exception as _e:
+            if hasattr(self, "_ros_node") and self._ros_node is not None:
+                self._ros_node.lab_logger().warning(f"[transfer96] 反映孔板状态/上报失败：{_e}")
+
+        return TransferLiquidReturn(
+            sources=ResourceTreeSet.from_plr_resources(list(sources), known_newly_created=False).dump(),  # type: ignore
+            targets=ResourceTreeSet.from_plr_resources(list(targets), known_newly_created=False).dump(),  # type: ignore
+        )
+
+    @staticmethod
+    def _plate_wells(plate) -> List[Well]:
+        """取 plate 的全部孔（get_all_items 优先，回退 children 过滤 Well）。"""
+        try:
+            items = list(plate.get_all_items())
+        except Exception:
+            items = list(getattr(plate, "children", []) or [])
+        return [w for w in items if isinstance(w, Well)]
+
+    def _push_resource_update(self, resources: Sequence[Resource]) -> None:
+        """把受影响资源（孔/板）主动上报 ROS/web；整板路径缺少单通道 dispense 的回推。"""
+        if not (hasattr(self, "_ros_node") and self._ros_node is not None):
+            return
+        uniq: List[Resource] = []
+        seen: Set[int] = set()
+        for r in resources:
+            if r is None:
+                continue
+            rid = id(r)
+            if rid in seen:
+                continue
+            seen.add(rid)
+            uniq.append(r)
+        if not uniq:
+            return
+        task = ROS2DeviceNode.run_async_func(
+            self._ros_node.update_resource, True, **{"resources": uniq}
+        )
+        submit_time = time.time()
+        while not task.done():
+            if time.time() - submit_time > 10:
+                self._ros_node.lab_logger().info(f"[transfer96] update_resource 超时 resources={uniq}")
+                break
+            time.sleep(0.01)
+
+    def _reflect_96well_transfer(self, source_plate, target_plate, volume: float) -> None:
+        """整板移液后同步孔液体状态并上报：源孔按量扣减、目标孔登记来源液体，供 web 显示。
+
+        用途仅为「让前端孔板视图反映整板结果」，非严格计量：源孔追踪为空时静默跳过扣减，
+        目标孔以 ``set_liquids`` 播种来源液体名 + 本次体积（与本文件既有 set_liquid 写法一致）。
+        """
+        src_wells = self._plate_wells(source_plate)
+        tgt_wells = self._plate_wells(target_plate)
+
+        # 解析源液体名：取首个有液体的源孔的顶层液体名。
+        liquid_name = ""
+        for w in src_wells:
+            liqs = getattr(getattr(w, "tracker", None), "liquids", None) or []
+            if liqs:
+                liquid_name = liqs[-1][0] or ""
+                break
+
+        # 源孔扣量（best-effort；追踪为空/不足则跳过，不阻断）。
+        for w in src_wells:
+            try:
+                w.tracker.remove_liquid(volume=volume)
+            except Exception:
+                pass
+
+        # 目标孔登记液体（供 web 显示 fill 结果）。
+        for w in tgt_wells:
+            try:
+                w.set_liquids([(liquid_name, float(volume))])  # type: ignore[arg-type]
+            except Exception:
+                pass
+
+        self._push_resource_update([source_plate, target_plate, *src_wells, *tgt_wells])
+
     async def _transfer_base_method(
         self,
         sources: Sequence[Container],
