@@ -1,31 +1,10 @@
 """
 离心管液体处理 设备驱动
 
-参照 centrifuge.py / locking_mechanism.py 写法，继承 OPC UA 通讯基类，实现具体的设备动作函数。
-节点变量来自 opcua_gn1.3.3.csv 中「离心管液体处理」(前缀 Tube_)。
-各动作点位根据「离心管测试流程.yaml」写死。
+协议：OPC_UA协议1.3.3(2).xlsx「离心管液体处理」；节点：opcua_gn1.3.3.csv（前缀 Tube_）。
 
-指令类型 (Tube_CmdType)：
-    19=8通道装载 20=8通道吸液 21=8通道放液 22=8通道卸载 34=8通道混匀
-    31=大夹爪抓取 32=大夹爪放置 35=超声波混匀
-    27=小夹爪开盖 30=小夹爪放置 29=小夹爪抓取 28=小夹爪关盖
-    23=单通道装载 24=单通道吸液 25=单通道放液 26=单通道卸载
-    36=复位 37=xyz回原点
-
-YAML 字段 → CSV 节点映射：
-    XPos/YPos           → Tube_XPosSet / Tube_YPosSet
-    Ch8ZPos/Ch8LiquidPos → Tube_Z1PosSet / Tube_P1PosSet
-    BigGripperZPos      → Tube_Z2PosSet
-    Ch1LiquidPos/Ch1ZPos → Tube_P2PosSet / Tube_Z3PosSet
-    SmallGripperZPos    → Tube_Z4PosSet
-    MagneticRackPos     → Tube_MPosSet
-    *Speed              → Tube_XSpeed / Tube_YSpeed / Tube_Z1Speed ...
-    Ch8BlowValue 等     → Tube_Ch8Blow / Tube_Ch1Blow / Tube_Ch8ReverseAspirate ...
-    LidAngle/LidForce   → Tube_SmallGripperAngle / Tube_SmallGripperForce
-    MixCount            → Tube_MixCounts
-    UltraSoundTime      → Tube_UltrasoundTime
-    Tube_UltrasoundSTOP → 超声波混匀立即停止（脉冲写 1 后复位 0，不走 CmdType）
-    SmallGripperOpenLid_* / CloseLid_* → Tube_SmallGripperOpenLid* / CloseLid*
+对外仅暴露 execute_command（Tube_CmdType + 写参）；测试流程预设供本地调试。
+ultrasound_stop=True 时脉冲 Tube_UltrasoundSTOP，忽略 cmd_type。
 """
 
 import os
@@ -33,6 +12,7 @@ import time
 import logging
 import threading
 from enum import Enum
+from typing import Optional
 
 from unilabos.utils.log import logger
 from unilabos.registry.decorators import action, device, not_action
@@ -40,27 +20,59 @@ from unilabos.devices.workstation.AI4C.base_opcua_client import OpcUaClientWithS
 
 DEFAULT_CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "opcua_gn1.3.3.csv")
 
+# OPC 1.3.3 Tube_CmdType（与 Excel 表头一致）
+TUBE_CMD_LABELS = {
+    1: "X向左",
+    2: "X向右",
+    3: "Y向前",
+    4: "Y向后",
+    19: "8通道装载",
+    20: "8通道吸液",
+    21: "8通道放液",
+    22: "8通道卸载",
+    23: "单通道装载",
+    24: "单通道吸液",
+    25: "单通道放液",
+    26: "单通道卸载",
+    27: "小夹爪开盖",
+    28: "小夹爪关盖",
+    29: "小夹爪抓取",
+    30: "小夹爪放置",
+    31: "大夹爪抓取",
+    32: "大夹爪放置",
+    34: "8通道混匀",
+    35: "超声波混匀",
+    36: "复位",
+    37: "xyz回原点",
+}
+
+# 小夹爪开/关盖共用速度参数（不在 execute_command 可选写参中）
+_LID_GRIPPER_SPEED_DEFAULTS = dict(
+    z2_speed=500, p2_speed=500, z3_speed=500, z4_speed=500,
+)
+
+# 8 通道步骤共用速度
+_CH8_SPEED_DEFAULTS = dict(
+    x_speed=500, y_speed=500, z1_speed=500, p1_speed=500,
+    z2_speed=500, p2_speed=500, z3_speed=500, z4_speed=500,
+    small_gripper_force=300,
+)
+
+# 单通道步骤共用速度
+_CH1_SPEED_DEFAULTS = dict(
+    x_speed=500, y_speed=500, z1_speed=500, p1_speed=500,
+    z2_speed=500, p2_speed=500, z3_speed=500, z4_speed=500,
+    small_gripper_force=300,
+)
+
 
 class TubeCommand(int, Enum):
     """离心管液体处理指令类型 (Tube_CmdType)"""
+
     X_LEFT = 1
     X_RIGHT = 2
     Y_FORWARD = 3
     Y_BACKWARD = 4
-    CH8_Z_UP = 5
-    CH8_Z_DOWN = 6
-    CH8_ASPIRATE = 7
-    CH8_DISPENSE = 8
-    BIG_GRIPPER_Z_UP = 9
-    BIG_GRIPPER_Z_DOWN = 10
-    CH1_ASPIRATE = 11
-    CH1_DISPENSE = 12
-    CH1_UP = 13
-    CH1_DOWN = 14
-    SMALL_GRIPPER_UP = 15
-    SMALL_GRIPPER_DOWN = 16
-    MAGNET_AXIS_UP = 17
-    MAGNET_AXIS_DOWN = 18
     CH8_LOAD_TIP = 19
     CH8_ASPIRATE_LIQUID = 20
     CH8_DISPENSE_LIQUID = 21
@@ -75,24 +87,123 @@ class TubeCommand(int, Enum):
     SMALL_GRIPPER_PLACE = 30
     BIG_GRIPPER_PICK = 31
     BIG_GRIPPER_PLACE = 32
-    CH1_MIX = 33
     CH8_MIX = 34
     ULTRASOUND_MIX = 35
     RESET = 36
     HOME_XYZ = 37
 
 
+# 离心管液体处理测试流程预设（本地 run_test_flow，非注册动作）
+TEST_FLOW_PRESETS = [
+    ("1.8通道装载", TubeCommand.CH8_LOAD_TIP, dict(
+        x_pos=3095, y_pos=-2090, z1_pos=905, p1_pos=500, **_CH8_SPEED_DEFAULTS,
+    )),
+    ("2.8通道吸液", TubeCommand.CH8_ASPIRATE_LIQUID, dict(
+        x_pos=4563, y_pos=-2121, z1_pos=900, p1_pos=300, **_CH8_SPEED_DEFAULTS,
+    )),
+    ("3.8通道放液", TubeCommand.CH8_DISPENSE_LIQUID, dict(
+        x_pos=3093, y_pos=-3181, z1_pos=1330, p1_pos=300, **_CH8_SPEED_DEFAULTS,
+    )),
+    ("4.8通道混匀", TubeCommand.CH8_MIX, dict(
+        x_pos=3093, y_pos=-3181, z1_pos=1330, p1_pos=300,
+        mix_counts=5, **_CH8_SPEED_DEFAULTS,
+    )),
+    ("5.8通道卸载", TubeCommand.CH8_UNLOAD_TIP, dict(
+        x_pos=2463, y_pos=-581, z1_pos=1027, p1_pos=500,
+        x_speed=500, y_speed=500, z1_speed=500, p1_speed=3000,
+        z2_speed=500, p2_speed=500, z3_speed=500, z4_speed=500,
+        small_gripper_force=300,
+    )),
+    ("6.大夹爪抓取", TubeCommand.BIG_GRIPPER_PICK, dict(
+        x_pos=2490, y_pos=-3200, z2_pos=1420,
+        x_speed=500, y_speed=500, z2_speed=500,
+    )),
+    ("7.大夹爪放置", TubeCommand.BIG_GRIPPER_PLACE, dict(
+        x_pos=7100, y_pos=-3550, z2_pos=1215,
+        x_speed=500, y_speed=500, z2_speed=500,
+    )),
+    ("8.超声波混匀", TubeCommand.ULTRASOUND_MIX, dict(
+        m_pos=300, m_speed=300, ultrasound_time=5,
+    )),
+    ("9.大夹爪抓取(2)", TubeCommand.BIG_GRIPPER_PICK, dict(
+        x_pos=7100, y_pos=-3550, z2_pos=1215,
+        x_speed=500, y_speed=500, z2_speed=500,
+    )),
+    ("10.大夹爪放置(2)", TubeCommand.BIG_GRIPPER_PLACE, dict(
+        x_pos=2490, y_pos=-3200, z2_pos=1420,
+        x_speed=500, y_speed=500, z2_speed=500,
+    )),
+    ("11.小夹爪开盖", TubeCommand.SMALL_GRIPPER_OPEN_LID, dict(
+        x_pos=6670, y_pos=-2300,
+        small_gripper_angle=540, small_gripper_force=500,
+        **_LID_GRIPPER_SPEED_DEFAULTS,
+    )),
+    ("12.小夹爪放置", TubeCommand.SMALL_GRIPPER_PLACE, dict(
+        x_pos=6330, y_pos=-480, z4_pos=1375,
+        small_gripper_angle=540, small_gripper_force=300,
+        **_LID_GRIPPER_SPEED_DEFAULTS,
+    )),
+    ("13.单通道装载", TubeCommand.CH1_LOAD_TIP, dict(
+        x_pos=720, y_pos=-850, p2_pos=2000, z3_pos=1030, **_CH1_SPEED_DEFAULTS,
+    )),
+    ("14.单通道吸液", TubeCommand.CH1_ASPIRATE_LIQUID, dict(
+        x_pos=7920, y_pos=-2250, p1_pos=300, p2_pos=2000, z3_pos=1130, **_CH1_SPEED_DEFAULTS,
+    )),
+    ("15.单通道放液", TubeCommand.CH1_DISPENSE_LIQUID, dict(
+        x_pos=3920, y_pos=-2250, p1_pos=300, p2_pos=2000, z3_pos=930, **_CH1_SPEED_DEFAULTS,
+    )),
+    ("16.单通道卸载", TubeCommand.CH1_UNLOAD_TIP, dict(
+        x_pos=20, y_pos=-850, p1_pos=500, p2_pos=2000, z3_pos=1030, **_CH1_SPEED_DEFAULTS,
+    )),
+    ("17.小夹爪抓取", TubeCommand.SMALL_GRIPPER_PICK, dict(
+        x_pos=6330, y_pos=-480, z4_pos=1375,
+        small_gripper_angle=540, small_gripper_force=300,
+        **_LID_GRIPPER_SPEED_DEFAULTS,
+    )),
+    ("18.小夹爪关盖", TubeCommand.SMALL_GRIPPER_CLOSE_LID, dict(
+        x_pos=6670, y_pos=-2300,
+        small_gripper_angle=-540, small_gripper_force=300,
+        **_LID_GRIPPER_SPEED_DEFAULTS,
+    )),
+    ("19.复位", TubeCommand.RESET, dict(
+        small_gripper_angle=180, small_gripper_force=100,
+    )),
+    ("20.xyz回原点", TubeCommand.HOME_XYZ, dict()),
+]
+
+
+_EXECUTE_CMD_DOC = (
+    "按 Tube_CmdType 执行 OPC 1.3.3 指令。"
+    "1=X左 2=X右 3=Y前 4=Y后 19=8通道装载 20=8通道吸液 21=8通道放液 22=8通道卸载 "
+    "23=单通道装载 24=单通道吸液 25=单通道放液 26=单通道卸载 "
+    "27=小夹爪开盖 28=小夹爪关盖 29=小夹爪抓取 30=小夹爪放置 "
+    "31=大夹爪抓取 32=大夹爪放置 34=8通道混匀 35=超声波混匀 36=复位 37=xyz回原点。"
+    "ultrasound_stop=True 时立即停止超声波混匀。"
+)
+
+
 @device(
     id="gn_centrifuge_tube_liquid_handling",
     display_name="离心管液体处理",
     category=["workstation"],
-    description="GN 离心管液体处理：按测试流程完成分样/移液/开关盖，OPC UA 控制",
+    description="GN 离心管液体处理：OPC UA 1.3.3，仅 execute_command 通用入口",
     icon="",
+    version="2.0.0",
 )
 class CentrifugeTubeLiquidHandlingDevice(OpcUaClientWithSubscription):
     """离心管液体处理设备类（OPC 前缀 Tube_）"""
 
+    CMD_TYPE_NODE = "Tube_CmdType"
+    CMD_TRIG_NODE = "Tube_CmdTrig"
+    COMPLETE_NODE = "Tube_CompleteFB"
     ULTRASOUND_STOP_NODE = "Tube_UltrasoundSTOP"
+
+    _LID_GRIPPER_CMDS = frozenset({
+        int(TubeCommand.SMALL_GRIPPER_OPEN_LID),
+        int(TubeCommand.SMALL_GRIPPER_CLOSE_LID),
+        int(TubeCommand.SMALL_GRIPPER_PICK),
+        int(TubeCommand.SMALL_GRIPPER_PLACE),
+    })
 
     def __init__(
         self,
@@ -119,242 +230,123 @@ class CentrifugeTubeLiquidHandlingDevice(OpcUaClientWithSubscription):
         if csv_path:
             self.load_nodes_from_csv(csv_path)
 
-    # ==================== 动作函数（点位写死，来自离心管测试流程 yaml） ====================
+    @action(auto_prefix=True, description=_EXECUTE_CMD_DOC)
+    def execute_command(
+        self,
+        cmd_type: int = 0,
+        x_pos: Optional[int] = None,
+        y_pos: Optional[int] = None,
+        z1_pos: Optional[int] = None,
+        z2_pos: Optional[int] = None,
+        z3_pos: Optional[int] = None,
+        z4_pos: Optional[int] = None,
+        p1_pos: Optional[int] = None,
+        p2_pos: Optional[int] = None,
+        m_pos: Optional[int] = None,
+        x_speed: Optional[int] = None,
+        y_speed: Optional[int] = None,
+        z1_speed: Optional[int] = None,
+        z2_speed: Optional[int] = None,
+        z3_speed: Optional[int] = None,
+        z4_speed: Optional[int] = None,
+        p1_speed: Optional[int] = None,
+        p2_speed: Optional[int] = None,
+        m_speed: Optional[int] = None,
+        small_gripper_force: Optional[int] = None,
+        small_gripper_angle: Optional[int] = None,
+        mix_counts: Optional[int] = None,
+        ultrasound_time: Optional[int] = None,
+        ultrasound_stop: bool = False,
+        timeout: float = 180.0,
+    ) -> dict:
+        """唯一注册动作：写参 → CmdType → CmdTrig → 等 CompleteFB。"""
+        if ultrasound_stop:
+            return self._pulse_ultrasound_stop()
 
-    @action(auto_prefix=True, description="1.8通道装载")
-    def step0_ch8_load(self) -> dict:
-        """8通道装载（yaml step0 Chanel8Load，指令类型=19）"""
-        logger.info("离心管液体处理：8通道装载...")
-        self._apply_setpoints(
-            y_pos=-2090, x_pos=3095, ch8_z_pos=905, ch8_liquid_pos=500,
-            x_speed=500, y_speed=500, ch8_z_speed=500, ch8_liquid_speed=500,
-            big_gripper_z_speed=500, ch1_liquid_speed=500, ch1_z_speed=500,
-            small_gripper_z_speed=500, lid_force=300,
-        )
-        return self._trigger_and_wait(TubeCommand.CH8_LOAD_TIP, "8通道装载")
-
-    @action(auto_prefix=True, description="2.8通道吸液")
-    def step1_ch8_aspirate(self) -> dict:
-        """8通道吸液（yaml step1 Chanel8Aspirate，指令类型=20）"""
-        logger.info("离心管液体处理：8通道吸液...")
-        self._apply_setpoints(
-            y_pos=-2121, x_pos=4563, ch8_z_pos=900, ch8_liquid_pos=300,
-            x_speed=500, y_speed=500, ch8_z_speed=500, ch8_liquid_speed=500,
-            big_gripper_z_speed=500, ch1_liquid_speed=500, ch1_z_speed=500,
-            small_gripper_z_speed=500, lid_force=300,
-        )
-        return self._trigger_and_wait(TubeCommand.CH8_ASPIRATE_LIQUID, "8通道吸液")
-
-    @action(auto_prefix=True, description="3.8通道放液")
-    def step2_ch8_dispense(self) -> dict:
-        """8通道放液（yaml step2 Chanel8Dispense，指令类型=21）"""
-        logger.info("离心管液体处理：8通道放液...")
-        self._apply_setpoints(
-            y_pos=-3181, x_pos=3093, ch8_z_pos=1330, ch8_liquid_pos=300,
-            x_speed=500, y_speed=500, ch8_z_speed=500, ch8_liquid_speed=500,
-            big_gripper_z_speed=500, ch1_liquid_speed=500, ch1_z_speed=500,
-            small_gripper_z_speed=500, lid_force=300,
-        )
-        return self._trigger_and_wait(TubeCommand.CH8_DISPENSE_LIQUID, "8通道放液")
-
-    @action(auto_prefix=True, description="4.8通道混匀")
-    def step3_ch8_mix(self) -> dict:
-        """8通道混匀（yaml step3 Chanel8Mix，指令类型=34）"""
-        logger.info("离心管液体处理：8通道混匀...")
-        self._apply_setpoints(
-            y_pos=-3181, x_pos=3093, ch8_z_pos=1330, ch8_liquid_pos=300,
-            x_speed=500, y_speed=500, ch8_z_speed=500, ch8_liquid_speed=500,
-            big_gripper_z_speed=500, ch1_liquid_speed=500, ch1_z_speed=500,
-            small_gripper_z_speed=500, mix_count=5, lid_force=300,
-        )
-        return self._trigger_and_wait(TubeCommand.CH8_MIX, "8通道混匀")
-
-    @action(auto_prefix=True, description="5.8通道卸载")
-    def step4_ch8_unload(self) -> dict:
-        """8通道卸载（yaml step4 Chanel8Unload，指令类型=22）"""
-        logger.info("离心管液体处理：8通道卸载...")
-        self._apply_setpoints(
-            y_pos=-581, x_pos=2463, ch8_z_pos=1027, ch8_liquid_pos=500,
-            x_speed=500, y_speed=500, ch8_z_speed=500, ch8_liquid_speed=3000,
-            big_gripper_z_speed=500, ch1_liquid_speed=500, ch1_z_speed=500,
-            small_gripper_z_speed=500, lid_force=300,
-        )
-        return self._trigger_and_wait(TubeCommand.CH8_UNLOAD_TIP, "8通道卸载")
-
-    @action(auto_prefix=True, description="6.大夹爪抓取")
-    def step5_big_gripper_pick(self) -> dict:
-        """大夹爪抓取（yaml step5 BigGripperClamp，指令类型=31）"""
-        logger.info("离心管液体处理：大夹爪抓取...")
-        self._apply_setpoints(
-            y_pos=-3200, x_pos=2490, big_gripper_z_pos=1420,
-            x_speed=500, y_speed=500, big_gripper_z_speed=500,
-        )
-        return self._trigger_and_wait(TubeCommand.BIG_GRIPPER_PICK, "大夹爪抓取")
-
-    @action(auto_prefix=True, description="7.大夹爪放置")
-    def step6_big_gripper_place(self) -> dict:
-        """大夹爪放置（yaml step6 BigGripperPlace，指令类型=32）"""
-        logger.info("离心管液体处理：大夹爪放置...")
-        self._apply_setpoints(
-            y_pos=-3550, x_pos=7100, big_gripper_z_pos=1215,
-            x_speed=500, y_speed=500, big_gripper_z_speed=500,
-        )
-        return self._trigger_and_wait(TubeCommand.BIG_GRIPPER_PLACE, "大夹爪放置")
-
-    @action(auto_prefix=True, description="8.超声波混匀")
-    def step7_ultrasound_mix(self) -> dict:
-        """超声波混匀（yaml step7 UltraSound，指令类型=35）"""
-        logger.info("离心管液体处理：超声波混匀...")
-        ultrasound_time = 5
-        self._apply_setpoints(
-            magnetic_rack_pos=300, magnetic_rack_speed=300,
+        setpoints = self._build_setpoints(
+            x_pos=x_pos, y_pos=y_pos,
+            z1_pos=z1_pos, z2_pos=z2_pos, z3_pos=z3_pos, z4_pos=z4_pos,
+            p1_pos=p1_pos, p2_pos=p2_pos, m_pos=m_pos,
+            x_speed=x_speed, y_speed=y_speed,
+            z1_speed=z1_speed, z2_speed=z2_speed, z3_speed=z3_speed, z4_speed=z4_speed,
+            p1_speed=p1_speed, p2_speed=p2_speed, m_speed=m_speed,
+            small_gripper_force=small_gripper_force,
+            small_gripper_angle=small_gripper_angle,
+            mix_counts=mix_counts,
             ultrasound_time=ultrasound_time,
         )
-        timeout = ultrasound_time * 60 + 60
-        return self._trigger_and_wait(
-            TubeCommand.ULTRASOUND_MIX, "超声波混匀", timeout=timeout
-        )
+        label = TUBE_CMD_LABELS.get(int(cmd_type), f"CmdType={int(cmd_type)}")
+        effective_timeout = timeout
+        if int(cmd_type) == int(TubeCommand.ULTRASOUND_MIX) and ultrasound_time is not None:
+            effective_timeout = ultrasound_time * 60 + 60
+        return self._run(int(cmd_type), label, setpoints, timeout=effective_timeout)
 
-    @action(auto_prefix=True, description="9.大夹爪抓取(2)")
-    def step8_big_gripper_pick(self) -> dict:
-        """大夹爪抓取(2)（yaml step8 BigGripperClamp，指令类型=31）"""
-        logger.info("离心管液体处理：大夹爪抓取(2)...")
-        self._apply_setpoints(
-            y_pos=-3550, x_pos=7100, big_gripper_z_pos=1215,
-            x_speed=500, y_speed=500, big_gripper_z_speed=500,
-        )
-        return self._trigger_and_wait(TubeCommand.BIG_GRIPPER_PICK, "大夹爪抓取(2)")
+    @not_action
+    def _build_setpoints(
+        self,
+        x_pos: Optional[int] = None,
+        y_pos: Optional[int] = None,
+        z1_pos: Optional[int] = None,
+        z2_pos: Optional[int] = None,
+        z3_pos: Optional[int] = None,
+        z4_pos: Optional[int] = None,
+        p1_pos: Optional[int] = None,
+        p2_pos: Optional[int] = None,
+        m_pos: Optional[int] = None,
+        x_speed: Optional[int] = None,
+        y_speed: Optional[int] = None,
+        z1_speed: Optional[int] = None,
+        z2_speed: Optional[int] = None,
+        z3_speed: Optional[int] = None,
+        z4_speed: Optional[int] = None,
+        p1_speed: Optional[int] = None,
+        p2_speed: Optional[int] = None,
+        m_speed: Optional[int] = None,
+        small_gripper_force: Optional[int] = None,
+        small_gripper_angle: Optional[int] = None,
+        mix_counts: Optional[int] = None,
+        ultrasound_time: Optional[int] = None,
+    ) -> dict:
+        mapping = {
+            "Tube_XPosSet": x_pos,
+            "Tube_YPosSet": y_pos,
+            "Tube_Z1PosSet": z1_pos,
+            "Tube_Z2PosSet": z2_pos,
+            "Tube_Z3PosSet": z3_pos,
+            "Tube_Z4PosSet": z4_pos,
+            "Tube_P1PosSet": p1_pos,
+            "Tube_P2PosSet": p2_pos,
+            "Tube_MPosSet": m_pos,
+            "Tube_XSpeed": x_speed,
+            "Tube_YSpeed": y_speed,
+            "Tube_Z1Speed": z1_speed,
+            "Tube_Z2Speed": z2_speed,
+            "Tube_Z3Speed": z3_speed,
+            "Tube_Z4Speed": z4_speed,
+            "Tube_P1Speed": p1_speed,
+            "Tube_P2Speed": p2_speed,
+            "Tube_MSpeed": m_speed,
+            "Tube_SmallGripperForce": small_gripper_force,
+            "Tube_SmallGripperAngle": small_gripper_angle,
+            "Tube_MixCounts": mix_counts,
+            "Tube_UltrasoundTime": ultrasound_time,
+        }
+        return {node: val for node, val in mapping.items() if val is not None}
 
-    @action(auto_prefix=True, description="10.大夹爪放置(2)")
-    def step9_big_gripper_place(self) -> dict:
-        """大夹爪放置(2)（yaml step9 BigGripperPlace，指令类型=32）"""
-        logger.info("离心管液体处理：大夹爪放置(2)...")
-        self._apply_setpoints(
-            y_pos=-3200, x_pos=2490, big_gripper_z_pos=1420,
-            x_speed=500, y_speed=500, big_gripper_z_speed=500,
-        )
-        return self._trigger_and_wait(TubeCommand.BIG_GRIPPER_PLACE, "大夹爪放置(2)")
+    @not_action
+    def _write_lid_gripper_params(self) -> None:
+        """小夹爪开/关盖共用参数（写死）"""
+        self.set_node_value("Tube_SmallGripperOpenLidStart", 1390)
+        self.set_node_value("Tube_SmallGripperOpenLidEnd", 1330)
+        self.set_node_value("Tube_SmallGripperOpenLidSpeed", 40)
+        self.set_node_value("Tube_SmallGripperOpenLid_RotationSpeed", 300)
+        self.set_node_value("Tube_SmallGripperCloseLidStart", 1330)
+        self.set_node_value("Tube_SmallGripperCloseLidEnd", 1390)
+        self.set_node_value("Tube_SmallGripperCloseLidSpeed", 40)
+        self.set_node_value("Tube_SmallGripperCloseLid_RotationSpeed", 300)
 
-    @action(auto_prefix=True, description="11.小夹爪开盖")
-    def step10_small_gripper_open_lid(self) -> dict:
-        """小夹爪开盖（yaml step10 SmallGripperOpenLid，指令类型=27）"""
-        logger.info("离心管液体处理：小夹爪开盖...")
-        self._apply_setpoints(
-            y_pos=-2300, x_pos=6670,
-            open_lid_start=1390, open_lid_end=1330, open_lid_speed=40,
-            open_lid_rotation_speed=300, close_lid_start=1330, close_lid_end=1390,
-            close_lid_speed=40, close_lid_rotation_speed=300,
-            x_speed=500, y_speed=500, big_gripper_z_speed=500,
-            ch1_liquid_speed=500, ch1_z_speed=500, small_gripper_z_speed=500,
-            lid_angle=540, lid_force=500,
-        )
-        return self._trigger_and_wait(TubeCommand.SMALL_GRIPPER_OPEN_LID, "小夹爪开盖")
-
-    @action(auto_prefix=True, description="12.小夹爪放置")
-    def step11_small_gripper_place(self) -> dict:
-        """小夹爪放置（yaml step11 SmallGripperPlace，指令类型=30）"""
-        logger.info("离心管液体处理：小夹爪放置...")
-        self._apply_setpoints(
-            y_pos=-480, x_pos=6330, small_gripper_z_pos=1375,
-            open_lid_start=1390, open_lid_end=1330, open_lid_speed=40,
-            open_lid_rotation_speed=300, close_lid_start=1330, close_lid_end=1390,
-            close_lid_speed=40, close_lid_rotation_speed=300,
-            x_speed=500, y_speed=500, big_gripper_z_speed=500,
-            ch1_liquid_speed=500, ch1_z_speed=500, small_gripper_z_speed=500,
-            lid_angle=540, lid_force=300,
-        )
-        return self._trigger_and_wait(TubeCommand.SMALL_GRIPPER_PLACE, "小夹爪放置")
-
-    @action(auto_prefix=True, description="13.单通道装载")
-    def step12_ch1_load(self) -> dict:
-        """单通道装载（yaml step12 Chanel1Load，指令类型=23）"""
-        logger.info("离心管液体处理：单通道装载...")
-        self._apply_setpoints(
-            y_pos=-850, x_pos=720, ch1_liquid_pos=2000, ch1_z_pos=1030,
-            x_speed=500, y_speed=500, big_gripper_z_speed=500,
-            ch1_liquid_speed=500, ch1_z_speed=500, small_gripper_z_speed=500,
-            lid_force=300,
-        )
-        return self._trigger_and_wait(TubeCommand.CH1_LOAD_TIP, "单通道装载")
-
-    @action(auto_prefix=True, description="14.单通道吸液")
-    def step13_ch1_aspirate(self) -> dict:
-        """单通道吸液（yaml step13 Chanel1Aspirate，指令类型=24）"""
-        logger.info("离心管液体处理：单通道吸液...")
-        self._apply_setpoints(
-            y_pos=-2250, x_pos=7920, ch8_liquid_pos=300,
-            ch1_liquid_pos=2000, ch1_z_pos=1130,
-            x_speed=500, y_speed=500, ch8_z_speed=500, ch8_liquid_speed=500,
-            big_gripper_z_speed=500, ch1_liquid_speed=500, ch1_z_speed=500,
-            small_gripper_z_speed=500, lid_force=300,
-        )
-        return self._trigger_and_wait(TubeCommand.CH1_ASPIRATE_LIQUID, "单通道吸液")
-
-    @action(auto_prefix=True, description="15.单通道放液")
-    def step14_ch1_dispense(self) -> dict:
-        """单通道放液（yaml step14 Chanel1Dispense，指令类型=25）"""
-        logger.info("离心管液体处理：单通道放液...")
-        self._apply_setpoints(
-            y_pos=-2250, x_pos=3920, ch8_liquid_pos=300,
-            ch1_liquid_pos=2000, ch1_z_pos=930,
-            x_speed=500, y_speed=500, ch8_z_speed=500, ch8_liquid_speed=500,
-            big_gripper_z_speed=500, ch1_liquid_speed=500, ch1_z_speed=500,
-            small_gripper_z_speed=500, lid_force=300,
-        )
-        return self._trigger_and_wait(TubeCommand.CH1_DISPENSE_LIQUID, "单通道放液")
-
-    @action(auto_prefix=True, description="16.单通道卸载")
-    def step15_ch1_unload(self) -> dict:
-        """单通道卸载（yaml step15 Chanel1Unload，指令类型=26）"""
-        logger.info("离心管液体处理：单通道卸载...")
-        self._apply_setpoints(
-            y_pos=-850, x_pos=20, ch8_liquid_pos=500,
-            ch1_liquid_pos=2000, ch1_z_pos=1030,
-            x_speed=500, y_speed=500, ch8_z_speed=500, ch8_liquid_speed=500,
-            big_gripper_z_speed=500, ch1_liquid_speed=500, ch1_z_speed=500,
-            small_gripper_z_speed=500, lid_force=300,
-        )
-        return self._trigger_and_wait(TubeCommand.CH1_UNLOAD_TIP, "单通道卸载")
-
-    @action(auto_prefix=True, description="17.小夹爪抓取")
-    def step16_small_gripper_pick(self) -> dict:
-        """小夹爪抓取（yaml step16 SmallGripperClamp，指令类型=29）"""
-        logger.info("离心管液体处理：小夹爪抓取...")
-        self._apply_setpoints(
-            y_pos=-480, x_pos=6330, small_gripper_z_pos=1375,
-            open_lid_start=1390, open_lid_end=1330, open_lid_speed=40,
-            open_lid_rotation_speed=300, close_lid_start=1330, close_lid_end=1390,
-            close_lid_speed=40, close_lid_rotation_speed=300,
-            x_speed=500, y_speed=500, big_gripper_z_speed=500,
-            ch1_liquid_speed=500, ch1_z_speed=500, small_gripper_z_speed=500,
-            lid_angle=540, lid_force=300,
-        )
-        return self._trigger_and_wait(TubeCommand.SMALL_GRIPPER_PICK, "小夹爪抓取")
-
-    @action(auto_prefix=True, description="18.小夹爪关盖")
-    def step17_small_gripper_close_lid(self) -> dict:
-        """小夹爪关盖（yaml step17 SmallGripperCloseLid，指令类型=28）"""
-        logger.info("离心管液体处理：小夹爪关盖...")
-        self._apply_setpoints(
-            y_pos=-2300, x_pos=6670,
-            open_lid_start=1390, open_lid_end=1330, open_lid_speed=40,
-            open_lid_rotation_speed=300, close_lid_start=1330, close_lid_end=1390,
-            close_lid_speed=40, close_lid_rotation_speed=300,
-            x_speed=500, y_speed=500, big_gripper_z_speed=500,
-            ch1_liquid_speed=500, ch1_z_speed=500, small_gripper_z_speed=500,
-            lid_angle=-540, lid_force=300,
-        )
-        return self._trigger_and_wait(TubeCommand.SMALL_GRIPPER_CLOSE_LID, "小夹爪关盖")
-
-    @action(auto_prefix=True, description="19.离心管液体处理复位")
-    def step18_reset(self) -> dict:
-        """离心管液体处理复位（yaml step18 centrifugetubeliquidreset，指令类型=36）"""
-        logger.info("离心管液体处理：复位...")
-        self._apply_setpoints(lid_angle=180, lid_force=100)
-        return self._trigger_and_wait(TubeCommand.RESET, "复位")
-
-    @action(auto_prefix=True, description="20.超声波混匀立即停止")
-    def ultrasound_stop(self) -> dict:
+    @not_action
+    def _pulse_ultrasound_stop(self) -> dict:
         """超声波混匀立即停止：脉冲写 Tube_UltrasoundSTOP=1 后复位为 0"""
         logger.info("离心管液体处理：超声波混匀立即停止...")
         self.set_node_value(self.ULTRASOUND_STOP_NODE, 1)
@@ -364,220 +356,112 @@ class CentrifugeTubeLiquidHandlingDevice(OpcUaClientWithSubscription):
         self._log_status("超声波混匀立即停止后")
         return {"success": True, "message": "超声波混匀立即停止命令已下发"}
 
-    @action(auto_prefix=True, description="XYZ 回原点")
-    def home_xyz(self) -> dict:
-        return self._trigger_and_wait(TubeCommand.HOME_XYZ, "xyz回原点")
-
-    # ==================== 单点调试（轴点动 1-4） ====================
-
-    @action(auto_prefix=True, description="单点调试：X向左（指令类型=1）")
-    def jog_x_left(self) -> dict:
-        logger.info("离心管液体处理：单点调试 X向左...")
-        self.set_node_value("Tube_XPosSet", 3095)
-        self.set_node_value("Tube_XSpeed", 500)
-        return self._trigger_and_wait(TubeCommand.X_LEFT, "X向左")
-
-    @action(auto_prefix=True, description="单点调试：X向右（指令类型=2）")
-    def jog_x_right(self) -> dict:
-        logger.info("离心管液体处理：单点调试 X向右...")
-        self.set_node_value("Tube_XPosSet", 0)
-        self.set_node_value("Tube_XSpeed", 500)
-        return self._trigger_and_wait(TubeCommand.X_RIGHT, "X向右")
-
-    @action(auto_prefix=True, description="单点调试：Y向前（指令类型=3）")
-    def jog_y_forward(self) -> dict:
-        logger.info("离心管液体处理：单点调试 Y向前...")
-        self.set_node_value("Tube_YPosSet", -2090)
-        self.set_node_value("Tube_YSpeed", 500)
-        return self._trigger_and_wait(TubeCommand.Y_FORWARD, "Y向前")
-
-    @action(auto_prefix=True, description="单点调试：Y向后（指令类型=4）")
-    def jog_y_backward(self) -> dict:
-        logger.info("离心管液体处理：单点调试 Y向后...")
-        self.set_node_value("Tube_YPosSet", 0)
-        self.set_node_value("Tube_YSpeed", 500)
-        return self._trigger_and_wait(TubeCommand.Y_BACKWARD, "Y向后")
-
-    # ==================== 内部触发/等待逻辑（参照 centrifuge 写法） ====================
-
     @not_action
-    def _apply_setpoints(
+    def _run(
         self,
-        x_pos: int = 0,
-        y_pos: int = 0,
-        ch8_z_pos: int = 0,
-        ch8_liquid_pos: int = 0,
-        big_gripper_z_pos: int = 0,
-        ch1_liquid_pos: int = 0,
-        ch1_z_pos: int = 0,
-        small_gripper_z_pos: int = 0,
-        x_speed: int = 0,
-        y_speed: int = 0,
-        ch8_z_speed: int = 0,
-        ch8_liquid_speed: int = 0,
-        big_gripper_z_speed: int = 0,
-        ch1_liquid_speed: int = 0,
-        ch1_z_speed: int = 0,
-        small_gripper_z_speed: int = 0,
-        ch8_blow: int = 0,
-        ch1_blow: int = 0,
-        ch8_reverse_aspirate: int = 0,
-        ch1_reverse_aspirate: int = 0,
-        magnetic_rack_pos: int = 0,
-        magnetic_rack_speed: int = 0,
-        ultrasound_time: int = 0,
-        mix_count: int = 0,
-        lid_angle: int = 0,
-        lid_force: int = 0,
-        open_lid_start: int = 0,
-        open_lid_end: int = 0,
-        open_lid_speed: int = 0,
-        open_lid_rotation_speed: int = 0,
-        close_lid_start: int = 0,
-        close_lid_end: int = 0,
-        close_lid_speed: int = 0,
-        close_lid_rotation_speed: int = 0,
-    ) -> None:
-        """写入运行位置/速度/搅拌/开盖等 setpoint 节点"""
-        self.set_node_value("Tube_XPosSet", x_pos)
-        self.set_node_value("Tube_YPosSet", y_pos)
-        self.set_node_value("Tube_Z1PosSet", ch8_z_pos)
-        self.set_node_value("Tube_P1PosSet", ch8_liquid_pos)
-        self.set_node_value("Tube_Z2PosSet", big_gripper_z_pos)
-        self.set_node_value("Tube_P2PosSet", ch1_liquid_pos)
-        self.set_node_value("Tube_Z3PosSet", ch1_z_pos)
-        self.set_node_value("Tube_Z4PosSet", small_gripper_z_pos)
-        self.set_node_value("Tube_XSpeed", x_speed)
-        self.set_node_value("Tube_YSpeed", y_speed)
-        self.set_node_value("Tube_Z1Speed", ch8_z_speed)
-        self.set_node_value("Tube_P1Speed", ch8_liquid_speed)
-        self.set_node_value("Tube_Z2Speed", big_gripper_z_speed)
-        self.set_node_value("Tube_P2Speed", ch1_liquid_speed)
-        self.set_node_value("Tube_Z3Speed", ch1_z_speed)
-        self.set_node_value("Tube_Z4Speed", small_gripper_z_speed)
-        self.set_node_value("Tube_Ch8Blow", ch8_blow)
-        self.set_node_value("Tube_Ch1Blow", ch1_blow)
-        self.set_node_value("Tube_Ch8ReverseAspirate", ch8_reverse_aspirate)
-        self.set_node_value("Tube_Ch1ReverseAspirate", ch1_reverse_aspirate)
-        self.set_node_value("Tube_MPosSet", magnetic_rack_pos)
-        self.set_node_value("Tube_MSpeed", magnetic_rack_speed)
-        self.set_node_value("Tube_UltrasoundTime", ultrasound_time)
-        self.set_node_value("Tube_MixCounts", mix_count)
-        self.set_node_value("Tube_SmallGripperAngle", lid_angle)
-        self.set_node_value("Tube_SmallGripperForce", lid_force)
-        self.set_node_value("Tube_SmallGripperOpenLidStart", open_lid_start)
-        self.set_node_value("Tube_SmallGripperOpenLidEnd", open_lid_end)
-        self.set_node_value("Tube_SmallGripperOpenLidSpeed", open_lid_speed)
-        self.set_node_value("Tube_SmallGripperOpenLid_RotationSpeed", open_lid_rotation_speed)
-        self.set_node_value("Tube_SmallGripperCloseLidStart", close_lid_start)
-        self.set_node_value("Tube_SmallGripperCloseLidEnd", close_lid_end)
-        self.set_node_value("Tube_SmallGripperCloseLidSpeed", close_lid_speed)
-        self.set_node_value("Tube_SmallGripperCloseLid_RotationSpeed", close_lid_rotation_speed)
+        cmd_type: int,
+        description: str,
+        setpoints: Optional[dict] = None,
+        timeout: float = 180.0,
+    ) -> dict:
+        logger.info(f"离心管液体处理：{description} (CmdType={cmd_type})")
+        if cmd_type in self._LID_GRIPPER_CMDS:
+            self._write_lid_gripper_params()
+        if setpoints:
+            for node, value in setpoints.items():
+                self.set_node_value(node, value)
+        return self._trigger_and_wait(cmd_type, description, timeout=timeout)
 
     @not_action
     def _trigger_and_wait(self, cmd_type, description: str, timeout: float = 180.0) -> dict:
-        """下发指令类型并触发，等待完成后复位触发。"""
-        self.set_node_value("Tube_CmdType", int(cmd_type))
-        self.set_node_value("Tube_CmdTrig", 1)
-        if self._wait_until_true(
-            "Tube_CompleteFB", timeout=timeout, description=f"{description}完成"
-        ):
-            self.set_node_value("Tube_CmdTrig", 0)
-            if self._wait_until_false(
-                "Tube_CompleteFB", description=f"{description}完成复位"
-            ):
+        self.set_node_value(self.CMD_TYPE_NODE, int(cmd_type))
+        self.set_node_value(self.CMD_TRIG_NODE, 1)
+        if self._wait_until_true(self.COMPLETE_NODE, timeout=timeout, description=f"{description}完成"):
+            self.set_node_value(self.CMD_TRIG_NODE, 0)
+            if self._wait_until_false(self.COMPLETE_NODE, description=f"{description}完成复位"):
                 logger.info(f"{description}完成")
                 self._log_status(f"{description}后")
-                return {"success": True, "message": f"{description}完成"}
+                return {
+                    "success": True,
+                    "message": f"{description}完成",
+                    "cmd_type": int(cmd_type),
+                }
             raise ValueError(f"{description}失败，完成复位超时")
         raise ValueError(f"{description}失败，动作未完成")
 
     @not_action
-    def _wait_until_true(self, node_name: str, timeout: float = 180.0,
-                         interval: float = 0.2, description: str = None) -> bool:
+    def _wait_until_true(
+        self,
+        node_name: str,
+        timeout: float = 180.0,
+        interval: float = 0.2,
+        description: str = None,
+    ) -> bool:
         desc = description or node_name
-        logger.info(f"等待 {desc} 变为完成（轮询节点: {node_name}）...")
+        logger.info(f"等待 {desc}（节点: {node_name}）...")
         start = time.time()
         while True:
             value = self.get_node_value(node_name, force_read=True)
             if value:
-                logger.info(f"✓ {desc}（节点 [{node_name}]={value}）")
+                logger.info(f"✓ {desc}（[{node_name}]={value}）")
                 return True
             if time.time() - start >= timeout:
-                logger.error(f"✗ 等待 {desc} 超时（{timeout}秒，节点 [{node_name}] 仍为 {value!r}）")
+                logger.error(f"✗ 等待 {desc} 超时（{timeout}s，[{node_name}]={value!r}）")
                 return False
             time.sleep(interval)
 
     @not_action
-    def _wait_until_false(self, node_name: str, timeout: float = 120.0,
-                          interval: float = 0.2, description: str = None) -> bool:
+    def _wait_until_false(
+        self,
+        node_name: str,
+        timeout: float = 120.0,
+        interval: float = 0.2,
+        description: str = None,
+    ) -> bool:
         desc = description or node_name
-        logger.info(f"等待 {desc} 复位（轮询节点: {node_name}）...")
+        logger.info(f"等待 {desc} 复位（节点: {node_name}）...")
         start = time.time()
         while True:
             value = self.get_node_value(node_name, force_read=True)
             if not value:
-                logger.info(f"✓ {desc}（节点 [{node_name}]={value}）")
+                logger.info(f"✓ {desc}（[{node_name}]={value}）")
                 return True
             if time.time() - start >= timeout:
-                logger.error(f"✗ 等待 {desc} 超时（{timeout}秒，节点 [{node_name}] 仍为 {value!r}）")
+                logger.error(f"✗ 等待 {desc} 超时（{timeout}s，[{node_name}]={value!r}）")
                 return False
             time.sleep(interval)
 
-    # ==================== 整体测试流程 ====================
-
     @not_action
     def run_test_flow(self) -> dict:
-        """按离心管测试流程 yaml 依次执行全部步骤"""
+        """按离心管液体处理测试流程预设依次 execute_command（本地调试用）"""
         logger.info("离心管液体处理：开始整体测试流程...")
-        self.step0_ch8_load()
-        self.step1_ch8_aspirate()
-        self.step2_ch8_dispense()
-        self.step3_ch8_mix()
-        self.step4_ch8_unload()
-        self.step5_big_gripper_pick()
-        self.step6_big_gripper_place()
-        self.step7_ultrasound_mix()
-        self.step8_big_gripper_pick()
-        self.step9_big_gripper_place()
-        self.step10_small_gripper_open_lid()
-        self.step11_small_gripper_place()
-        self.step12_ch1_load()
-        self.step13_ch1_aspirate()
-        self.step14_ch1_dispense()
-        self.step15_ch1_unload()
-        self.step16_small_gripper_pick()
-        self.step17_small_gripper_close_lid()
-        self.step18_reset()
+        for step_name, cmd_type, preset in TEST_FLOW_PRESETS:
+            logger.info(f"--- {step_name} (CmdType={int(cmd_type)}) ---")
+            preset_args = dict(preset)
+            ultrasound_time = preset_args.get("ultrasound_time")
+            step_timeout = 180.0
+            if int(cmd_type) == int(TubeCommand.ULTRASOUND_MIX) and ultrasound_time is not None:
+                step_timeout = ultrasound_time * 60 + 60
+            self.execute_command(cmd_type=int(cmd_type), timeout=step_timeout, **preset_args)
         logger.info("离心管液体处理：整体测试流程完成")
         return {"success": True, "message": "离心管液体处理测试流程完成"}
 
-    # ==================== 状态读取 ====================
-
     @not_action
     def get_status(self) -> dict:
-        status = {
+        return {
             "X": self.get_node_value("Tube_XPosFB"),
             "Y": self.get_node_value("Tube_YPosFB"),
             "Ch8Z": self.get_node_value("Tube_Z1PosFB"),
             "Ch1Z": self.get_node_value("Tube_Z3PosFB"),
             "complete": self.get_node_value("Tube_CompleteFB"),
         }
-        for i in range(1, 6):
-            status[f"cooling_{i}"] = self.get_node_value(
-                f"Liquid_Cooling_CentrifugeTube_{i}_FB"
-            )
-        return status
 
     @not_action
     def _log_status(self, prefix: str = "状态反馈") -> None:
         s = self.get_status()
-        cooling = " ".join(
-            f"C{i}={s.get(f'cooling_{i}')}" for i in range(1, 6) if s.get(f"cooling_{i}") is not None
-        )
         logger.info(
             f"{prefix}: X={s['X']} Y={s['Y']} Ch8Z={s['Ch8Z']} Ch1Z={s['Ch1Z']} "
-            f"Complete={s['complete']}" + (f" {cooling}" if cooling else "")
+            f"Complete={s['complete']}"
         )
 
 
@@ -587,121 +471,67 @@ if __name__ == "__main__":
     TUBE_URL = "opc.tcp://192.168.6.6:4840"
     STATUS_LOG_INTERVAL = 15.0
 
-    tube = CentrifugeTubeLiquidHandlingDevice(
+    dev = CentrifugeTubeLiquidHandlingDevice(
         url=TUBE_URL,
         csv_path=DEFAULT_CSV_PATH,
         use_subscription=False,
     )
 
     time.sleep(2)
-    init_status = tube.get_status()
-    logger.info(f"连通性测试: {init_status}")
+    logger.info(f"连通性测试: {dev.get_status()}")
 
     status_log_running = True
 
     def _status_log_worker():
         while status_log_running:
             try:
-                tube._log_status("实时状态")
+                dev._log_status("实时状态")
             except Exception as e:
                 logger.warning(f"状态反馈日志异常: {e}")
             time.sleep(STATUS_LOG_INTERVAL)
 
-    status_log_thread = threading.Thread(
-        target=_status_log_worker, daemon=True, name="TubeLiquidStatusLog"
-    )
-    status_log_thread.start()
-    logger.info(f"已启动离心管液体处理状态日志（间隔 {STATUS_LOG_INTERVAL}s，无订阅）")
+    threading.Thread(target=_status_log_worker, daemon=True, name="TubeLiquidStatusLog").start()
 
     while True:
         print("请选择操作：")
-        print("0  读取状态（连通性测试）")
-        print("1  8通道装载")
-        print("2  8通道吸液")
-        print("3  8通道放液")
-        print("4  8通道混匀")
-        print("5  8通道卸载")
-        print("6  大夹爪抓取")
-        print("7  大夹爪放置")
-        print("8  超声波混匀")
-        print("9  大夹爪抓取(2)")
-        print("10 大夹爪放置(2)")
-        print("11 小夹爪开盖")
-        print("12 小夹爪放置")
-        print("13 单通道装载")
-        print("14 单通道吸液")
-        print("15 单通道放液")
-        print("16 单通道卸载")
-        print("17 小夹爪抓取")
-        print("18 小夹爪关盖")
-        print("19 复位")
-        print("20 超声波混匀立即停止")
-        print("--- 单点调试（轴点动 1-4） ---")
-        print("31 X向左")
-        print("32 X向右")
-        print("33 Y向前")
-        print("34 Y向后")
+        for idx, (name, cmd, _) in enumerate(TEST_FLOW_PRESETS, start=1):
+            print(f"{idx} {name} (CmdType={int(cmd)})")
+        print("21 超声波混匀立即停止")
+        print("--- 单点调试 ---")
+        print("31 X向左 (CmdType=1)")
+        print("32 X向右 (CmdType=2)")
+        print("33 Y向前 (CmdType=3)")
+        print("34 Y向后 (CmdType=4)")
         print("98 整体测试流程")
         print("99 退出")
         choice = input("请输入操作序号：").strip()
         if choice == "99":
             break
-        elif choice == "0":
-            print(tube.get_status())
-        elif choice == "1":
-            tube.step0_ch8_load()
-        elif choice == "2":
-            tube.step1_ch8_aspirate()
-        elif choice == "3":
-            tube.step2_ch8_dispense()
-        elif choice == "4":
-            tube.step3_ch8_mix()
-        elif choice == "5":
-            tube.step4_ch8_unload()
-        elif choice == "6":
-            tube.step5_big_gripper_pick()
-        elif choice == "7":
-            tube.step6_big_gripper_place()
-        elif choice == "8":
-            tube.step7_ultrasound_mix()
-        elif choice == "9":
-            tube.step8_big_gripper_pick()
-        elif choice == "10":
-            tube.step9_big_gripper_place()
-        elif choice == "11":
-            tube.step10_small_gripper_open_lid()
-        elif choice == "12":
-            tube.step11_small_gripper_place()
-        elif choice == "13":
-            tube.step12_ch1_load()
-        elif choice == "14":
-            tube.step13_ch1_aspirate()
-        elif choice == "15":
-            tube.step14_ch1_dispense()
-        elif choice == "16":
-            tube.step15_ch1_unload()
-        elif choice == "17":
-            tube.step16_small_gripper_pick()
-        elif choice == "18":
-            tube.step17_small_gripper_close_lid()
-        elif choice == "19":
-            tube.step18_reset()
-        elif choice == "20":
-            tube.ultrasound_stop()
+        if choice == "98":
+            dev.run_test_flow()
+        elif choice == "21":
+            dev.execute_command(ultrasound_stop=True)
         elif choice == "31":
-            tube.jog_x_left()
+            dev.execute_command(cmd_type=1, x_pos=3095, x_speed=500)
         elif choice == "32":
-            tube.jog_x_right()
+            dev.execute_command(cmd_type=2, x_pos=0, x_speed=500)
         elif choice == "33":
-            tube.jog_y_forward()
+            dev.execute_command(cmd_type=3, y_pos=-2090, y_speed=500)
         elif choice == "34":
-            tube.jog_y_backward()
-        elif choice == "98":
-            tube.run_test_flow()
+            dev.execute_command(cmd_type=4, y_pos=0, y_speed=500)
+        elif choice.isdigit() and 1 <= int(choice) <= len(TEST_FLOW_PRESETS):
+            name, cmd_type, preset = TEST_FLOW_PRESETS[int(choice) - 1]
+            preset_args = dict(preset)
+            ultrasound_time = preset_args.get("ultrasound_time")
+            step_timeout = 180.0
+            if int(cmd_type) == int(TubeCommand.ULTRASOUND_MIX) and ultrasound_time is not None:
+                step_timeout = ultrasound_time * 60 + 60
+            dev.execute_command(
+                cmd_type=int(cmd_type), timeout=step_timeout, **preset_args
+            )
         else:
             print("无效的操作序号，请重新输入。")
 
     status_log_running = False
-    status_log_thread.join(timeout=STATUS_LOG_INTERVAL + 1)
-    tube.disconnect()
+    dev.disconnect()
     print("退出程序。")

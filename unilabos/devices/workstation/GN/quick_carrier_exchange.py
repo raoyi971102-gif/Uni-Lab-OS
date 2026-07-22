@@ -1,9 +1,9 @@
 """
 快换模块 设备驱动
 
-参照 AI4C.py / locking_mechanism.py 写法，继承 OPC UA 通讯基类，实现具体的设备动作函数。
-节点变量来自 opcua_gn1.3.3.csv 中「快换」(前缀 QuickChange_)。
-各动作点位根据「快换模块测试流程.yaml」写死。
+协议：OPC_UA协议1.3.3(2).xlsx「快换」；节点：opcua_gn1.3.3.csv（前缀 QuickChange_）。
+
+对外仅暴露 execute_command（QuickChange_CmdType + 写参）；测试流程 yaml 预设供本地调试。
 
 指令类型 (QuickChange_CmdType)：
     1=X向左  2=X向右  3=Z1向左 4=Z1向右
@@ -30,6 +30,7 @@ import time
 import logging
 import threading
 from enum import Enum
+from typing import Optional
 
 from unilabos.utils.log import logger
 from unilabos.registry.decorators import action, device, not_action
@@ -37,9 +38,28 @@ from unilabos.devices.workstation.AI4C.base_opcua_client import OpcUaClientWithS
 
 DEFAULT_CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "opcua_gn1.3.3.csv")
 
+# OPC 1.3.3 QuickChange_CmdType（与 Excel 表头一致）
+QUICK_CHANGE_CMD_LABELS = {
+    1: "X向左",
+    2: "X向右",
+    3: "Z1向左",
+    4: "Z1向右",
+    5: "Z2向左",
+    6: "Z2向右",
+    7: "推轴向左",
+    8: "推轴向右",
+    9: "Z3向左",
+    10: "Z3向右",
+    11: "物料顶出",
+    12: "物料放置",
+    13: "磁力搅拌运行",
+    14: "复位",
+}
+
 
 class QuickChangeCommand(int, Enum):
     """快换模块指令类型 (QuickChange_CmdType)"""
+
     X_LEFT = 1
     X_RIGHT = 2
     Z1_LEFT = 3
@@ -50,21 +70,50 @@ class QuickChangeCommand(int, Enum):
     PUSH_RIGHT = 8
     Z3_LEFT = 9
     Z3_RIGHT = 10
-    EJECT_MATERIAL = 11   # 物料顶出
-    PLACE_MATERIAL = 12   # 物料放置
-    STIR_RUN = 13         # 磁力搅拌运行
-    RESET = 14            # 复位
+    EJECT_MATERIAL = 11
+    PLACE_MATERIAL = 12
+    STIR_RUN = 13
+    RESET = 14
+
+
+# 快换模块测试流程 yaml 预设（本地 run_test_flow，非注册动作）
+TEST_FLOW_PRESETS = [
+    ("1.物料顶出", QuickChangeCommand.EJECT_MATERIAL, dict(
+        x_pos=0, top_z_pos=-830, take_z_pos=1800, push_pos=240, push_z_pos=0,
+        x_speed=300, z1_speed=100, z2_speed=100, push_speed=50, z3_speed=0,
+        stir_rpm=0, stir_temp=0, stir_time_minutes=0,
+    )),
+    ("2.物料放置", QuickChangeCommand.PLACE_MATERIAL, dict(
+        x_pos=1810, top_z_pos=0, take_z_pos=1600, push_pos=240, push_z_pos=2100,
+        x_speed=300, z1_speed=100, z2_speed=100, push_speed=50, z3_speed=100,
+        stir_rpm=0, stir_temp=0, stir_time_minutes=0,
+    )),
+]
+
+
+_EXECUTE_CMD_DOC = (
+    "按 QuickChange_CmdType 执行 OPC 1.3.3 指令。"
+    "1=X左 2=X右 3=Z1左 4=Z1右 5=Z2左 6=Z2右 7=推轴左 8=推轴右 "
+    "9=Z3左 10=Z3右 11=物料顶出 12=物料放置 13=磁力搅拌运行 14=复位。"
+    "轴运动写 x_pos/top_z_pos/take_z_pos/push_pos/push_z_pos 及对应速度；"
+    "搅拌写 stir_rpm/stir_temp/stir_time_minutes。"
+)
 
 
 @device(
     id="gn_quick_carrier_exchange",
     display_name="快换模块",
     category=["workstation"],
-    description="GN 快换模块：按测试流程完成 物料顶出/物料放置，OPC UA 控制",
+    description="GN 快换模块：OPC UA 1.3.3，仅 execute_command 通用入口",
     icon="",
+    version="2.0.0",
 )
 class QuickCarrierExchangeDevice(OpcUaClientWithSubscription):
     """快换模块设备类（OPC 前缀 QuickChange_）"""
+
+    CMD_TYPE_NODE = "QuickChange_CmdType"
+    CMD_TRIG_NODE = "QuickChange_CmdTrig"
+    COMPLETE_NODE = "QuickChange_CompleteFB"
 
     def __init__(
         self,
@@ -78,16 +127,6 @@ class QuickCarrierExchangeDevice(OpcUaClientWithSubscription):
         *args,
         **kwargs,
     ):
-        """初始化快换模块设备
-
-        参数:
-            url: OPC UA 服务器地址
-            csv_path: 节点配置 CSV 文件路径
-            username / password: OPC UA 登录凭据
-            use_subscription: 是否启用订阅模式
-            cache_timeout: 缓存超时时间（秒）
-            subscription_interval: 订阅发布间隔（毫秒）
-        """
         super().__init__(
             url=url,
             username=username,
@@ -101,154 +140,161 @@ class QuickCarrierExchangeDevice(OpcUaClientWithSubscription):
         if csv_path:
             self.load_nodes_from_csv(csv_path)
 
-    # ==================== 动作函数（点位写死，来自快换模块测试流程 yaml） ====================
-
-    @action(auto_prefix=True, description="1.物料顶出")
-    def eject_material(self) -> dict:
-        """物料顶出（yaml step0 MaterialPushOut，指令类型=11）"""
-        logger.info("快换模块：物料顶出...")
-        # 运行位置
-        self.set_node_value("QuickChange_XPosSet", 0)
-        self.set_node_value("QuickChange_TopZPosSet", -830)    # Z1Pos
-        self.set_node_value("QuickChange_TakeZPosSet", 1800)   # Z2Pos
-        self.set_node_value("QuickChange_PushPosSet", 240)     # PushBoardPos
-        self.set_node_value("QuickChange_PushZPosSet", 0)      # Z3Pos
-        # 运行速度
-        self.set_node_value("QuickChange_XSpeed", 300)
-        self.set_node_value("QuickChange_Z1Speed", 100)
-        self.set_node_value("QuickChange_Z2Speed", 100)
-        self.set_node_value("QuickChange_PushSpeed", 50)
-        self.set_node_value("QuickChange_Z3Speed", 0)
-        # 搅拌参数（yaml 为 0）
-        self._apply_stir_setpoints(0, 0, 0)
-        return self._trigger_and_wait(QuickChangeCommand.EJECT_MATERIAL, "物料顶出")
-
-    @action(auto_prefix=True, description="2.物料放置")
-    def place_material(self) -> dict:
-        """物料放置（yaml step1 MaterialPlace，指令类型=12）"""
-        logger.info("快换模块：物料放置...")
-        # 运行位置
-        self.set_node_value("QuickChange_XPosSet", 1810)
-        self.set_node_value("QuickChange_TopZPosSet", 0)      # Z1Pos
-        self.set_node_value("QuickChange_TakeZPosSet", 1600)   # Z2Pos
-        self.set_node_value("QuickChange_PushPosSet", 240)      # PushBoardPos
-        self.set_node_value("QuickChange_PushZPosSet", 2100)   # Z3Pos
-        # 运行速度
-        self.set_node_value("QuickChange_XSpeed", 300)
-        self.set_node_value("QuickChange_Z1Speed", 100)
-        self.set_node_value("QuickChange_Z2Speed", 100)
-        self.set_node_value("QuickChange_PushSpeed", 50)
-        self.set_node_value("QuickChange_Z3Speed", 100)
-        # 搅拌参数（yaml 为 0）
-        self._apply_stir_setpoints(0, 0, 0)
-        return self._trigger_and_wait(QuickChangeCommand.PLACE_MATERIAL, "物料放置")
-
-    @action(auto_prefix=True, description="磁力搅拌运行")
-    def run_magnetic_stir(self, rpm: int = 300, temp: int = 25, time_minutes: int = 1) -> dict:
-        """磁力搅拌运行（指令类型=13）
-
-        参数对应 OPC 节点：
-            QuickChange_StirRPM  转速
-            QuickChange_StirTemp 温度
-            QuickChange_StirTime 时间（分钟）
-        """
-        logger.info(
-            f"快换模块：磁力搅拌运行 RPM={rpm} Temp={temp} Time={time_minutes}min..."
+    @action(auto_prefix=True, description=_EXECUTE_CMD_DOC)
+    def execute_command(
+        self,
+        cmd_type: int,
+        x_pos: Optional[int] = None,
+        top_z_pos: Optional[int] = None,
+        take_z_pos: Optional[int] = None,
+        push_pos: Optional[int] = None,
+        push_z_pos: Optional[int] = None,
+        x_speed: Optional[int] = None,
+        z1_speed: Optional[int] = None,
+        z2_speed: Optional[int] = None,
+        push_speed: Optional[int] = None,
+        z3_speed: Optional[int] = None,
+        stir_rpm: Optional[int] = None,
+        stir_temp: Optional[int] = None,
+        stir_time_minutes: Optional[int] = None,
+        timeout: float = 120.0,
+    ) -> dict:
+        """唯一注册动作：写参 → CmdType → CmdTrig → 等 CompleteFB。"""
+        cmd = int(cmd_type)
+        effective_timeout = timeout
+        if cmd == int(QuickChangeCommand.STIR_RUN) and timeout == 120.0:
+            minutes = stir_time_minutes if stir_time_minutes is not None else 1
+            effective_timeout = minutes * 60 + 60
+        setpoints = self._build_setpoints(
+            x_pos=x_pos, top_z_pos=top_z_pos, take_z_pos=take_z_pos,
+            push_pos=push_pos, push_z_pos=push_z_pos,
+            x_speed=x_speed, z1_speed=z1_speed, z2_speed=z2_speed,
+            push_speed=push_speed, z3_speed=z3_speed,
+            stir_rpm=stir_rpm, stir_temp=stir_temp, stir_time_minutes=stir_time_minutes,
         )
-        self._apply_stir_setpoints(rpm, temp, time_minutes)
-        timeout = time_minutes * 60 + 60
-        return self._trigger_and_wait(
-            QuickChangeCommand.STIR_RUN, "磁力搅拌运行", timeout=timeout
-        )
-
-    @action(auto_prefix=True, description="快换模块复位")
-    def reset(self) -> dict:
-        """快换模块复位（指令类型=14）"""
-        logger.info("快换模块：复位...")
-        return self._trigger_and_wait(QuickChangeCommand.RESET, "复位")
-
-    # ==================== 内部触发/等待逻辑（参照 locking_mechanism 写法） ====================
+        label = QUICK_CHANGE_CMD_LABELS.get(cmd, f"CmdType={cmd}")
+        return self._run(cmd, label, setpoints, timeout=effective_timeout)
 
     @not_action
-    def _apply_stir_setpoints(self, rpm: int, temp: int, time_minutes: int) -> None:
-        """写入磁力搅拌三参数：转速 / 温度 / 时间(分)"""
-        self.set_node_value("QuickChange_StirRPM", rpm)
-        self.set_node_value("QuickChange_StirTemp", temp)
-        self.set_node_value("QuickChange_StirTime", time_minutes)
+    def _build_setpoints(
+        self,
+        x_pos: Optional[int] = None,
+        top_z_pos: Optional[int] = None,
+        take_z_pos: Optional[int] = None,
+        push_pos: Optional[int] = None,
+        push_z_pos: Optional[int] = None,
+        x_speed: Optional[int] = None,
+        z1_speed: Optional[int] = None,
+        z2_speed: Optional[int] = None,
+        push_speed: Optional[int] = None,
+        z3_speed: Optional[int] = None,
+        stir_rpm: Optional[int] = None,
+        stir_temp: Optional[int] = None,
+        stir_time_minutes: Optional[int] = None,
+    ) -> dict:
+        mapping = {
+            "QuickChange_XPosSet": x_pos,
+            "QuickChange_TopZPosSet": top_z_pos,
+            "QuickChange_TakeZPosSet": take_z_pos,
+            "QuickChange_PushPosSet": push_pos,
+            "QuickChange_PushZPosSet": push_z_pos,
+            "QuickChange_XSpeed": x_speed,
+            "QuickChange_Z1Speed": z1_speed,
+            "QuickChange_Z2Speed": z2_speed,
+            "QuickChange_PushSpeed": push_speed,
+            "QuickChange_Z3Speed": z3_speed,
+            "QuickChange_StirRPM": stir_rpm,
+            "QuickChange_StirTemp": stir_temp,
+            "QuickChange_StirTime": stir_time_minutes,
+        }
+        return {node: val for node, val in mapping.items() if val is not None}
+
+    @not_action
+    def _run(
+        self,
+        cmd_type: int,
+        description: str,
+        setpoints: Optional[dict] = None,
+        timeout: float = 120.0,
+    ) -> dict:
+        logger.info(f"快换模块：{description} (CmdType={cmd_type})")
+        if setpoints:
+            for node, value in setpoints.items():
+                self.set_node_value(node, value)
+        return self._trigger_and_wait(cmd_type, description, timeout=timeout)
 
     @not_action
     def _trigger_and_wait(self, cmd_type, description: str, timeout: float = 120.0) -> dict:
-        """下发指令类型并触发，等待完成后复位触发。
-
-        - 设置 QuickChange_CmdType（指令类型）
-        - 设置 QuickChange_CmdTrig=1（指令触发）
-        - 等待 QuickChange_CompleteFB 变为非 0（完成）
-        - 复位 QuickChange_CmdTrig=0
-        - 等待 QuickChange_CompleteFB 变回 0（完成复位）
-        """
-        self.set_node_value("QuickChange_CmdType", int(cmd_type))   # 指令类型
-        self.set_node_value("QuickChange_CmdTrig", 1)               # 指令触发
-        if self._wait_until_true("QuickChange_CompleteFB", timeout=timeout, description=f"{description}完成"):
-            self.set_node_value("QuickChange_CmdTrig", 0)           # 复位触发
-            if self._wait_until_false("QuickChange_CompleteFB", description=f"{description}完成复位"):
+        self.set_node_value(self.CMD_TYPE_NODE, int(cmd_type))
+        self.set_node_value(self.CMD_TRIG_NODE, 1)
+        if self._wait_until_true(self.COMPLETE_NODE, timeout=timeout, description=f"{description}完成"):
+            self.set_node_value(self.CMD_TRIG_NODE, 0)
+            if self._wait_until_false(self.COMPLETE_NODE, description=f"{description}完成复位"):
                 logger.info(f"{description}完成")
                 self._log_positions(f"{description}后")
-                return {"success": True, "message": f"{description}完成"}
-            else:
-                raise ValueError(f"{description}失败，完成复位超时")
-        else:
-            raise ValueError(f"{description}失败，动作未完成")
+                return {
+                    "success": True,
+                    "message": f"{description}完成",
+                    "cmd_type": int(cmd_type),
+                }
+            raise ValueError(f"{description}失败，完成复位超时")
+        raise ValueError(f"{description}失败，动作未完成")
 
     @not_action
-    def _wait_until_true(self, node_name: str, timeout: float = 120.0,
-                         interval: float = 0.2, description: str = None) -> bool:
-        """等待节点变为非 0 / True（强制从服务器读取，避免订阅缓存过期）"""
+    def _wait_until_true(
+        self,
+        node_name: str,
+        timeout: float = 120.0,
+        interval: float = 0.2,
+        description: str = None,
+    ) -> bool:
         desc = description or node_name
-        logger.info(f"等待 {desc} 变为完成（轮询节点: {node_name}）...")
+        logger.info(f"等待 {desc}（节点: {node_name}）...")
         start = time.time()
         while True:
             value = self.get_node_value(node_name, force_read=True)
             if value:
-                logger.info(f"✓ {desc}（节点 [{node_name}]={value}）")
+                logger.info(f"✓ {desc}（[{node_name}]={value}）")
                 return True
             if time.time() - start >= timeout:
-                logger.error(f"✗ 等待 {desc} 超时（{timeout}秒，节点 [{node_name}] 仍为 {value!r}）")
+                logger.error(f"✗ 等待 {desc} 超时（{timeout}s，[{node_name}]={value!r}）")
                 return False
             time.sleep(interval)
 
     @not_action
-    def _wait_until_false(self, node_name: str, timeout: float = 120.0,
-                          interval: float = 0.2, description: str = None) -> bool:
-        """等待节点变为 0 / False（强制从服务器读取，避免订阅缓存过期）"""
+    def _wait_until_false(
+        self,
+        node_name: str,
+        timeout: float = 120.0,
+        interval: float = 0.2,
+        description: str = None,
+    ) -> bool:
         desc = description or node_name
-        logger.info(f"等待 {desc} 复位（轮询节点: {node_name}）...")
+        logger.info(f"等待 {desc} 复位（节点: {node_name}）...")
         start = time.time()
         while True:
             value = self.get_node_value(node_name, force_read=True)
             if not value:
-                logger.info(f"✓ {desc}（节点 [{node_name}]={value}）")
+                logger.info(f"✓ {desc}（[{node_name}]={value}）")
                 return True
             if time.time() - start >= timeout:
-                logger.error(f"✗ 等待 {desc} 超时（{timeout}秒，节点 [{node_name}] 仍为 {value!r}）")
+                logger.error(f"✗ 等待 {desc} 超时（{timeout}s，[{node_name}]={value!r}）")
                 return False
             time.sleep(interval)
 
-    # ==================== 整体测试流程 ====================
-
     @not_action
     def run_test_flow(self) -> dict:
-        """按快换模块测试流程 yaml 依次执行全部步骤"""
+        """按快换模块测试流程 yaml 预设依次 execute_command（本地调试用）"""
         logger.info("快换模块：开始整体测试流程...")
-        self.eject_material()    # 1.物料顶出
-        self.place_material()    # 2.物料放置
+        for step_name, cmd_type, preset in TEST_FLOW_PRESETS:
+            logger.info(f"--- {step_name} (CmdType={int(cmd_type)}) ---")
+            label = QUICK_CHANGE_CMD_LABELS.get(int(cmd_type), str(cmd_type))
+            self._run(int(cmd_type), f"{step_name}/{label}", self._build_setpoints(**preset))
         logger.info("快换模块：整体测试流程完成")
         return {"success": True, "message": "快换模块测试流程完成"}
 
-    # ==================== 状态读取 ====================
-
     @not_action
     def get_positions(self) -> dict:
-        """读取当前位置反馈"""
         return {
             "X": self.get_node_value("QuickChange_XPosFB"),
             "Z1": self.get_node_value("QuickChange_Z1PosFB"),
@@ -259,9 +305,8 @@ class QuickCarrierExchangeDevice(OpcUaClientWithSubscription):
 
     @not_action
     def _log_positions(self, prefix: str = "位置反馈") -> None:
-        """将位置反馈写入日志"""
         pos = self.get_positions()
-        complete = self.get_node_value("QuickChange_CompleteFB", force_read=True)
+        complete = self.get_node_value(self.COMPLETE_NODE, force_read=True)
         logger.info(
             f"{prefix}: X={pos['X']} Z1={pos['Z1']} Z2={pos['Z2']} "
             f"Z3={pos['Z3']} Push={pos['Push']} 完成={complete}"
@@ -269,68 +314,54 @@ class QuickCarrierExchangeDevice(OpcUaClientWithSubscription):
 
 
 if __name__ == "__main__":
-    # 调试用法：连接 GN 快换模块 OPC UA 服务器并执行测试流程
     logging.getLogger("unilabos").setLevel(logging.INFO)
 
     QUICK_CHANGE_URL = "opc.tcp://192.168.6.6:4840"
-    POSITION_LOG_INTERVAL = 15.0  # 位置反馈日志间隔（秒）
+    POSITION_LOG_INTERVAL = 15.0
 
-    quick_change = QuickCarrierExchangeDevice(
-        url=QUICK_CHANGE_URL,
-        csv_path=DEFAULT_CSV_PATH,
-    )
-
+    dev = QuickCarrierExchangeDevice(url=QUICK_CHANGE_URL, csv_path=DEFAULT_CSV_PATH)
     time.sleep(2)
 
-    # 后台定时将位置反馈写入日志，便于实时查看
     position_log_running = True
 
     def _position_log_worker():
         while position_log_running:
             try:
-                quick_change._log_positions("实时位置")
+                dev._log_positions("实时位置")
             except Exception as e:
                 logger.warning(f"位置反馈日志异常: {e}")
             time.sleep(POSITION_LOG_INTERVAL)
 
-    position_log_thread = threading.Thread(
-        target=_position_log_worker, daemon=True, name="QuickChangePositionLog"
-    )
-    position_log_thread.start()
-    logger.info(f"已启动位置反馈实时日志（间隔 {POSITION_LOG_INTERVAL}s）")
+    threading.Thread(target=_position_log_worker, daemon=True, name="QuickChangePositionLog").start()
 
-    # 命令行菜单
     while True:
         print("请选择操作：")
-        print("1 物料顶出")
-        print("2 物料放置")
-        print("3 复位")
-        print("4 磁力搅拌运行（输入 RPM/温度/时间）")
+        for idx, (name, cmd, _) in enumerate(TEST_FLOW_PRESETS, start=1):
+            print(f"{idx} {name} (CmdType={int(cmd)})")
+        print("14 复位 (CmdType=14)")
+        print("13 磁力搅拌运行（输入 RPM/温度/时间）")
         print("98 整体测试流程")
         print("99 退出")
         choice = input("请输入操作序号：").strip()
         if choice == "99":
             break
-        elif choice == "1":
-            quick_change.eject_material()
-        elif choice == "2":
-            quick_change.place_material()
-        elif choice == "3":
-            quick_change.reset()
-        elif choice == "4":
+        if choice == "98":
+            dev.run_test_flow()
+        elif choice == "14":
+            dev.execute_command(cmd_type=14)
+        elif choice == "13":
             rpm = int(input("转速 RPM [100]: ").strip() or "100")
             temp = int(input("温度 [25]: ").strip() or "25")
             time_minutes = int(input("时间(分) [1]: ").strip() or "1")
-            quick_change.run_magnetic_stir(rpm=rpm, temp=temp, time_minutes=time_minutes)
-        elif choice == "98":
-            quick_change.run_test_flow()
+            dev.execute_command(
+                cmd_type=13, stir_rpm=rpm, stir_temp=temp, stir_time_minutes=time_minutes,
+            )
+        elif choice.isdigit() and 1 <= int(choice) <= len(TEST_FLOW_PRESETS):
+            name, cmd_type, preset = TEST_FLOW_PRESETS[int(choice) - 1]
+            dev.execute_command(cmd_type=int(cmd_type), **preset)
         else:
             print("无效的操作序号，请重新输入。")
 
-    # 停止位置日志线程
     position_log_running = False
-    position_log_thread.join(timeout=POSITION_LOG_INTERVAL + 1)
-
-    # 断开连接
-    quick_change.disconnect()
+    dev.disconnect()
     print("退出程序。")
