@@ -3221,6 +3221,12 @@ class XUSEDevice(OpcUaClientWithSubscription):
           - "_" 前缀 sheet（如 "_readme_"、"_meta_"）会被忽略；单元格为空的行会跳过；
             全部为空 → 不做任何写入、不触发握手。
 
+        前置等待（与 add_powder 保持一致）：
+          - xlsx 中存在任一非空参数时，在首次实际写入 OPC 之前，会先：
+            1) 等待罐体占位（is_add_sample_occupied，3s 超时；未占位则抛错）
+            2) 等待 Add_Sample_Request_Process = True（无超时）
+          - 全部参数为空 → 不做前置等待，直接返回。
+
         参数模板见 `templates/加样参数模板.xlsx`。档案 xlsx（保存在 record_dir 或默认
         records/ 目录）与输入模板结构同构，可直接作为下次调用的 param_file 回放。
 
@@ -3266,6 +3272,43 @@ class XUSEDevice(OpcUaClientWithSubscription):
         # 每个 sheet 按名字分派
         single_sheet_specs = self._ADD_POWDER_SINGLE_SHEETS
         array_bases = {name: (dtype, caster) for name, dtype, caster in self._ADD_POWDER_ARRAY_BASES}
+
+        # ---- 预扫：xlsx 是否有任何可识别 sheet 的非空目标参数值 ----
+        def _has_any_nonempty_target():
+            for _sheet in wb.worksheets:
+                _title = str(_sheet.title).strip()
+                if not _title or _title.startswith("_"):
+                    continue
+                # 目标 sheet：单值 sheet 或数字 sheet
+                if _title in single_sheet_specs:
+                    pass
+                else:
+                    try:
+                        int(_title)
+                    except ValueError:
+                        continue
+                for _r_idx, _row in enumerate(_sheet.iter_rows(values_only=True), start=1):
+                    if _r_idx == 1:
+                        continue
+                    if not _row or _row[0] is None or str(_row[0]).strip() == "":
+                        continue
+                    _v = _row[1] if len(_row) > 1 else None
+                    if _v is not None and str(_v).strip() != "":
+                        return True
+            return False
+
+        # ---- 前置等待：与 add_powder 一致（占位 + Add_Sample_Request_Process）----
+        # 只在 xlsx 有实际要下发的参数时执行；全空 xlsx 直接跳过等待。
+        if _has_any_nonempty_target():
+            logger.info("加样参数下发前置：等待罐体占位 + 加样请求加工...")
+            if not self._wait_condition(lambda: self.is_add_sample_occupied()):
+                error_msg = "没有罐体，无法下发加样参数"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+            self._wait_until_true("Add_Sample_Request_Process", description="加样请求加工")
+            logger.info("已收到加样请求加工，开始下发参数")
+        else:
+            logger.info("xlsx 中未检测到任何非空参数，跳过前置等待与参数下发")
 
         for sheet in wb.worksheets:
             title = str(sheet.title).strip()
