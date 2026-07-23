@@ -200,6 +200,34 @@ class SolidWeighingDevice(OpcUaClientWithSubscription):
         label = SOLID_CMD_LABELS.get(int(cmd_type), f"CmdType={int(cmd_type)}")
         return self._run(int(cmd_type), label, setpoints, timeout=timeout)
 
+    @action(description="粉末定量加样 (cmd 11)，默认坐标为加样工位")
+    def dispense_powder(
+        self,
+        weight_mg: int = 30,
+        x_pos: int = -300,
+        y_pos: int = 700,
+        material_z_pos: int = 40000,
+        gripper_z_pos: int = 0,
+        door_pos: int = 3700,
+        x_speed: int = 500,
+        y_speed: int = 500,
+        door_speed: int = 150,
+        timeout: float = 600.0,
+    ) -> dict:
+        return self.execute_command(
+            cmd_type=int(SolidCommand.DISPENSE),
+            x_pos=x_pos,
+            y_pos=y_pos,
+            material_z_pos=material_z_pos,
+            gripper_z_pos=gripper_z_pos,
+            door_pos=door_pos,
+            volune_weight=weight_mg,
+            x_speed=x_speed,
+            y_speed=y_speed,
+            door_speed=door_speed,
+            timeout=timeout,
+        )
+
     @not_action
     def _build_setpoints(
         self,

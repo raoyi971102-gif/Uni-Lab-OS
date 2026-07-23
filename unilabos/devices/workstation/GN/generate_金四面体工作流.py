@@ -17,6 +17,203 @@ from pathlib import Path
 TARGET_LAB = "342e97d4-f412-40e4-972a-d8fa6bd102bc"
 OUT = Path(__file__).with_name("金四面体合成工作流.json")
 
+# GN 9320 移液站：实例 id（device_name）与注册表类型（resource_name）分离
+# 见 workflow/common.py、GN_station.json class=liquid_handler.prcxi id=PRCXI
+PRCXI_INSTANCE = "PRCXI"
+PRCXI_RESOURCE = "liquid_handler.prcxi"
+
+# 机械手工站 ModuleNo / XPos（beifen(1).txt + Flow Pipeline.yaml + X轴位置(1).txt）
+ROBOT_MOD_STACK = 8          # 堆栈（机械手夹取放回堆栈位置1.yaml ModuleNo=8）
+ROBOT_MOD_SOLID = 7          # SolidFeed @ 6318
+ROBOT_MOD_TUBE = 5           # CentrifugeTubeLiquid @ -1726
+ROBOT_MOD_N9320 = 4          # N9320 @ -3926
+ROBOT_MOD_QUICK = 2          # 快换/磁力搅拌 @ -10478
+ROBOT_MOD_CENTRIFUGE = 3     # 离心机 @ -8582
+ROBOT_MOD_OVEN = 1           # 常规烘箱 @ -13278
+ROBOT_X_STACK = 3274         # 堆栈孔板/储液槽
+ROBOT_X_STACK_BOTTLE = 2473  # 堆栈小瓶/大瓶
+ROBOT_X_SOLID = 6318         # 固体加样
+ROBOT_X_TUBE = -1726         # 离心管液体处理（Flow step11/31）
+ROBOT_X_N9320 = -3926        # 9320移液站
+ROBOT_X_QUICK = -10478       # 快换/磁力搅拌
+ROBOT_X_CENTRIFUGE = -8582   # 离心机
+ROBOT_X_OVEN = -13278        # 常规烘箱
+
+_CH8_SPEED = {
+    "x_speed": 500, "y_speed": 500, "z1_speed": 500, "p1_speed": 500,
+    "z2_speed": 500, "p2_speed": 500, "z3_speed": 500, "z4_speed": 500,
+    "small_gripper_force": 300,
+}
+
+# 离心管 8 通道工位标定（Flow Pipeline；高级用户可在 param 中覆盖）
+TUBE_WORK_POS = {"x_pos": 3093, "y_pos": -3181, "z1_pos": 1330}
+DILUTE_WATER_POS = {"x_pos": 4563, "y_pos": -2121, "z1_pos": 1380}
+
+
+def _robot_transfer(
+    destination: str | None = None,
+    *,
+    module_no: int | None = None,
+    x_pos: int | None = None,
+    stack: int | None = None,
+    disabled: bool = False,
+) -> dict:
+    param: dict = {"x_speed": 300, "pick_place": 1}
+    if destination:
+        param["destination"] = destination
+    if module_no is not None:
+        param["module_no"] = module_no
+    if x_pos is not None:
+        param["x_pos"] = x_pos
+    if stack is not None:
+        param["stack"] = stack
+    return {
+        "device": "gn_robotic_arm", "action": "transfer_carrier",
+        "param": param, "disabled": disabled,
+    }
+
+
+def _prcxi_add(vols: list, disabled: bool = False) -> dict:
+    n = len(vols)
+    return {
+        "device": PRCXI_INSTANCE, "resource": PRCXI_RESOURCE, "action": "add_liquid",
+        "param": {"asp_vols": vols, "dis_vols": vols, "reagent_sources": [], "targets": [],
+                  "use_channels": [], "flow_rates": [], "offsets": [], "liquid_height": [],
+                  "blow_out_air_volume": [], "spread": "wide", "is_96_well": n > 1,
+                  "mix_time": 0, "mix_vol": 0, "mix_rate": 0, "mix_liquid_height": 0.0,
+                  "none_keys": []},
+        "disabled": disabled,
+    }
+
+
+def _prcxi_remove(disabled: bool = False) -> dict:
+    return {
+        "device": PRCXI_INSTANCE, "resource": PRCXI_RESOURCE, "action": "remove_liquid",
+        "param": {"asp_vols": [], "targets": [], "use_channels": [], "flow_rates": [],
+                  "offsets": [], "liquid_height": [], "blow_out_air_volume": [],
+                  "spread": "wide", "is_96_well": True, "none_keys": []},
+        "disabled": disabled,
+    }
+
+
+def _magnetic_stir(rpm: int, temp_c: int, minutes: int, disabled: bool = False) -> dict:
+    return {
+        "device": "gn_quick_carrier_exchange", "action": "magnetic_stir",
+        "param": {"rpm": rpm, "temp_c": temp_c, "minutes": minutes},
+        "disabled": disabled,
+    }
+
+
+def _rest_on_stirrer(temp_c: int, minutes: int, disabled: bool = False) -> dict:
+    return {
+        "device": "gn_quick_carrier_exchange", "action": "rest_on_stirrer",
+        "param": {"temp_c": temp_c, "minutes": minutes},
+        "disabled": disabled,
+    }
+
+
+def _centrifuge_run(rpm: int, minutes: int, disabled: bool = False) -> dict:
+    return {
+        "device": "gn_centrifuge", "action": "run",
+        "param": {"rpm": rpm, "minutes": minutes, "plate_no": 2},
+        "disabled": disabled,
+    }
+
+
+def _solid_dispense(weight_mg: int, disabled: bool = False) -> dict:
+    return {
+        "device": "gn_solid_weighing", "action": "dispense_powder",
+        "param": {"weight_mg": weight_mg},
+        "disabled": disabled,
+    }
+
+
+def _tube_lid_open(bottle_type: str, bottle_index: int) -> dict:
+    return {
+        "device": "gn_centrifuge_tube_liquid_handling", "action": "open_bottle_lid",
+        "param": {"bottle_index": bottle_index, "bottle_type": bottle_type},
+        "disabled": False,
+    }
+
+
+def _tube_lid_close(bottle_type: str, bottle_index: int) -> dict:
+    return {
+        "device": "gn_centrifuge_tube_liquid_handling", "action": "close_bottle_lid",
+        "param": {"bottle_index": bottle_index, "bottle_type": bottle_type},
+        "disabled": False,
+    }
+
+
+def _tube_ch8_aspirate(**coords: int) -> dict:
+    return {
+        "device": "gn_centrifuge_tube_liquid_handling", "action": "ch8_aspirate",
+        "param": {"p1_pos": 300, **coords},
+        "disabled": False,
+    }
+
+
+def _tube_ch8_dispense(
+    bottle_type: str | None = None,
+    bottle_index: int | None = None,
+    **coords: int,
+) -> dict:
+    param: dict = {"p1_pos": 300, **coords}
+    if bottle_type is not None and bottle_index is not None:
+        param["bottle_type"] = bottle_type
+        param["bottle_index"] = bottle_index
+    return {
+        "device": "gn_centrifuge_tube_liquid_handling", "action": "ch8_dispense",
+        "param": param, "disabled": False,
+    }
+
+
+def _tube_ch8_mix(**coords: int) -> dict:
+    return {
+        "device": "gn_centrifuge_tube_liquid_handling", "action": "ch8_mix",
+        "param": {"p1_pos": 300, "mix_counts": 10, **coords},
+        "disabled": False,
+    }
+
+
+def _tube_ultrasound(time_min: int, disabled: bool = False) -> dict:
+    return {
+        "device": "gn_centrifuge_tube_liquid_handling", "action": "ultrasound_mix",
+        "param": {"ultrasound_time": time_min, "m_pos": 300, "m_speed": 300},
+        "disabled": disabled,
+    }
+
+
+def _prcxi_remove_vol(vol: float, disabled: bool = False) -> dict:
+    tpl = _prcxi_remove(disabled)
+    tpl["param"]["asp_vols"] = [vol]
+    return tpl
+
+
+def _prcxi_add_vol(vol: float, disabled: bool = False) -> dict:
+    return _prcxi_add([vol], disabled=disabled)
+
+
+def _prcxi_mix(disabled: bool = False) -> dict:
+    return {
+        "device": PRCXI_INSTANCE, "resource": PRCXI_RESOURCE, "action": "mix",
+        "param": {"mix_time": 10, "mix_vol": 100, "mix_rate": 150.0,
+                  "height_to_bottom": 0.5, "targets": [], "offsets": [],
+                  "none_keys": []},
+        "disabled": disabled,
+    }
+
+
+def _prcxi_marker(disabled: bool = True) -> dict:
+    return _prcxi_mix(disabled=disabled)
+
+
+# 各列离心管开/关盖瓶位（appsettings LargeBottles/SmallBottles Index）
+LID_AUX = ("large", 1)      # 氯金酸原液瓶（附支路稀释）
+LID_COL2 = ("large", 2)   # NaBH4
+LID_COL3 = ("large", 3)   # 抗坏血酸(低)
+LID_COL5 = ("large", 4)   # 列5氯金酸反应液
+LID_COL7 = ("small", 1)   # 高浓抗坏血酸样品瓶 → LidSlots[7]
+
 # 图2 横向布局常量（支线内左右串联，支线间上下分层）
 ENTRY_X = -150.0
 STEP_X0 = 250.0
@@ -25,205 +222,245 @@ LANE_Y0 = 80.0
 LANE_DY = 400.0
 
 OPC: dict[str, dict] = {
-    "2": {"device": "gn_system_control", "action": "auto-execute_command",
-          "param": {"cmd_type": 2, "wait": False, "timeout": 10}, "disabled": True},
-    "4": {"device": "gn_quick_carrier_exchange", "action": "auto-execute_command",
-          "param": {"cmd_type": 11, "x_pos": 0, "top_z_pos": -830, "take_z_pos": 1800,
-                    "push_pos": 240, "push_z_pos": 0, "x_speed": 300, "z1_speed": 100,
-                    "z2_speed": 100, "push_speed": 50, "z3_speed": 0}, "disabled": False},
-    "5": {"device": "gn_quick_carrier_exchange", "action": "auto-execute_command",
-          "param": {"cmd_type": 13, "stir_rpm": 1500, "stir_temp": 30, "stir_time_minutes": 1},
-          "disabled": False},
-    "6": {"device": "gn_system_control", "action": "auto-execute_command",
-          "param": {"cmd_type": 2, "wait": False, "timeout": 10}, "disabled": True},
-    "7": {"device": "gn_quick_carrier_exchange", "action": "auto-execute_command",
-          "param": {"cmd_type": 12, "x_pos": 1810, "top_z_pos": 0, "take_z_pos": 1600,
-                    "push_pos": 240, "push_z_pos": 2100, "x_speed": 300, "z1_speed": 100,
-                    "z2_speed": 100, "push_speed": 50, "z3_speed": 100}, "disabled": False},
-    "8": {"device": "gn_standard_oven", "action": "auto-execute_command",
-          "param": {"cmd_type": 1, "temperature": 30, "hours": 4, "minutes": 30, "wait": True},
-          "disabled": False},
-    "9": {"device": "gn_robotic_arm", "action": "auto-execute_command",
-          "param": {"cmd_type": 3, "module_no": 6, "stack": 2, "x_pos": 3274,
-                    "x_speed": 300, "pick_place": 1}, "disabled": False},
-    "10": {"device": "gn_solid_weighing", "action": "auto-execute_command",
-           "param": {"cmd_type": 11, "x_pos": -300, "y_pos": 700, "material_z_pos": 40000,
-                     "gripper_z_pos": 0, "door_pos": 3700, "volune_weight": 50,
-                     "x_speed": 500, "y_speed": 500, "door_speed": 150, "timeout": 600},
-           "disabled": False},
-    "11": {"device": "gn_centrifuge_tube_liquid_handling", "action": "auto-execute_command",
-           "param": {"cmd_type": 35, "m_pos": 300, "m_speed": 300, "ultrasound_time": 5},
-           "disabled": False},
-    "12": {"device": "gn_system_control", "action": "auto-execute_command",
-           "param": {"cmd_type": 2, "wait": False, "timeout": 10}, "disabled": True},
-    "13": {"device": "gn_solid_weighing", "action": "auto-execute_command",
-           "param": {"cmd_type": 11, "x_pos": -300, "y_pos": 700, "material_z_pos": 40000,
-                     "gripper_z_pos": 0, "door_pos": 3700, "volune_weight": 30,
-                     "x_speed": 500, "y_speed": 500, "door_speed": 150, "timeout": 600},
-           "disabled": False},
-    "14": {"device": "gn_system_control", "action": "auto-execute_command",
-           "param": {"cmd_type": 2, "wait": False, "timeout": 10}, "disabled": True},
-    "15": {"device": "gn_system_control", "action": "auto-execute_command",
-           "param": {"cmd_type": 2, "wait": False, "timeout": 10}, "disabled": True},
-    "16": {"device": "gn_quick_carrier_exchange", "action": "auto-execute_command",
-           "param": {"cmd_type": 13, "stir_rpm": 300, "stir_temp": 28, "stir_time_minutes": 2},
-           "disabled": False},
-    "17": {"device": "gn_system_control", "action": "auto-execute_command",
-           "param": {"cmd_type": 2, "wait": False, "timeout": 10}, "disabled": True},
-    "18": {"device": "gn_quick_carrier_exchange", "action": "auto-execute_command",
-           "param": {"cmd_type": 13, "stir_rpm": 300, "stir_temp": 28, "stir_time_minutes": 60},
-           "disabled": False},
-    "19": {"device": "gn_robotic_arm", "action": "auto-execute_command",
-           "param": {"cmd_type": 3, "module_no": 3, "stack": 1, "x_pos": 0,
-                     "x_speed": 300, "pick_place": 1}, "disabled": False},
-    "20": {"device": "gn_centrifuge", "action": "auto-execute_command",
-           "param": {"cmd_type": 5, "y_pos": -1700, "z_pos": 1000, "inner_z_pos": 3450,
-                     "rpm": 0, "time_minutes": 0, "y_speed": 300, "z_speed": 300, "plate_no": 2},
-           "disabled": False},
-    "21": {"device": "gn_centrifuge", "action": "auto-execute_command",
-           "param": {"cmd_type": 6, "rpm": 4000, "time_minutes": 10, "plate_no": 2}, "disabled": False},
-    "22": {"device": "gn_centrifuge", "action": "auto-execute_command",
-           "param": {"cmd_type": 7, "y_pos": -1700, "z_pos": 100, "inner_z_pos": 3450,
-                     "y_speed": 300, "z_speed": 300, "plate_no": 2}, "disabled": False},
-    "23": {"device": "gn_system_control", "action": "auto-execute_command",
-           "param": {"cmd_type": 2, "wait": False, "timeout": 10}, "disabled": True},
-    "24": {"device": "gn_centrifuge_tube_liquid_handling", "action": "auto-execute_command",
-           "param": {"cmd_type": 34, "mix_counts": 10}, "disabled": False},
-    "25": {"device": "gn_system_control", "action": "auto-execute_command",
-           "param": {"cmd_type": 2, "wait": False, "timeout": 10}, "disabled": True},
-    "26": {"device": "gn_solid_weighing", "action": "auto-execute_command",
-           "param": {"cmd_type": 11, "x_pos": -300, "y_pos": 700, "material_z_pos": 40000,
-                     "gripper_z_pos": 0, "door_pos": 3700, "volune_weight": 176,
-                     "x_speed": 500, "y_speed": 500, "door_speed": 150, "timeout": 900},
-           "disabled": False},
-    "27": {"device": "gn_system_control", "action": "auto-execute_command",
-           "param": {"cmd_type": 2, "wait": False, "timeout": 10}, "disabled": True},
-    "28": {"device": "gn_system_control", "action": "auto-execute_command",
-           "param": {"cmd_type": 2, "wait": False, "timeout": 10}, "disabled": True},
-    "29": {"device": "gn_quick_carrier_exchange", "action": "auto-execute_command",
-           "param": {"cmd_type": 13, "stir_rpm": 300, "stir_temp": 30, "stir_time_minutes": 5},
-           "disabled": False},
-    "30": {"device": "gn_system_control", "action": "auto-execute_command",
-           "param": {"cmd_type": 2, "wait": False, "timeout": 10}, "disabled": True},
-    "31": {"device": "gn_standard_oven", "action": "auto-execute_command",
-           "param": {"cmd_type": 1, "temperature": 29, "hours": 0, "minutes": 10, "wait": True},
-           "disabled": False},
-    "32": {"device": "gn_centrifuge", "action": "auto-execute_command",
-           "param": {"cmd_type": 6, "rpm": 700, "time_minutes": 15, "plate_no": 2}, "disabled": False},
-    "33": {"device": "gn_system_control", "action": "auto-execute_command",
-           "param": {"cmd_type": 2, "wait": False, "timeout": 10}, "disabled": True},
-    "34": {"device": "gn_system_control", "action": "auto-execute_command",
-           "param": {"cmd_type": 2, "wait": True}, "disabled": False},
-    "take7": {"device": "gn_robotic_arm", "action": "auto-execute_command",
-              "param": {"cmd_type": 3, "module_no": 4, "stack": 1, "x_pos": -3926,
-                        "x_speed": 300, "pick_place": 1}, "disabled": False},
-    "pass": {"device": "gn_system_control", "action": "auto-execute_command",
-             "param": {"cmd_type": 2, "wait": False, "timeout": 5}, "disabled": True},
+    "manual-prepare": {"device": "gn_system_control", "action": "manual_prepare",
+                       "param": {"timeout": 10}, "disabled": True},
+    "workflow-done": {"device": "gn_system_control", "action": "workflow_complete",
+                      "param": {"timeout": 10}, "disabled": False},
+    "b1-to-9320": _robot_transfer("stack_plate"),
+    "b1-prcxi-add": {"device": PRCXI_INSTANCE, "resource": PRCXI_RESOURCE,
+                     "action": "add_liquid",
+                     "param": {"asp_vols": [800, 800, 300], "dis_vols": [800, 800, 300],
+                               "reagent_sources": [], "targets": [], "use_channels": [],
+                               "flow_rates": [], "offsets": [], "liquid_height": [],
+                               "blow_out_air_volume": [], "spread": "wide", "is_96_well": True,
+                               "mix_time": 0, "mix_vol": 0, "mix_rate": 0,
+                               "mix_liquid_height": 0.0, "none_keys": []},
+                     "disabled": False},
+    "b1-prcxi-mix": {"device": PRCXI_INSTANCE, "resource": PRCXI_RESOURCE,
+                     "action": "mix",
+                     "param": {"mix_time": 10, "mix_vol": 100, "mix_rate": 150.0,
+                               "height_to_bottom": 0.5, "targets": [], "offsets": [],
+                               "none_keys": []}, "disabled": False},
+    "b1-mix-a": {"device": PRCXI_INSTANCE, "resource": PRCXI_RESOURCE,
+                 "action": "mix",
+                 "param": {"mix_time": 0, "mix_vol": 0, "mix_rate": 0.0,
+                           "height_to_bottom": 0.0, "targets": [], "offsets": [],
+                           "none_keys": []}, "disabled": True},
+    "b1-to-stir": _robot_transfer("magnetic_stirrer"),
+    "b1-stir": _magnetic_stir(1500, 30, 1),
+    "b1-seed": _rest_on_stirrer(30, 270, disabled=True),
+    "b2-to-solid": _robot_transfer("stack_reagent"),
+    "b2-nabh4-feed": _solid_dispense(50),
+    "b2-to-tube": _robot_transfer("solid_feed"),
+    "b2-lid-open": _tube_lid_open(*LID_COL2),
+    "b2-dilute": _tube_ch8_aspirate(**DILUTE_WATER_POS),
+    "b2-ultrasound": _tube_ultrasound(5),
+    "b2-nabh4-done": _tube_ultrasound(0, disabled=True),
+    "b2-lid-close": _tube_lid_close(*LID_COL2),
+    "b2-to-9320": _robot_transfer("tube_handler"),
+    "b3-to-solid": _robot_transfer("stack_reagent"),
+    "b3-aa-feed": _solid_dispense(30),
+    "b3-to-tube": _robot_transfer("solid_feed"),
+    "b3-lid-open": _tube_lid_open(*LID_COL3),
+    "b3-water": _tube_ch8_dispense(**TUBE_WORK_POS),
+    "b3-mix": _tube_ch8_mix(**TUBE_WORK_POS),
+    "b3-aa-done": _tube_ultrasound(0, disabled=True),
+    "b3-lid-close": _tube_lid_close(*LID_COL3),
+    "b4-plate-9320": _robot_transfer("stack_plate"),
+    "b4-aa-to-add": _robot_transfer("tube_handler"),
+    "b4-prcxi-add1": _prcxi_add([571, 571, 429]),
+    "b4-to-stir1": _robot_transfer("magnetic_stirrer"),
+    "b4-stir1": _magnetic_stir(300, 28, 2),
+    "b4-to-9320-a": _robot_transfer("magnetic_stirrer"),
+    "b4-seed-to-add": _robot_transfer("magnetic_stirrer"),
+    "b4-prcxi-seed-add": _prcxi_add_vol(28.6),
+    "b4-to-stir2": _robot_transfer("magnetic_stirrer"),
+    "b4-stir2": _magnetic_stir(300, 28, 60),
+    "b4-to-cent1": _robot_transfer("magnetic_stirrer"),
+    "b4-cent1": _centrifuge_run(4000, 10),
+    "b4-to-9320-b": _robot_transfer("centrifuge"),
+    "b4-aspirate1": _prcxi_remove_vol(1400),
+    "b4-add-ctac1": _prcxi_add_vol(500),
+    "b4-mix1": _prcxi_mix(),
+    "b4-to-cent2": _robot_transfer("prcxi"),
+    "b4-cent2": _centrifuge_run(4000, 10),
+    "b4-to-9320-c": _robot_transfer("centrifuge"),
+    "b4-aspirate2": _prcxi_remove_vol(1400),
+    "b4-add-ctac2": _prcxi_add_vol(500),
+    "b4-mix2": _prcxi_mix(),
+    "b4-gold-done": _prcxi_marker(True),
+    "b5-to-tube": _robot_transfer("stack_reagent"),
+    "b5-lid-open": _tube_lid_open(*LID_COL5),
+    "b5-add-liquid": _tube_ch8_dispense(**TUBE_WORK_POS),
+    "b5-lid-close": _tube_lid_close(*LID_COL5),
+    "b6-plate-9320": _robot_transfer("stack_plate"),
+    "b6-add1": _prcxi_add([300, 300, 300]),
+    "b6-to-stir": _robot_transfer("magnetic_stirrer"),
+    "b6-stir": _magnetic_stir(300, 30, 5),
+    "b6-gold-add": _robot_transfer("prcxi"),
+    "b6-haucl-add": _robot_transfer("tube_handler"),
+    "b6-rest-stir": _rest_on_stirrer(29, 10),
+    "b6-to-cent1": _robot_transfer("magnetic_stirrer"),
+    "b6-cent1": _centrifuge_run(700, 15),
+    "b6-to-9320-a": _robot_transfer("centrifuge"),
+    "b6-remove1": _prcxi_remove_vol(1400),
+    "b6-add-ctac1": _prcxi_add_vol(500),
+    "b6-mix1": _prcxi_mix(),
+    "b6-to-cent2": _robot_transfer("prcxi"),
+    "b6-cent2": _centrifuge_run(700, 15),
+    "b6-to-9320-b": _robot_transfer("centrifuge"),
+    "b6-remove2": _prcxi_remove_vol(500),
+    "b6-add-ctac2": _prcxi_add_vol(1000),
+    "b6-mix2": _prcxi_mix(),
+    "b6-transfer-plate": _prcxi_add_vol(500),
+    "b6-to-cent3": _robot_transfer("prcxi"),
+    "b6-cent3": _centrifuge_run(700, 15),
+    "b6-to-9320-c": _robot_transfer("centrifuge"),
+    "b6-remove3": _prcxi_remove_vol(1000),
+    "b6-add-ctac100": _prcxi_add_vol(500),
+    "b6-mix3": _prcxi_mix(),
+    "b6-tetra-done": _prcxi_marker(True),
+    "b7-bottle-solid": _robot_transfer("stack_bottle"),
+    "b7-prcxi-add": _prcxi_add([10000]),
+    "b7-to-tube": _robot_transfer("solid_feed"),
+    "b7-lid-open": _tube_lid_open(*LID_COL7),
+    "b7-dissolve": _tube_ch8_dispense(**TUBE_WORK_POS),
+    "b7-lid-close": _tube_lid_close(*LID_COL7),
+    "b7-to-b6-add1": _robot_transfer("tube_handler"),
+    "aux-lid-open": _tube_lid_open(*LID_AUX),
+    "aux-haucl-dilute": _tube_ch8_dispense(*LID_AUX),
+    "aux-lid-close": _tube_lid_close(*LID_AUX),
 }
 for _alias, _base in (
-    ("23-1", "23"), ("23-2", "23"),
-    ("33-1", "33"), ("33-2", "33"), ("33-3", "33"),
+    ("23-1", "b4-aspirate1"), ("23-2", "b4-aspirate2"),
+    ("33-1", "b6-remove1"), ("33-2", "b6-remove2"), ("33-3", "b6-remove3"),
 ):
     OPC[_alias] = copy.deepcopy(OPC[_base])
 
-# 图2 七列：每列 (node_id, footer, opc_key)；仅保留流程图关键步骤
 LANES: list[tuple[int, list[tuple[str, str, str]]]] = [
-    # 列1 种子 — 蓝色框：取96孔深孔板
     (0, [
-        ("B1-01", "取96孔深孔板", "4"),
-        ("B1-02", "转移至移液工作站", "pass"),
-        ("B1-03", "加液(800µl氯金酸+800µl CTAB+300µl NaBH4)", "6"),
-        ("B1-04", "吹打混匀", "pass"),
-        ("B1-05", "转移至磁力搅拌器", "7"),
-        ("B1-06", "磁力搅拌1500rpm/30s", "5"),
-        ("B1-07", "静置28-32℃/4.5h", "8"),
-        ("B1-08", "得到种子溶液", "pass"),
-    ]),  # B2→B1-03 NaBH4；B1-08→B4-04 种子28.6µl
-    # 列2 NaBH4 — 蓝色框：取储液槽
+        ("B1-01", "机械臂取96孔深孔板至9320移液工作站", "b1-to-9320"),
+        ("B1-02", "9320加液(800µl氯金酸+800µl CTAB+300µl NaBH4)", "b1-prcxi-add"),
+        ("B1-03", "9320吹打混匀", "b1-prcxi-mix"),
+        ("B1-04", "得到混合溶液A", "b1-mix-a"),
+        ("B1-05", "机械臂将其转移到磁力搅拌器", "b1-to-stir"),
+        ("B1-06", "磁力搅拌/混合液A(1500rpm/30s)", "b1-stir"),
+        ("B1-07", "静置28-32℃/4.5h，得到种子溶液", "b1-seed"),
+    ]),
     (1, [
-        ("B2-01", "取储液槽", "9"),
-        ("B2-02", "加NaBH4粉末", "10"),
-        ("B2-03", "加冰水稀释+超声解离", "11"),
-        ("B2-04", "得到NaBH4溶液", "12"),
+        ("B2-01", "机械臂取储液槽至固体粉末加样仪", "b2-to-solid"),
+        ("B2-02", "固体粉末加样仪加NaBH4粉末", "b2-nabh4-feed"),
+        ("B2-03", "机械臂取该样品至离心管液体处理设备", "b2-to-tube"),
+        ("B2-04", "试剂瓶开盖", "b2-lid-open"),
+        ("B2-05", "加冰水稀释", "b2-dilute"),
+        ("B2-06", "超声震荡", "b2-ultrasound"),
+        ("B2-07", "得到NaBH4溶液", "b2-nabh4-done"),
+        ("B2-08", "试剂瓶关盖", "b2-lid-close"),
+        ("B2-09", "机械臂转移溶液至移液工作站", "b2-to-9320"),
     ]),
-    # 列3 AA低 — 蓝色框：取储液槽
     (2, [
-        ("B3-01", "取储液槽", "9"),
-        ("B3-02", "加抗坏血酸粉末", "13"),
-        ("B3-03", "加水稀释+吹打混匀", "pass"),
-        ("B3-04", "得到抗坏血酸溶液", "14"),
+        ("B3-01", "机械臂取储液槽至粉末加样仪", "b3-to-solid"),
+        ("B3-02", "加抗坏血酸粉末", "b3-aa-feed"),
+        ("B3-03", "机械臂转移粉末样品至离心管液体处理器", "b3-to-tube"),
+        ("B3-04", "试剂瓶开盖", "b3-lid-open"),
+        ("B3-05", "加水稀释", "b3-water"),
+        ("B3-06", "吹打混匀", "b3-mix"),
+        ("B3-07", "得到抗坏血酸溶液", "b3-aa-done"),
+        ("B3-08", "试剂瓶关盖", "b3-lid-close"),
     ]),
-    # 列4 金球 — 蓝色框：取96孔板（B3→第一次加液429µl AA；B1→第二次加液28.6µl种子）
     (3, [
-        ("B4-01", "取96孔板", "pass"),
-        ("B4-02", "第一次加液(571µl CTAC+571µl氯金酸+429µl抗坏血酸)", "15"),
-        ("B4-03", "磁力搅拌300rpm/2min", "16"),
-        ("B4-04", "第二次加液(28.6µl种子溶液)", "17"),
-        ("B4-05", "磁力搅拌28℃/1h", "18"),
-        ("B4-06", "转移至离心机", "19"),
-        ("B4-07", "离心4000rpm", "21"),
-        ("B4-08", "第1次吸上清+20mM CTAC清洗", "23-1"),
-        ("B4-09", "第2次吸上清+20mM CTAC清洗", "23-2"),
-        ("B4-10", "得到金球溶液", "pass"),
+        ("B4-01", "机械臂取96孔板至9320", "b4-plate-9320"),
+        ("B4-02", "机械臂取抗坏血酸溶液至第一次加液", "b4-aa-to-add"),
+        ("B4-03", "9320取CTAC和氯金酸稀释后加入", "b4-prcxi-add1"),
+        ("B4-04", "机械臂取样品至磁力搅拌器", "b4-to-stir1"),
+        ("B4-05", "磁力搅拌", "b4-stir1"),
+        ("B4-06", "机械臂转移至9320", "b4-to-9320-a"),
+        ("B4-07", "机械臂取种子溶液至第二次加液", "b4-seed-to-add"),
+        ("B4-08", "PRCXI种子加液", "b4-prcxi-seed-add"),
+        ("B4-09", "机械臂转移加液后溶液至磁力搅拌器", "b4-to-stir2"),
+        ("B4-10", "磁力搅拌", "b4-stir2"),
+        ("B4-11", "机械臂转移至离心机", "b4-to-cent1"),
+        ("B4-12", "离心", "b4-cent1"),
+        ("B4-13", "机械臂转移至9320", "b4-to-9320-b"),
+        ("B4-14", "取上清液(1400µl)", "b4-aspirate1"),
+        ("B4-15", "加入20mM CTAC(500µl)", "b4-add-ctac1"),
+        ("B4-16", "混匀", "b4-mix1"),
+        ("B4-17", "机械臂转移至离心机", "b4-to-cent2"),
+        ("B4-18", "离心", "b4-cent2"),
+        ("B4-19", "机械臂转移至9320", "b4-to-9320-c"),
+        ("B4-20", "取上清液(1400µl)", "b4-aspirate2"),
+        ("B4-21", "加入20mM CTAC(500µl)", "b4-add-ctac2"),
+        ("B4-22", "混匀", "b4-mix2"),
+        ("B4-23", "得到金球溶液", "b4-gold-done"),
     ]),
-    # 列5 反应试剂配制 — 蓝色框：取储液槽（列内终点：加2.5mM氯金酸）
     (4, [
-        ("B5-01", "取储液槽", "9"),
-        ("B5-02", "转移至离心管液体处理设备", "pass"),
-        ("B5-03", "加液(CTAC原液+CTAB原液+水)", "24"),
-        ("B5-04", "加2.5mM氯金酸", "25"),
+        ("B5-01", "机械臂取储液槽至离心管液体处理设备", "b5-to-tube"),
+        ("B5-02", "试剂瓶开盖", "b5-lid-open"),
+        ("B5-03", "加液", "b5-add-liquid"),
+        ("B5-04", "试剂瓶关盖", "b5-lid-close"),
     ]),
-    # 列6 金四面体 — 蓝色框：取96孔板（B5/B7/B4→第二次加液）
     (5, [
-        ("B6-01", "取96孔板", "take7"),
-        ("B6-02", "第一次加液", "28"),
-        ("B6-03", "磁力搅拌30℃/300rpm", "29"),
-        ("B6-04", "第二次加液(混合液0.3~1.5ml/h+390µl高浓AA+39µl金球)", "30"),
-        ("B6-05", "静置29℃/10min", "31"),
-        ("B6-06", "离心700rpm/15min", "32"),
-        ("B6-07", "第1次去上清+CTAC清洗", "33-1"),
-        ("B6-08", "第2次去上清+CTAC清洗", "33-2"),
-        ("B6-09", "第3次去上清+CTAC清洗", "33-3"),
+        ("B6-01", "机械臂取96孔板至9320", "b6-plate-9320"),
+        ("B6-02", "加液", "b6-add1"),
+        ("B6-03", "机械臂取溶液至磁力搅拌器", "b6-to-stir"),
+        ("B6-04", "磁力搅拌", "b6-stir"),
+        ("B6-05", "机械臂取金球溶液加入到溶液中", "b6-gold-add"),
+        ("B6-06", "机械臂取氯金酸加入到溶液中", "b6-haucl-add"),
+        ("B6-07", "静置(磁力搅拌器)", "b6-rest-stir"),
+        ("B6-08", "机械臂转移至离心机", "b6-to-cent1"),
+        ("B6-09", "离心", "b6-cent1"),
+        ("B6-10", "机械臂转移至9320", "b6-to-9320-a"),
+        ("B6-11", "取上清液(1400µl)", "b6-remove1"),
+        ("B6-12", "加入20mM CTAC(500µl)", "b6-add-ctac1"),
+        ("B6-13", "混匀", "b6-mix1"),
+        ("B6-14", "机械臂转移至离心机", "b6-to-cent2"),
+        ("B6-15", "离心", "b6-cent2"),
+        ("B6-16", "机械臂转移至9320", "b6-to-9320-b"),
+        ("B6-17", "取上清液(500µl)", "b6-remove2"),
+        ("B6-18", "加入20mM CTAC(1000µl)", "b6-add-ctac2"),
+        ("B6-19", "混匀", "b6-mix2"),
+        ("B6-20", "移取500µl到酶标板", "b6-transfer-plate"),
+        ("B6-21", "机械臂转移至离心机", "b6-to-cent3"),
+        ("B6-22", "离心", "b6-cent3"),
+        ("B6-23", "机械臂转移至9320", "b6-to-9320-c"),
+        ("B6-24", "上清液(1000µl)", "b6-remove3"),
+        ("B6-25", "加100mM CTAC", "b6-add-ctac100"),
+        ("B6-26", "混匀", "b6-mix3"),
+        ("B6-27", "得到金四面体溶液", "b6-tetra-done"),
     ]),
-    # 列7 AA高 — 蓝色框：取样品瓶(40ml)
     (6, [
-        ("B7-01", "取样品瓶(40ml)", "26"),
-        ("B7-02", "加176.12mg抗坏血酸+10ml水", "pass"),
-        ("B7-03", "得到高浓AA溶液", "27"),
+        ("B7-01", "机械臂取样品瓶至粉末加样仪", "b7-bottle-solid"),
+        ("B7-02", "9320加样", "b7-prcxi-add"),
+        ("B7-03", "机械臂转移至离心管液体处理设备", "b7-to-tube"),
+        ("B7-04", "试剂瓶开盖", "b7-lid-open"),
+        ("B7-05", "加水溶解", "b7-dissolve"),
+        ("B7-06", "试剂瓶关盖", "b7-lid-close"),
+        ("B7-07", "机械臂取溶液至第六列第一次加液", "b7-to-b6-add1"),
     ]),
 ]
 
-# 附支路：图2左侧氯金酸稀释
-AUX = ("AUX-01", "氯金酸原液加冰水稀释", "2")
+AUX_LANE: list[tuple[str, str, str]] = [
+    ("AUX-01", "氯金酸原液瓶开盖", "aux-lid-open"),
+    ("AUX-02", "氯金酸原液加冰水稀释", "aux-haucl-dilute"),
+    ("AUX-03", "氯金酸原液瓶关盖", "aux-lid-close"),
+]
 
-# 汇合后最终节点（类比 Untitled-2 右侧 auto-run_protocol）
-FINISH = ("DONE", "得到金四面体", "34")
+FINISH = ("DONE", "得到金四面体", "workflow-done")
 
-# 跨列汇合边
 CROSS_EDGES = [
-    ("AUX-01", "B1-03"),
-    ("B2-04", "B1-03"),
-    ("B3-04", "B4-02"),   # 429µl 抗坏血酸 → 金球第一次加液
-    ("B1-08", "B4-04"),   # 28.6µl 种子 → 金球第二次加液
-    ("B5-04", "B6-04"),   # 混合液 0.3~1.5 ml/h → 金四面体第二次加液
-    ("B7-03", "B6-04"),   # 390µl 高浓 AA → 金四面体第二次加液
-    ("B4-10", "B6-04"),   # 39µl 金球 → 金四面体第二次加液
+    ("AUX-03", "B1-02"),
+    ("B2-07", "B1-02"),
+    ("B3-07", "B4-02"),
+    ("B1-07", "B4-07"),
+    ("B5-03", "B6-06"),
+    ("B4-23", "B6-05"),
+    ("B7-07", "B6-02"),
 ]
 
 PRCXI_FOOTER = {
-    "2": "[PRCXI] 氯金酸原液加冰水稀释",
-    "6": "[PRCXI] 8通道加800µl氯金酸+800µl CTAB+300µl NaBH4",
-    "12": "[PRCXI] 分装NaBH4(96孔300µl)",
-    "14": "[PRCXI] 抗坏血酸溶液分装(供429µl)",
-    "15": "[PRCXI] 第一次加液:571µl CTAC+571µl HAuCl4+429µl抗坏血酸",
-    "17": "[PRCXI] 第二次加液:28.6µl种子溶液",
+    "b4-prcxi-seed-add": "[PRCXI] 第二次加液:28.6µl种子溶液",
     "23-1": "[PRCXI] 第1次吸上清+20mM CTAC清洗",
     "23-2": "[PRCXI] 第2次吸上清+20mM CTAC清洗",
-    "24": "[PRCXI] 加CTAC+CTAB+水",
-    "25": "[PRCXI] 加2.5mM氯金酸",
-    "27": "[PRCXI] 高浓AA溶液(供390µl)",
-    "28": "[PRCXI] 第一次加液(列6列内)",
-    "30": "[PRCXI] 第二次加液:混合液0.3~1.5ml/h+390µl高浓AA+39µl金球",
     "33-1": "[PRCXI] 第1次去上清+CTAC清洗",
     "33-2": "[PRCXI] 第2次去上清+CTAC清洗",
     "33-3": "[PRCXI] 第3次去上清+CTAC清洗",
@@ -244,6 +481,7 @@ def make_node(footer: str, opc_key: str) -> dict:
         footer = PRCXI_FOOTER[opc_key]
     action = tpl.pop("action")
     device = tpl.pop("device")
+    resource = tpl.pop("resource", device)
     disabled = tpl.pop("disabled", False)
     return {
         "uuid": str(uuid.uuid4()),
@@ -269,7 +507,7 @@ def make_node(footer: str, opc_key: str) -> dict:
         "lab_node_type": "Device",
         "template_uuid": "",
         "template_name": action,
-        "resource_name": device,
+        "resource_name": resource,
     }
 
 
@@ -282,28 +520,23 @@ def build() -> dict:
     layout: dict[str, tuple[float, float]] = {}
 
     entry_y = lane_y(3)
-    nodes["E0"] = make_node("人工准备耗材至相应位置", "pass")
-    nodes["E0"]["param"] = {"cmd_type": 2, "wait": True, "timeout": 10}
-    nodes["E0"]["disabled"] = True
-    nodes["E1"] = make_node("机械臂转移物料", "pass")
-    nodes["E1"]["param"] = {"cmd_type": 2, "wait": True, "timeout": 30}
+    nodes["E0"] = make_node("人工准备耗材至相应位置", "manual-prepare")
+    nodes["E1"] = make_node("机械臂转移物料", "manual-prepare")
     nodes["E1"]["disabled"] = False
     layout["E0"] = (ENTRY_X, entry_y - 120)
     layout["E1"] = (ENTRY_X, entry_y)
 
-    # 附支路：氯金酸稀释（列1支线上方，靠近 B1-03）
-    aid, afooter, aopc = AUX
-    nodes[aid] = make_node(afooter, aopc)
-    layout[aid] = (step_x(2) - 80, lane_y(0) - 140)
+    aux_y = lane_y(0) - 140
+    for step, (nid, footer, okey) in enumerate(AUX_LANE):
+        nodes[nid] = make_node(footer, okey)
+        layout[nid] = (step_x(step) - 80, aux_y)
 
-    # 七条支线：每条自左向右，纵向分层
     for col, steps in LANES:
         y = lane_y(col)
         for step, (nid, footer, okey) in enumerate(steps):
             nodes[nid] = make_node(footer, okey)
             layout[nid] = (step_x(step), y)
 
-    # 最终完成节点（列6 支线末端右侧）
     fid, ffooter, fopc = FINISH
     nodes[fid] = make_node(ffooter, fopc)
     col6_steps = next(st for c, st in LANES if c == 5)
@@ -313,12 +546,13 @@ def build() -> dict:
         nodes[nid]["pose"]["position"]["x"] = round(x, 2)
         nodes[nid]["pose"]["position"]["y"] = round(y, 2)
 
-    pairs: list[tuple[str, str]] = [("E0", "E1"), ("E1", AUX[0])]
+    pairs: list[tuple[str, str]] = [("E0", "E1"), ("E1", AUX_LANE[0][0])]
+    pairs += chain([s[0] for s in AUX_LANE])
     for col, steps in LANES:
         pairs.append(("E1", steps[0][0]))
         pairs += chain([s[0] for s in steps])
     pairs += CROSS_EDGES
-    pairs.append(("B6-09", FINISH[0]))
+    pairs.append(("B6-27", FINISH[0]))
 
     seen: set[tuple[str, str]] = set()
     pairs = [p for p in pairs if p not in seen and not seen.add(p)]

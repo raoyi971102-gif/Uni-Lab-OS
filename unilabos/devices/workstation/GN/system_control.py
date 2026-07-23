@@ -104,6 +104,16 @@ class SystemControlDevice(OpcUaClientWithSubscription):
 
         raise ValueError(f"未知系统总控指令 CmdType={cmd}，支持 1/2/3")
 
+    @action(description="人工准备耗材（工作流占位，不触发硬件）")
+    def manual_prepare(self, timeout: float = 10.0) -> dict:
+        logger.info("工作流占位：人工准备耗材")
+        return {"success": True, "message": "manual_prepare", "timeout": timeout}
+
+    @action(description="工作流完成（占位，不触发硬件）")
+    def workflow_complete(self, timeout: float = 10.0) -> dict:
+        logger.info("工作流占位：流程完成")
+        return {"success": True, "message": "workflow_complete", "timeout": timeout}
+
     @not_action
     def _stop_all(self, description: str) -> dict:
         """总停止：向 System_StopTrig 写 1"""

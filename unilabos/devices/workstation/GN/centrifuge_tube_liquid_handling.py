@@ -7,18 +7,108 @@
 ultrasound_stop=True 时脉冲 Tube_UltrasoundSTOP，忽略 cmd_type。
 """
 
+import json
 import os
+import re
 import time
 import logging
 import threading
 from enum import Enum
-from typing import Optional
+from typing import Any, Literal, Optional
 
 from unilabos.utils.log import logger
 from unilabos.registry.decorators import action, device, not_action
 from unilabos.devices.workstation.AI4C.base_opcua_client import OpcUaClientWithSubscription
 
-DEFAULT_CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "opcua_gn1.3.3.csv")
+_GN_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_CSV_PATH = os.path.join(_GN_DIR, "opcua_gn1.3.3.csv")
+DEFAULT_APPSETTINGS_PATH = os.path.join(_GN_DIR, "appsettings.txt")
+
+BottleType = Literal["large", "small"]
+
+# 开盖/关盖小夹爪参数（与离心管测试流程.yaml 一致）
+_LID_OPEN_ANGLE = 540
+_LID_OPEN_FORCE = 500
+_LID_HANDLE_ANGLE = 540
+_LID_HANDLE_FORCE = 300
+_LID_CLOSE_ANGLE = -540
+
+
+def strip_json_comments(text: str) -> str:
+    """去掉 appsettings.txt 中的 // 行注释，保留字符串内的 //。"""
+    out: list[str] = []
+    i = 0
+    in_string = False
+    escape = False
+    while i < len(text):
+        ch = text[i]
+        if in_string:
+            out.append(ch)
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            i += 1
+            continue
+        if ch == '"':
+            in_string = True
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "/" and i + 1 < len(text) and text[i + 1] == "/":
+            while i < len(text) and text[i] != "\n":
+                i += 1
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def load_appsettings(path: str = DEFAULT_APPSETTINGS_PATH) -> dict[str, Any]:
+    """加载 GN 工站 appsettings.txt（含 PositionInfo / LidSlots）。"""
+    raw = open(path, encoding="utf-8").read()
+    return json.loads(strip_json_comments(raw))
+
+
+def resolve_bottle_lid_positions(
+    settings: dict[str, Any],
+    bottle_index: int,
+    bottle_type: BottleType,
+) -> tuple[dict[str, int], dict[str, int]]:
+    """返回 (瓶身 SmallGripper XYZ, 瓶盖 LidSlot XYZ)。"""
+    tube_pos = settings["PositionInfo"]["CentrifugeTubeLiquidHandlingPosition"]
+    if bottle_type == "large":
+        bottles = tube_pos["LargeBottles"]
+        lid_index = bottle_index
+    else:
+        bottles = tube_pos["SmallBottles"]
+        lid_index = bottle_index + 6
+    bottle = next(b for b in bottles if int(b["Index"]) == bottle_index)
+    lid = next(s for s in tube_pos["LidSlots"] if int(s["Index"]) == lid_index)
+    sg = bottle["SmallGripper"]
+    xyz = lid["Xyz"]
+    bottle_xyz = {"x": int(sg["X"]), "y": int(sg["Y"]), "z": int(sg["Z"])}
+    lid_xyz = {"x": int(xyz["X"]), "y": int(xyz["Y"]), "z": int(xyz["Z"])}
+    return bottle_xyz, lid_xyz
+
+
+def resolve_bottle_channel1_position(
+    settings: dict[str, Any],
+    bottle_index: int,
+    bottle_type: BottleType,
+) -> dict[str, int]:
+    """返回试剂瓶单通道移液位（X/Y/Z），供 8 通道放液等步骤使用。"""
+    tube_pos = settings["PositionInfo"]["CentrifugeTubeLiquidHandlingPosition"]
+    bottles = (
+        tube_pos["LargeBottles"]
+        if bottle_type == "large"
+        else tube_pos["SmallBottles"]
+    )
+    bottle = next(b for b in bottles if int(b["Index"]) == bottle_index)
+    ch1 = bottle["Channel1"]
+    return {"x": int(ch1["X"]), "y": int(ch1["Y"]), "z": int(ch1["Z"])}
 
 # OPC 1.3.3 Tube_CmdType（与 Excel 表头一致）
 TUBE_CMD_LABELS = {
@@ -209,6 +299,7 @@ class CentrifugeTubeLiquidHandlingDevice(OpcUaClientWithSubscription):
         self,
         url: str,
         csv_path: str = DEFAULT_CSV_PATH,
+        appsettings_path: str = DEFAULT_APPSETTINGS_PATH,
         username: str = None,
         password: str = None,
         use_subscription: bool = True,
@@ -229,6 +320,41 @@ class CentrifugeTubeLiquidHandlingDevice(OpcUaClientWithSubscription):
         )
         if csv_path:
             self.load_nodes_from_csv(csv_path)
+        self.appsettings_path = appsettings_path
+        self._appsettings: Optional[dict[str, Any]] = None
+
+    @not_action
+    def _get_appsettings(self) -> dict[str, Any]:
+        if self._appsettings is None:
+            self._appsettings = load_appsettings(self.appsettings_path)
+        return self._appsettings
+
+    @not_action
+    def _resolve_bottle_lid(
+        self, bottle_index: int, bottle_type: BottleType
+    ) -> tuple[dict[str, int], dict[str, int]]:
+        return resolve_bottle_lid_positions(
+            self._get_appsettings(), bottle_index, bottle_type
+        )
+
+    @not_action
+    def _resolve_ch8_work_position(
+        self,
+        bottle_index: Optional[int] = None,
+        bottle_type: Optional[BottleType] = None,
+        x_pos: Optional[int] = None,
+        y_pos: Optional[int] = None,
+        z1_pos: Optional[int] = None,
+    ) -> tuple[int, int, int]:
+        """优先显式坐标；否则按 bottle_index + bottle_type 查 appsettings。"""
+        if x_pos is not None and y_pos is not None:
+            return x_pos, y_pos, z1_pos if z1_pos is not None else 1330
+        if bottle_index is not None and bottle_type is not None:
+            ch1 = resolve_bottle_channel1_position(
+                self._get_appsettings(), bottle_index, bottle_type
+            )
+            return ch1["x"], ch1["y"], z1_pos if z1_pos is not None else ch1["z"]
+        raise ValueError("8 通道步骤需 bottle_index+bottle_type 或 x_pos+y_pos")
 
     @action(auto_prefix=True, description=_EXECUTE_CMD_DOC)
     def execute_command(
@@ -280,6 +406,157 @@ class CentrifugeTubeLiquidHandlingDevice(OpcUaClientWithSubscription):
         if int(cmd_type) == int(TubeCommand.ULTRASOUND_MIX) and ultrasound_time is not None:
             effective_timeout = ultrasound_time * 60 + 60
         return self._run(int(cmd_type), label, setpoints, timeout=effective_timeout)
+
+    @action(description="开盖：小夹爪开盖(27) → 瓶盖放至 LidSlots（appsettings 标定坐标）")
+    def open_bottle_lid(
+        self,
+        bottle_index: int = 1,
+        bottle_type: BottleType = "large",
+        timeout: float = 180.0,
+    ) -> dict:
+        bottle, lid = self._resolve_bottle_lid(bottle_index, bottle_type)
+        logger.info(
+            f"开盖: {bottle_type}#{bottle_index} 瓶({bottle}) → 盖槽({lid})"
+        )
+        open_ret = self._run(
+            int(TubeCommand.SMALL_GRIPPER_OPEN_LID),
+            f"小夹爪开盖({bottle_type}#{bottle_index})",
+            self._build_setpoints(
+                x_pos=bottle["x"], y_pos=bottle["y"],
+                small_gripper_angle=_LID_OPEN_ANGLE,
+                small_gripper_force=_LID_OPEN_FORCE,
+                **_LID_GRIPPER_SPEED_DEFAULTS,
+            ),
+            timeout=timeout,
+        )
+        place_ret = self._run(
+            int(TubeCommand.SMALL_GRIPPER_PLACE),
+            f"小夹爪放盖至槽位({bottle_type}#{bottle_index})",
+            self._build_setpoints(
+                x_pos=lid["x"], y_pos=lid["y"], z4_pos=lid["z"],
+                small_gripper_angle=_LID_HANDLE_ANGLE,
+                small_gripper_force=_LID_HANDLE_FORCE,
+                **_LID_GRIPPER_SPEED_DEFAULTS,
+            ),
+            timeout=timeout,
+        )
+        return {"success": True, "open": open_ret, "place_lid": place_ret}
+
+    @action(description="关盖：从 LidSlots 取盖(29) → 小夹爪关盖(28)")
+    def close_bottle_lid(
+        self,
+        bottle_index: int = 1,
+        bottle_type: BottleType = "large",
+        timeout: float = 180.0,
+    ) -> dict:
+        bottle, lid = self._resolve_bottle_lid(bottle_index, bottle_type)
+        logger.info(
+            f"关盖: 盖槽({lid}) → {bottle_type}#{bottle_index} 瓶({bottle})"
+        )
+        pick_ret = self._run(
+            int(TubeCommand.SMALL_GRIPPER_PICK),
+            f"小夹爪取盖({bottle_type}#{bottle_index})",
+            self._build_setpoints(
+                x_pos=lid["x"], y_pos=lid["y"], z4_pos=lid["z"],
+                small_gripper_angle=_LID_HANDLE_ANGLE,
+                small_gripper_force=_LID_HANDLE_FORCE,
+                **_LID_GRIPPER_SPEED_DEFAULTS,
+            ),
+            timeout=timeout,
+        )
+        close_ret = self._run(
+            int(TubeCommand.SMALL_GRIPPER_CLOSE_LID),
+            f"小夹爪关盖({bottle_type}#{bottle_index})",
+            self._build_setpoints(
+                x_pos=bottle["x"], y_pos=bottle["y"],
+                small_gripper_angle=_LID_CLOSE_ANGLE,
+                small_gripper_force=_LID_HANDLE_FORCE,
+                **_LID_GRIPPER_SPEED_DEFAULTS,
+            ),
+            timeout=timeout,
+        )
+        return {"success": True, "pick_lid": pick_ret, "close": close_ret}
+
+    @action(description="8 通道吸液 (cmd 20)；坐标来自 bottle 或显式 x_pos/y_pos")
+    def ch8_aspirate(
+        self,
+        bottle_index: Optional[int] = None,
+        bottle_type: Optional[BottleType] = None,
+        x_pos: Optional[int] = None,
+        y_pos: Optional[int] = None,
+        z1_pos: Optional[int] = None,
+        p1_pos: int = 300,
+        timeout: float = 180.0,
+    ) -> dict:
+        x, y, z1 = self._resolve_ch8_work_position(
+            bottle_index, bottle_type, x_pos, y_pos, z1_pos
+        )
+        return self.execute_command(
+            cmd_type=int(TubeCommand.CH8_ASPIRATE_LIQUID),
+            x_pos=x, y_pos=y, z1_pos=z1, p1_pos=p1_pos,
+            **_CH8_SPEED_DEFAULTS,
+            timeout=timeout,
+        )
+
+    @action(description="8 通道放液 (cmd 21)；坐标来自 bottle 或显式 x_pos/y_pos")
+    def ch8_dispense(
+        self,
+        bottle_index: Optional[int] = None,
+        bottle_type: Optional[BottleType] = None,
+        x_pos: Optional[int] = None,
+        y_pos: Optional[int] = None,
+        z1_pos: Optional[int] = None,
+        p1_pos: int = 300,
+        timeout: float = 180.0,
+    ) -> dict:
+        x, y, z1 = self._resolve_ch8_work_position(
+            bottle_index, bottle_type, x_pos, y_pos, z1_pos
+        )
+        return self.execute_command(
+            cmd_type=int(TubeCommand.CH8_DISPENSE_LIQUID),
+            x_pos=x, y_pos=y, z1_pos=z1, p1_pos=p1_pos,
+            **_CH8_SPEED_DEFAULTS,
+            timeout=timeout,
+        )
+
+    @action(description="8 通道吹打混匀 (cmd 34)")
+    def ch8_mix(
+        self,
+        bottle_index: Optional[int] = None,
+        bottle_type: Optional[BottleType] = None,
+        x_pos: Optional[int] = None,
+        y_pos: Optional[int] = None,
+        z1_pos: Optional[int] = None,
+        p1_pos: int = 300,
+        mix_counts: int = 10,
+        timeout: float = 180.0,
+    ) -> dict:
+        x, y, z1 = self._resolve_ch8_work_position(
+            bottle_index, bottle_type, x_pos, y_pos, z1_pos
+        )
+        return self.execute_command(
+            cmd_type=int(TubeCommand.CH8_MIX),
+            x_pos=x, y_pos=y, z1_pos=z1, p1_pos=p1_pos,
+            mix_counts=mix_counts,
+            **_CH8_SPEED_DEFAULTS,
+            timeout=timeout,
+        )
+
+    @action(description="超声混匀 (cmd 35)；ultrasound_time=0 时仅作占位返回")
+    def ultrasound_mix(
+        self,
+        ultrasound_time: int = 5,
+        m_pos: int = 300,
+        m_speed: int = 300,
+        timeout: float = 180.0,
+    ) -> dict:
+        if ultrasound_time == 0:
+            return {"success": True, "message": "solution_ready marker"}
+        return self.execute_command(
+            cmd_type=int(TubeCommand.ULTRASOUND_MIX),
+            m_pos=m_pos, m_speed=m_speed, ultrasound_time=ultrasound_time,
+            timeout=timeout,
+        )
 
     @not_action
     def _build_setpoints(

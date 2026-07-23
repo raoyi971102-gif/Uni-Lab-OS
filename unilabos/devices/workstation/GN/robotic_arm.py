@@ -54,6 +54,19 @@ class RobotCommand(int, Enum):
 CMD_GO_HOME = 100
 CMD_STOP = 101
 
+# 工站预设（destination）；高级用户可显式传 module_no + x_pos 覆盖
+ROBOT_DESTINATIONS: dict[str, tuple[int, int, int]] = {
+    "stack_plate": (8, 3274, 1),
+    "stack_reagent": (8, 3274, 2),
+    "stack_bottle": (8, 2473, 1),
+    "solid_feed": (7, 6318, 1),
+    "tube_handler": (5, -1726, 1),
+    "prcxi": (4, -3926, 1),
+    "magnetic_stirrer": (2, -10478, 1),
+    "centrifuge": (3, -8582, 1),
+    "oven": (1, -13278, 1),
+}
+
 # 堆栈位置1测试流程预设
 TEST_FLOW_PRESETS = [
     ("1.堆栈位置1夹料", RobotCommand.PICK, dict(
@@ -133,6 +146,45 @@ class RoboticArmDevice(OpcUaClientWithSubscription):
             module_no=module_no,
             stack=stack,
             x_pos=x_pos,
+            x_speed=x_speed,
+            pick_place=pick_place,
+            timeout=timeout,
+        )
+
+    @action(
+        description="机械臂取放载体至目标工站；可用 destination 预设，"
+        "或显式 module_no + x_pos（高级）",
+    )
+    def transfer_carrier(
+        self,
+        destination: Optional[str] = None,
+        module_no: Optional[int] = None,
+        x_pos: Optional[int] = None,
+        stack: Optional[int] = None,
+        x_speed: int = 300,
+        pick_place: int = 1,
+        timeout: float = 180.0,
+    ) -> dict:
+        eff_module = module_no
+        eff_x = x_pos
+        eff_stack = stack if stack is not None else 1
+        if eff_module is None or eff_x is None:
+            if not destination:
+                raise ValueError("需 destination 或 module_no+x_pos")
+            preset = ROBOT_DESTINATIONS.get(destination)
+            if preset is None:
+                raise ValueError(
+                    f"未知 destination={destination!r}，"
+                    f"可选: {', '.join(sorted(ROBOT_DESTINATIONS))}"
+                )
+            eff_module, eff_x, default_stack = preset
+            if stack is None:
+                eff_stack = default_stack
+        return self.execute_command(
+            cmd_type=int(RobotCommand.PICK),
+            module_no=eff_module,
+            x_pos=eff_x,
+            stack=eff_stack,
             x_speed=x_speed,
             pick_place=pick_place,
             timeout=timeout,

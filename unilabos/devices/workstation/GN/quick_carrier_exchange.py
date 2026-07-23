@@ -175,6 +175,37 @@ class QuickCarrierExchangeDevice(OpcUaClientWithSubscription):
         label = QUICK_CHANGE_CMD_LABELS.get(cmd, f"CmdType={cmd}")
         return self._run(cmd, label, setpoints, timeout=effective_timeout)
 
+    @action(description="磁力搅拌 (cmd 13)")
+    def magnetic_stir(
+        self,
+        rpm: int = 300,
+        temp_c: int = 28,
+        minutes: int = 1,
+        timeout: float = 120.0,
+    ) -> dict:
+        return self.execute_command(
+            cmd_type=int(QuickChangeCommand.STIR_RUN),
+            stir_rpm=rpm,
+            stir_temp=temp_c,
+            stir_time_minutes=minutes,
+            timeout=timeout,
+        )
+
+    @action(description="磁力搅拌器上静置 (rpm=0, cmd 13)")
+    def rest_on_stirrer(
+        self,
+        temp_c: int = 29,
+        minutes: int = 10,
+        timeout: float = 120.0,
+    ) -> dict:
+        return self.execute_command(
+            cmd_type=int(QuickChangeCommand.STIR_RUN),
+            stir_rpm=0,
+            stir_temp=temp_c,
+            stir_time_minutes=minutes,
+            timeout=timeout,
+        )
+
     @not_action
     def _build_setpoints(
         self,

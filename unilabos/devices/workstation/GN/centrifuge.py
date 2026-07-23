@@ -157,6 +157,22 @@ class CentrifugeDevice(OpcUaClientWithSubscription):
         label = CENTRIFUGE_CMD_LABELS.get(cmd, f"CmdType={cmd}")
         return self._run(cmd, label, setpoints, timeout=effective_timeout)
 
+    @action(description="运行离心 (cmd 6)")
+    def run(
+        self,
+        rpm: int = 1000,
+        minutes: int = 10,
+        plate_no: int = 2,
+        timeout: float = 120.0,
+    ) -> dict:
+        return self.execute_command(
+            cmd_type=int(CentrifugeCommand.RUN),
+            rpm=rpm,
+            time_minutes=minutes,
+            plate_no=plate_no,
+            timeout=timeout,
+        )
+
     @not_action
     def _build_setpoints(
         self,
