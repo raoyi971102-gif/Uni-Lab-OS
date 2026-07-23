@@ -1,16 +1,18 @@
 """
 系统总控 设备驱动（总复位 / 总停止）
 
-根据 opcua_gn1.3.3.csv 中「总复位」「停止」相关节点定义：
-    System_ResetTrig         复位触发
-    System_ResetCompleteFB   复位完成反馈
-    System_StopTrig          停止触发
+协议：opcua_gn1.3.3.csv「总复位」「停止」相关节点。
+对外仅暴露 execute_command（伪 CmdType，无 OPC CmdType 节点）。
+
+伪指令类型：
+    1=总停止(stop_all)  2=解除总停止(clear_stop)  3=总复位(reset_all)
 
 该模块为系统级控制，作用于整台设备的所有工站，不隶属任何单一模块。
 """
 
 import os
 import time
+import logging
 
 from unilabos.utils.log import logger
 from unilabos.registry.decorators import action, device, not_action
@@ -22,13 +24,37 @@ RESET_TRIG_NODE = "System_ResetTrig"
 RESET_COMPLETE_NODE = "System_ResetCompleteFB"
 STOP_TRIG_NODE = "System_StopTrig"
 
+# 伪 CmdType（无 OPC CmdType 节点，仅软件层路由）
+SYSTEM_CMD_LABELS = {
+    1: "总停止",
+    2: "解除总停止",
+    3: "总复位",
+}
+
+
+class SystemCommand(int):
+    """系统总控伪指令类型"""
+
+    STOP_ALL = 1
+    CLEAR_STOP = 2
+    RESET_ALL = 3
+
+
+_EXECUTE_CMD_DOC = (
+    "按伪 CmdType 执行系统总控指令（无 OPC CmdType 节点）。"
+    "1=总停止(System_StopTrig=1) "
+    "2=解除总停止(System_StopTrig=0) "
+    "3=总复位(System_ResetTrig=1，wait=True 时等待 ResetCompleteFB)。"
+)
+
 
 @device(
     id="gn_system_control",
     display_name="系统总控",
     category=["workstation"],
-    description="GN 系统总控：总停止 (System_StopTrig) 与总复位 (System_ResetTrig)，OPC UA 控制",
+    description="GN 系统总控：总停止/解除总停止/总复位，OPC UA 控制，仅 execute_command 通用入口",
     icon="",
+    version="2.0.0",
 )
 class SystemControlDevice(OpcUaClientWithSubscription):
     """系统总控设备类（总复位 / 总停止）"""
@@ -58,54 +84,85 @@ class SystemControlDevice(OpcUaClientWithSubscription):
         if csv_path:
             self.load_nodes_from_csv(csv_path)
 
-    # ==================== 总停止 ====================
+    @action(auto_prefix=True, description=_EXECUTE_CMD_DOC)
+    def execute_command(
+        self,
+        cmd_type: int,
+        wait: bool = True,
+        timeout: float = 300.0,
+    ) -> dict:
+        """唯一注册动作：按伪 CmdType 路由至 stop_all / clear_stop / reset_all。"""
+        cmd = int(cmd_type)
+        label = SYSTEM_CMD_LABELS.get(cmd, f"CmdType={cmd}")
 
-    @action(auto_prefix=True, description="总停止：向 System_StopTrig 写 1 停止全部动作")
-    def stop_all(self) -> dict:
-        """总停止：立即停止整台设备的所有工站动作。
+        if cmd == SystemCommand.STOP_ALL:
+            return self._stop_all(label)
+        if cmd == SystemCommand.CLEAR_STOP:
+            return self._clear_stop(label)
+        if cmd == SystemCommand.RESET_ALL:
+            return self._reset_all(label, wait=wait, timeout=timeout)
 
-        向全局停止触发节点 System_StopTrig 写 1。
-        """
-        logger.warning("触发系统总停止：System_StopTrig = 1")
+        raise ValueError(f"未知系统总控指令 CmdType={cmd}，支持 1/2/3")
+
+    @action(description="人工准备耗材（工作流占位，不触发硬件）")
+    def manual_prepare(self, timeout: float = 10.0) -> dict:
+        logger.info("工作流占位：人工准备耗材")
+        return {"success": True, "message": "manual_prepare", "timeout": timeout}
+
+    @action(description="工作流完成（占位，不触发硬件）")
+    def workflow_complete(self, timeout: float = 10.0) -> dict:
+        logger.info("工作流占位：流程完成")
+        return {"success": True, "message": "workflow_complete", "timeout": timeout}
+
+    @not_action
+    def _stop_all(self, description: str) -> dict:
+        """总停止：向 System_StopTrig 写 1"""
+        logger.warning(f"触发{description}：System_StopTrig = 1")
         ok = self.set_node_value(STOP_TRIG_NODE, 1)
         if not ok:
             raise ValueError("总停止失败：写入 System_StopTrig=1 未成功")
-        return {"success": True, "message": "系统总停止已触发 (System_StopTrig=1)"}
+        return {
+            "success": True,
+            "message": "系统总停止已触发 (System_StopTrig=1)",
+            "cmd_type": SystemCommand.STOP_ALL,
+        }
 
-    @action(auto_prefix=True, description="解除总停止：向 System_StopTrig 写 0")
-    def clear_stop(self) -> dict:
-        """解除总停止：向 System_StopTrig 写 0，复位停止信号。"""
-        logger.info("解除系统总停止：System_StopTrig = 0")
+    @not_action
+    def _clear_stop(self, description: str) -> dict:
+        """解除总停止：向 System_StopTrig 写 0"""
+        logger.info(f"触发{description}：System_StopTrig = 0")
         ok = self.set_node_value(STOP_TRIG_NODE, 0)
         if not ok:
             raise ValueError("解除总停止失败：写入 System_StopTrig=0 未成功")
-        return {"success": True, "message": "系统总停止已解除 (System_StopTrig=0)"}
+        return {
+            "success": True,
+            "message": "系统总停止已解除 (System_StopTrig=0)",
+            "cmd_type": SystemCommand.CLEAR_STOP,
+        }
 
-    # ==================== 总复位 ====================
-
-    @action(auto_prefix=True, description="总复位：触发 System_ResetTrig 并等待复位完成")
-    def reset_all(self, wait: bool = True, timeout: float = 300.0) -> dict:
-        """总复位：使整台设备的所有工站回到初始状态。
-
-        向 System_ResetTrig 写 1 触发，等待 System_ResetCompleteFB 变为非 0，
-        随后将触发写回 0。
-
-        Args:
-            wait: 是否等待复位完成反馈
-            timeout: 等待复位完成的超时时间（秒）
-        """
-        logger.info("触发系统总复位：System_ResetTrig = 1")
+    @not_action
+    def _reset_all(self, description: str, wait: bool = True, timeout: float = 300.0) -> dict:
+        """总复位：触发 System_ResetTrig 并可选等待复位完成"""
+        logger.info(f"触发{description}：System_ResetTrig = 1")
         if not self.set_node_value(RESET_TRIG_NODE, 1):
             raise ValueError("总复位失败：写入 System_ResetTrig=1 未成功")
 
         if not wait:
-            return {"success": True, "message": "系统总复位已触发（不等待完成）"}
+            return {
+                "success": True,
+                "message": "系统总复位已触发（不等待完成）",
+                "cmd_type": SystemCommand.RESET_ALL,
+            }
 
         ok = self._wait_reset_complete(timeout=timeout)
         self.set_node_value(RESET_TRIG_NODE, 0)
         if not ok:
             raise ValueError(f"总复位超时（{timeout}s）：System_ResetCompleteFB 未变为完成")
-        return {"success": True, "message": "系统总复位完成"}
+        return {
+            "success": True,
+            "message": "系统总复位完成",
+            "cmd_type": SystemCommand.RESET_ALL,
+        }
 
     @not_action
     def _wait_reset_complete(self, timeout: float = 300.0, interval: float = 0.5) -> bool:
@@ -121,8 +178,6 @@ class SystemControlDevice(OpcUaClientWithSubscription):
                 return False
             time.sleep(interval)
 
-    # ==================== 状态读取 ====================
-
     @not_action
     def get_reset_complete(self) -> int:
         return self.get_node_value(RESET_COMPLETE_NODE, force_read=True)
@@ -133,15 +188,14 @@ class SystemControlDevice(OpcUaClientWithSubscription):
 
 
 if __name__ == "__main__":
+    logging.getLogger("unilabos").setLevel(logging.INFO)
+
     SYSTEM_URL = "opc.tcp://192.168.6.6:4840"
 
     ctrl = SystemControlDevice(url=SYSTEM_URL, csv_path=DEFAULT_CSV_PATH)
 
-    # 总停止
-    ctrl.stop_all()
-    # 解除停止
-    ctrl.clear_stop()
-    # 总复位
-    ctrl.reset_all(wait=True)
+    ctrl.execute_command(cmd_type=1)
+    ctrl.execute_command(cmd_type=2)
+    ctrl.execute_command(cmd_type=3, wait=True)
 
     ctrl.disconnect()

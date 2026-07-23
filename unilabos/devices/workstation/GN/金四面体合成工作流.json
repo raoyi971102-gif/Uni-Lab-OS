@@ -1,0 +1,5602 @@
+{
+  "target_lab_uuid": "342e97d4-f412-40e4-972a-d8fa6bd102bc",
+  "name": "金四面体合成工作流",
+  "data": {
+    "workflow_uuid": "03a7393c-fdfc-4573-ad9b-580938960482",
+    "workflow_name": "金四面体合成工作流",
+    "nodes": [
+      {
+        "uuid": "41b55ed8-1db9-4732-8210-9f6205261a30",
+        "parent_uuid": "",
+        "name": "manual_prepare",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": -150.0,
+            "y": 1160.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "timeout": 10
+        },
+        "footer": "人工准备耗材至相应位置",
+        "device_name": "gn_system_control",
+        "disabled": true,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "manual_prepare",
+        "resource_name": "gn_system_control"
+      },
+      {
+        "uuid": "72204dcc-3ca6-4765-84e1-eb6020df3f1a",
+        "parent_uuid": "",
+        "name": "manual_prepare",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": -150.0,
+            "y": 1280.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "timeout": 10
+        },
+        "footer": "机械臂转移物料",
+        "device_name": "gn_system_control",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "manual_prepare",
+        "resource_name": "gn_system_control"
+      },
+      {
+        "uuid": "71071599-51b6-49be-bf81-5c637d57823b",
+        "parent_uuid": "",
+        "name": "open_bottle_lid",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 170.0,
+            "y": -60.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "bottle_index": 1,
+          "bottle_type": "large"
+        },
+        "footer": "氯金酸原液瓶开盖",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "open_bottle_lid",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "4c53979e-94e7-4566-adef-1abad48b0cbc",
+        "parent_uuid": "",
+        "name": "ch8_dispense",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 670.0,
+            "y": -60.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "p1_pos": 300,
+          "bottle_type": "large",
+          "bottle_index": 1
+        },
+        "footer": "氯金酸原液加冰水稀释",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "ch8_dispense",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "cec4fb18-cf8f-4ea6-830f-0aec9c3cffdd",
+        "parent_uuid": "",
+        "name": "close_bottle_lid",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1170.0,
+            "y": -60.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "bottle_index": 1,
+          "bottle_type": "large"
+        },
+        "footer": "氯金酸原液瓶关盖",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "close_bottle_lid",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "4ba2ef01-cf6d-4d99-94ad-e6218246e1fe",
+        "parent_uuid": "",
+        "name": "transfer_carrier",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 250.0,
+            "y": 80.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_speed": 300,
+          "pick_place": 1,
+          "destination": "stack_plate"
+        },
+        "footer": "机械臂取96孔深孔板至9320移液工作站",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "transfer_carrier",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "67b00b11-479c-4de4-8dcd-30196f4673a3",
+        "parent_uuid": "",
+        "name": "add_liquid",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 750.0,
+            "y": 80.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "asp_vols": [
+            800,
+            800,
+            300
+          ],
+          "dis_vols": [
+            800,
+            800,
+            300
+          ],
+          "reagent_sources": [],
+          "targets": [],
+          "use_channels": [],
+          "flow_rates": [],
+          "offsets": [],
+          "liquid_height": [],
+          "blow_out_air_volume": [],
+          "spread": "wide",
+          "is_96_well": true,
+          "mix_time": 0,
+          "mix_vol": 0,
+          "mix_rate": 0,
+          "mix_liquid_height": 0.0,
+          "none_keys": []
+        },
+        "footer": "9320加液(800µl氯金酸+800µl CTAB+300µl NaBH4)",
+        "device_name": "PRCXI",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "add_liquid",
+        "resource_name": "liquid_handler.prcxi"
+      },
+      {
+        "uuid": "aab37b19-3ca7-4dc5-a7bf-31860f38f6e3",
+        "parent_uuid": "",
+        "name": "mix",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1250.0,
+            "y": 80.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "mix_time": 10,
+          "mix_vol": 100,
+          "mix_rate": 150.0,
+          "height_to_bottom": 0.5,
+          "targets": [],
+          "offsets": [],
+          "none_keys": []
+        },
+        "footer": "9320吹打混匀",
+        "device_name": "PRCXI",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "mix",
+        "resource_name": "liquid_handler.prcxi"
+      },
+      {
+        "uuid": "f3495a82-3196-4deb-b08d-ab2362374036",
+        "parent_uuid": "",
+        "name": "mix",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1750.0,
+            "y": 80.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "mix_time": 0,
+          "mix_vol": 0,
+          "mix_rate": 0.0,
+          "height_to_bottom": 0.0,
+          "targets": [],
+          "offsets": [],
+          "none_keys": []
+        },
+        "footer": "得到混合溶液A",
+        "device_name": "PRCXI",
+        "disabled": true,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "mix",
+        "resource_name": "liquid_handler.prcxi"
+      },
+      {
+        "uuid": "7e9cc3e6-11c4-43d5-853c-2a338321ae22",
+        "parent_uuid": "",
+        "name": "transfer_carrier",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 2250.0,
+            "y": 80.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_speed": 300,
+          "pick_place": 1,
+          "destination": "magnetic_stirrer"
+        },
+        "footer": "机械臂将其转移到磁力搅拌器",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "transfer_carrier",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "063ed59f-13dd-4dda-8a10-32a96a69915c",
+        "parent_uuid": "",
+        "name": "magnetic_stir",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 2750.0,
+            "y": 80.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "rpm": 1500,
+          "temp_c": 30,
+          "minutes": 1
+        },
+        "footer": "磁力搅拌/混合液A(1500rpm/30s)",
+        "device_name": "gn_quick_carrier_exchange",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "magnetic_stir",
+        "resource_name": "gn_quick_carrier_exchange"
+      },
+      {
+        "uuid": "99a5ab74-aa9b-4aa1-b35f-58b23d3f93f1",
+        "parent_uuid": "",
+        "name": "rest_on_stirrer",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 3250.0,
+            "y": 80.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "temp_c": 30,
+          "minutes": 270
+        },
+        "footer": "静置28-32℃/4.5h，得到种子溶液",
+        "device_name": "gn_quick_carrier_exchange",
+        "disabled": true,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "rest_on_stirrer",
+        "resource_name": "gn_quick_carrier_exchange"
+      },
+      {
+        "uuid": "b286d73a-8924-479f-bd93-9ae980d5b6e2",
+        "parent_uuid": "",
+        "name": "transfer_carrier",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 250.0,
+            "y": 480.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_speed": 300,
+          "pick_place": 1,
+          "destination": "stack_reagent"
+        },
+        "footer": "机械臂取储液槽至固体粉末加样仪",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "transfer_carrier",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "8b50ab48-7172-4b8a-9336-148dc298c1e1",
+        "parent_uuid": "",
+        "name": "dispense_powder",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 750.0,
+            "y": 480.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "weight_mg": 50
+        },
+        "footer": "固体粉末加样仪加NaBH4粉末",
+        "device_name": "gn_solid_weighing",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "dispense_powder",
+        "resource_name": "gn_solid_weighing"
+      },
+      {
+        "uuid": "bd42c62c-89e6-4135-a894-475892586967",
+        "parent_uuid": "",
+        "name": "transfer_carrier",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1250.0,
+            "y": 480.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_speed": 300,
+          "pick_place": 1,
+          "destination": "solid_feed"
+        },
+        "footer": "机械臂取该样品至离心管液体处理设备",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "transfer_carrier",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "7fb6f35a-184a-4e63-8532-e7099bbc5e40",
+        "parent_uuid": "",
+        "name": "open_bottle_lid",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1750.0,
+            "y": 480.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "bottle_index": 2,
+          "bottle_type": "large"
+        },
+        "footer": "试剂瓶开盖",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "open_bottle_lid",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "85018092-0721-4c01-ac86-23444c67944e",
+        "parent_uuid": "",
+        "name": "ch8_aspirate",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 2250.0,
+            "y": 480.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "p1_pos": 300,
+          "x_pos": 4563,
+          "y_pos": -2121,
+          "z1_pos": 1380
+        },
+        "footer": "加冰水稀释",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "ch8_aspirate",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "4f40d51b-f0f5-4b44-9b4c-ee50390c98fb",
+        "parent_uuid": "",
+        "name": "ultrasound_mix",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 2750.0,
+            "y": 480.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "ultrasound_time": 5,
+          "m_pos": 300,
+          "m_speed": 300
+        },
+        "footer": "超声震荡",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "ultrasound_mix",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "6ea5f32d-dce2-48eb-a162-5578596cfd1f",
+        "parent_uuid": "",
+        "name": "ultrasound_mix",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 3250.0,
+            "y": 480.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "ultrasound_time": 0,
+          "m_pos": 300,
+          "m_speed": 300
+        },
+        "footer": "得到NaBH4溶液",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": true,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "ultrasound_mix",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "f975ae0d-9dbb-4ad1-acaf-c832b1c9b774",
+        "parent_uuid": "",
+        "name": "close_bottle_lid",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 3750.0,
+            "y": 480.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "bottle_index": 2,
+          "bottle_type": "large"
+        },
+        "footer": "试剂瓶关盖",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "close_bottle_lid",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "04b2ab83-1d3f-496e-b3d3-8bdd327fafb8",
+        "parent_uuid": "",
+        "name": "transfer_carrier",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 4250.0,
+            "y": 480.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_speed": 300,
+          "pick_place": 1,
+          "destination": "tube_handler"
+        },
+        "footer": "机械臂转移溶液至移液工作站",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "transfer_carrier",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "2d29c14d-b3e9-494c-ad34-1594d5a02493",
+        "parent_uuid": "",
+        "name": "transfer_carrier",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 250.0,
+            "y": 880.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_speed": 300,
+          "pick_place": 1,
+          "destination": "stack_reagent"
+        },
+        "footer": "机械臂取储液槽至粉末加样仪",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "transfer_carrier",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "68411214-e40e-429c-8f08-515c62920102",
+        "parent_uuid": "",
+        "name": "dispense_powder",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 750.0,
+            "y": 880.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "weight_mg": 30
+        },
+        "footer": "加抗坏血酸粉末",
+        "device_name": "gn_solid_weighing",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "dispense_powder",
+        "resource_name": "gn_solid_weighing"
+      },
+      {
+        "uuid": "5c43b367-20ae-4e25-8cc9-9660d3682291",
+        "parent_uuid": "",
+        "name": "transfer_carrier",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1250.0,
+            "y": 880.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_speed": 300,
+          "pick_place": 1,
+          "destination": "solid_feed"
+        },
+        "footer": "机械臂转移粉末样品至离心管液体处理器",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "transfer_carrier",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "0742163e-01f4-4f5d-bbf6-ea035e3f4c7c",
+        "parent_uuid": "",
+        "name": "open_bottle_lid",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1750.0,
+            "y": 880.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "bottle_index": 3,
+          "bottle_type": "large"
+        },
+        "footer": "试剂瓶开盖",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "open_bottle_lid",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "fc3e4616-af10-4730-b0cd-d5af27b57793",
+        "parent_uuid": "",
+        "name": "ch8_dispense",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 2250.0,
+            "y": 880.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "p1_pos": 300,
+          "x_pos": 3093,
+          "y_pos": -3181,
+          "z1_pos": 1330
+        },
+        "footer": "加水稀释",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "ch8_dispense",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "108d3d5c-b822-4e61-8e66-1ff252599ce0",
+        "parent_uuid": "",
+        "name": "ch8_mix",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 2750.0,
+            "y": 880.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "p1_pos": 300,
+          "mix_counts": 10,
+          "x_pos": 3093,
+          "y_pos": -3181,
+          "z1_pos": 1330
+        },
+        "footer": "吹打混匀",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "ch8_mix",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "a4dd8fde-74a5-4dc3-bebe-76b9c45a1abd",
+        "parent_uuid": "",
+        "name": "ultrasound_mix",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 3250.0,
+            "y": 880.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "ultrasound_time": 0,
+          "m_pos": 300,
+          "m_speed": 300
+        },
+        "footer": "得到抗坏血酸溶液",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": true,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "ultrasound_mix",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "069ce7eb-2974-4976-b9f0-3627663dd91d",
+        "parent_uuid": "",
+        "name": "close_bottle_lid",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 3750.0,
+            "y": 880.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "bottle_index": 3,
+          "bottle_type": "large"
+        },
+        "footer": "试剂瓶关盖",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "close_bottle_lid",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "95739680-70fc-4012-8a4c-a0cf27c7610b",
+        "parent_uuid": "",
+        "name": "transfer_carrier",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 250.0,
+            "y": 1280.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_speed": 300,
+          "pick_place": 1,
+          "destination": "stack_plate"
+        },
+        "footer": "机械臂取96孔板至9320",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "transfer_carrier",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "00d7e78a-9906-4a8e-9a45-8d10a0f8829d",
+        "parent_uuid": "",
+        "name": "transfer_carrier",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 750.0,
+            "y": 1280.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_speed": 300,
+          "pick_place": 1,
+          "destination": "tube_handler"
+        },
+        "footer": "机械臂取抗坏血酸溶液至第一次加液",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "transfer_carrier",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "196584e1-5d7d-4796-a8bf-6688a6ec09ba",
+        "parent_uuid": "",
+        "name": "add_liquid",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1250.0,
+            "y": 1280.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "asp_vols": [
+            571,
+            571,
+            429
+          ],
+          "dis_vols": [
+            571,
+            571,
+            429
+          ],
+          "reagent_sources": [],
+          "targets": [],
+          "use_channels": [],
+          "flow_rates": [],
+          "offsets": [],
+          "liquid_height": [],
+          "blow_out_air_volume": [],
+          "spread": "wide",
+          "is_96_well": true,
+          "mix_time": 0,
+          "mix_vol": 0,
+          "mix_rate": 0,
+          "mix_liquid_height": 0.0,
+          "none_keys": []
+        },
+        "footer": "9320取CTAC和氯金酸稀释后加入",
+        "device_name": "PRCXI",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "add_liquid",
+        "resource_name": "liquid_handler.prcxi"
+      },
+      {
+        "uuid": "2809b55d-a70d-4754-b180-71f9f5d6bf54",
+        "parent_uuid": "",
+        "name": "transfer_carrier",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1750.0,
+            "y": 1280.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_speed": 300,
+          "pick_place": 1,
+          "destination": "prcxi"
+        },
+        "footer": "机械臂取样品至磁力搅拌器",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "transfer_carrier",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "64d45410-7a79-41d0-b491-028f91d6761f",
+        "parent_uuid": "",
+        "name": "magnetic_stir",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 2250.0,
+            "y": 1280.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "rpm": 300,
+          "temp_c": 28,
+          "minutes": 2
+        },
+        "footer": "磁力搅拌",
+        "device_name": "gn_quick_carrier_exchange",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "magnetic_stir",
+        "resource_name": "gn_quick_carrier_exchange"
+      },
+      {
+        "uuid": "ee50add4-3cb4-4559-9cb1-f8ddd6bdf3dc",
+        "parent_uuid": "",
+        "name": "transfer_carrier",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 2750.0,
+            "y": 1280.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_speed": 300,
+          "pick_place": 1,
+          "destination": "magnetic_stirrer"
+        },
+        "footer": "机械臂转移至9320",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "transfer_carrier",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "5e97e8d9-a74f-4de3-b0fc-6b67af43b4ea",
+        "parent_uuid": "",
+        "name": "transfer_carrier",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 3250.0,
+            "y": 1280.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_speed": 300,
+          "pick_place": 1,
+          "destination": "magnetic_stirrer"
+        },
+        "footer": "机械臂取种子溶液至第二次加液",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "transfer_carrier",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "3ef1aff7-2d6d-460b-b684-af853577c646",
+        "parent_uuid": "",
+        "name": "add_liquid",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 3750.0,
+            "y": 1280.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "asp_vols": [
+            28.6
+          ],
+          "dis_vols": [
+            28.6
+          ],
+          "reagent_sources": [],
+          "targets": [],
+          "use_channels": [],
+          "flow_rates": [],
+          "offsets": [],
+          "liquid_height": [],
+          "blow_out_air_volume": [],
+          "spread": "wide",
+          "is_96_well": false,
+          "mix_time": 0,
+          "mix_vol": 0,
+          "mix_rate": 0,
+          "mix_liquid_height": 0.0,
+          "none_keys": []
+        },
+        "footer": "[PRCXI] 第二次加液:28.6µl种子溶液",
+        "device_name": "PRCXI",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "add_liquid",
+        "resource_name": "liquid_handler.prcxi"
+      },
+      {
+        "uuid": "e979d026-6847-4ece-9789-291655e609fc",
+        "parent_uuid": "",
+        "name": "transfer_carrier",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 4250.0,
+            "y": 1280.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_speed": 300,
+          "pick_place": 1,
+          "destination": "prcxi"
+        },
+        "footer": "机械臂转移加液后溶液至磁力搅拌器",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "transfer_carrier",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "90a6fb01-f739-464a-b1c4-08c4921dd1ed",
+        "parent_uuid": "",
+        "name": "magnetic_stir",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 4750.0,
+            "y": 1280.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "rpm": 300,
+          "temp_c": 28,
+          "minutes": 60
+        },
+        "footer": "磁力搅拌",
+        "device_name": "gn_quick_carrier_exchange",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "magnetic_stir",
+        "resource_name": "gn_quick_carrier_exchange"
+      },
+      {
+        "uuid": "fb0a3996-9f43-4d66-a2fb-b6c94d8a8e82",
+        "parent_uuid": "",
+        "name": "transfer_carrier",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 5250.0,
+            "y": 1280.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_speed": 300,
+          "pick_place": 1,
+          "destination": "magnetic_stirrer"
+        },
+        "footer": "机械臂转移至离心机",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "transfer_carrier",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "3858a34d-a8e1-4421-a4ad-eecaa44ff208",
+        "parent_uuid": "",
+        "name": "run",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 5750.0,
+            "y": 1280.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "rpm": 4000,
+          "minutes": 10,
+          "plate_no": 2
+        },
+        "footer": "离心",
+        "device_name": "gn_centrifuge",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "run",
+        "resource_name": "gn_centrifuge"
+      },
+      {
+        "uuid": "cb55d280-c0b7-429a-b68b-fab088f2e84d",
+        "parent_uuid": "",
+        "name": "transfer_carrier",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 6250.0,
+            "y": 1280.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_speed": 300,
+          "pick_place": 1,
+          "destination": "centrifuge"
+        },
+        "footer": "机械臂转移至9320",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "transfer_carrier",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "96c35bf3-c314-47cc-8e93-5203119814dd",
+        "parent_uuid": "",
+        "name": "remove_liquid",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 6750.0,
+            "y": 1280.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "asp_vols": [
+            1400
+          ],
+          "targets": [],
+          "use_channels": [],
+          "flow_rates": [],
+          "offsets": [],
+          "liquid_height": [],
+          "blow_out_air_volume": [],
+          "spread": "wide",
+          "is_96_well": true,
+          "none_keys": []
+        },
+        "footer": "取上清液(1400µl)",
+        "device_name": "PRCXI",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "remove_liquid",
+        "resource_name": "liquid_handler.prcxi"
+      },
+      {
+        "uuid": "852bab53-65ca-4e25-8884-4c3114364983",
+        "parent_uuid": "",
+        "name": "add_liquid",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 7250.0,
+            "y": 1280.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "asp_vols": [
+            500
+          ],
+          "dis_vols": [
+            500
+          ],
+          "reagent_sources": [],
+          "targets": [],
+          "use_channels": [],
+          "flow_rates": [],
+          "offsets": [],
+          "liquid_height": [],
+          "blow_out_air_volume": [],
+          "spread": "wide",
+          "is_96_well": false,
+          "mix_time": 0,
+          "mix_vol": 0,
+          "mix_rate": 0,
+          "mix_liquid_height": 0.0,
+          "none_keys": []
+        },
+        "footer": "加入20mM CTAC(500µl)",
+        "device_name": "PRCXI",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "add_liquid",
+        "resource_name": "liquid_handler.prcxi"
+      },
+      {
+        "uuid": "06fc609b-8425-4b1b-a742-b21c46f7d935",
+        "parent_uuid": "",
+        "name": "mix",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 7750.0,
+            "y": 1280.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "mix_time": 10,
+          "mix_vol": 100,
+          "mix_rate": 150.0,
+          "height_to_bottom": 0.5,
+          "targets": [],
+          "offsets": [],
+          "none_keys": []
+        },
+        "footer": "混匀",
+        "device_name": "PRCXI",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "mix",
+        "resource_name": "liquid_handler.prcxi"
+      },
+      {
+        "uuid": "364ef2c6-b73b-4a3a-8e4b-48b6ffcc38cc",
+        "parent_uuid": "",
+        "name": "transfer_carrier",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 8250.0,
+            "y": 1280.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_speed": 300,
+          "pick_place": 1,
+          "destination": "prcxi"
+        },
+        "footer": "机械臂转移至离心机",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "transfer_carrier",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "9de84911-4fcb-45a8-8eb6-724cec3f1549",
+        "parent_uuid": "",
+        "name": "run",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 8750.0,
+            "y": 1280.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "rpm": 4000,
+          "minutes": 10,
+          "plate_no": 2
+        },
+        "footer": "离心",
+        "device_name": "gn_centrifuge",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "run",
+        "resource_name": "gn_centrifuge"
+      },
+      {
+        "uuid": "acda5586-8a62-4b27-af70-6d0485e21cbc",
+        "parent_uuid": "",
+        "name": "transfer_carrier",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 9250.0,
+            "y": 1280.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_speed": 300,
+          "pick_place": 1,
+          "destination": "centrifuge"
+        },
+        "footer": "机械臂转移至9320",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "transfer_carrier",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "e154e0da-bb49-406b-94f8-1e60b5ffb2b9",
+        "parent_uuid": "",
+        "name": "remove_liquid",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 9750.0,
+            "y": 1280.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "asp_vols": [
+            1400
+          ],
+          "targets": [],
+          "use_channels": [],
+          "flow_rates": [],
+          "offsets": [],
+          "liquid_height": [],
+          "blow_out_air_volume": [],
+          "spread": "wide",
+          "is_96_well": true,
+          "none_keys": []
+        },
+        "footer": "取上清液(1400µl)",
+        "device_name": "PRCXI",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "remove_liquid",
+        "resource_name": "liquid_handler.prcxi"
+      },
+      {
+        "uuid": "396dfca2-3359-430c-b8f2-bdab73b7d08e",
+        "parent_uuid": "",
+        "name": "add_liquid",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 10250.0,
+            "y": 1280.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "asp_vols": [
+            500
+          ],
+          "dis_vols": [
+            500
+          ],
+          "reagent_sources": [],
+          "targets": [],
+          "use_channels": [],
+          "flow_rates": [],
+          "offsets": [],
+          "liquid_height": [],
+          "blow_out_air_volume": [],
+          "spread": "wide",
+          "is_96_well": false,
+          "mix_time": 0,
+          "mix_vol": 0,
+          "mix_rate": 0,
+          "mix_liquid_height": 0.0,
+          "none_keys": []
+        },
+        "footer": "加入20mM CTAC(500µl)",
+        "device_name": "PRCXI",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "add_liquid",
+        "resource_name": "liquid_handler.prcxi"
+      },
+      {
+        "uuid": "dead1c1a-5932-4d25-bb42-858881769b0e",
+        "parent_uuid": "",
+        "name": "mix",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 10750.0,
+            "y": 1280.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "mix_time": 10,
+          "mix_vol": 100,
+          "mix_rate": 150.0,
+          "height_to_bottom": 0.5,
+          "targets": [],
+          "offsets": [],
+          "none_keys": []
+        },
+        "footer": "混匀",
+        "device_name": "PRCXI",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "mix",
+        "resource_name": "liquid_handler.prcxi"
+      },
+      {
+        "uuid": "2b66807c-f954-4f00-886e-0c7e2d4ec1d1",
+        "parent_uuid": "",
+        "name": "mix",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 11250.0,
+            "y": 1280.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "mix_time": 10,
+          "mix_vol": 100,
+          "mix_rate": 150.0,
+          "height_to_bottom": 0.5,
+          "targets": [],
+          "offsets": [],
+          "none_keys": []
+        },
+        "footer": "得到金球溶液",
+        "device_name": "PRCXI",
+        "disabled": true,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "mix",
+        "resource_name": "liquid_handler.prcxi"
+      },
+      {
+        "uuid": "5671556e-abaf-4e9f-aedc-a229f0db2a66",
+        "parent_uuid": "",
+        "name": "transfer_carrier",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 250.0,
+            "y": 1680.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_speed": 300,
+          "pick_place": 1,
+          "destination": "stack_reagent"
+        },
+        "footer": "机械臂取储液槽至离心管液体处理设备",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "transfer_carrier",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "5a1bed89-095f-4229-a573-0ab19afd2070",
+        "parent_uuid": "",
+        "name": "open_bottle_lid",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 750.0,
+            "y": 1680.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "bottle_index": 4,
+          "bottle_type": "large"
+        },
+        "footer": "试剂瓶开盖",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "open_bottle_lid",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "81ef9528-149d-4ced-bc99-6ee3ff64b9a2",
+        "parent_uuid": "",
+        "name": "ch8_dispense",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1250.0,
+            "y": 1680.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "p1_pos": 300,
+          "x_pos": 3093,
+          "y_pos": -3181,
+          "z1_pos": 1330
+        },
+        "footer": "加液",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "ch8_dispense",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "9aac9d41-a323-4b61-b364-d791284af12c",
+        "parent_uuid": "",
+        "name": "close_bottle_lid",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1750.0,
+            "y": 1680.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "bottle_index": 4,
+          "bottle_type": "large"
+        },
+        "footer": "试剂瓶关盖",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "close_bottle_lid",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "0d2d413e-0abd-42a6-aeb6-ed9ee7d1204c",
+        "parent_uuid": "",
+        "name": "transfer_carrier",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 250.0,
+            "y": 2080.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_speed": 300,
+          "pick_place": 1,
+          "destination": "stack_plate"
+        },
+        "footer": "机械臂取96孔板至9320",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "transfer_carrier",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "2faae702-c747-4b73-b214-60878cf373eb",
+        "parent_uuid": "",
+        "name": "add_liquid",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 750.0,
+            "y": 2080.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "asp_vols": [
+            300,
+            300,
+            300
+          ],
+          "dis_vols": [
+            300,
+            300,
+            300
+          ],
+          "reagent_sources": [],
+          "targets": [],
+          "use_channels": [],
+          "flow_rates": [],
+          "offsets": [],
+          "liquid_height": [],
+          "blow_out_air_volume": [],
+          "spread": "wide",
+          "is_96_well": true,
+          "mix_time": 0,
+          "mix_vol": 0,
+          "mix_rate": 0,
+          "mix_liquid_height": 0.0,
+          "none_keys": []
+        },
+        "footer": "加液",
+        "device_name": "PRCXI",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "add_liquid",
+        "resource_name": "liquid_handler.prcxi"
+      },
+      {
+        "uuid": "972937ef-edcc-49a3-8ce7-077b1ca38b84",
+        "parent_uuid": "",
+        "name": "transfer_carrier",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1250.0,
+            "y": 2080.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_speed": 300,
+          "pick_place": 1,
+          "destination": "prcxi"
+        },
+        "footer": "机械臂取溶液至磁力搅拌器",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "transfer_carrier",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "9cfde03c-3b90-49d0-b0d6-59f39d1039df",
+        "parent_uuid": "",
+        "name": "magnetic_stir",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1750.0,
+            "y": 2080.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "rpm": 300,
+          "temp_c": 30,
+          "minutes": 5
+        },
+        "footer": "磁力搅拌",
+        "device_name": "gn_quick_carrier_exchange",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "magnetic_stir",
+        "resource_name": "gn_quick_carrier_exchange"
+      },
+      {
+        "uuid": "c0cfdb6f-11c9-43e5-a8d9-8042f04be694",
+        "parent_uuid": "",
+        "name": "transfer_carrier",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 2250.0,
+            "y": 2080.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_speed": 300,
+          "pick_place": 1,
+          "destination": "prcxi"
+        },
+        "footer": "机械臂取金球溶液加入到溶液中",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "transfer_carrier",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "89d9ea80-9468-483f-89a8-1721bf23a6bb",
+        "parent_uuid": "",
+        "name": "transfer_carrier",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 2750.0,
+            "y": 2080.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_speed": 300,
+          "pick_place": 1,
+          "destination": "tube_handler"
+        },
+        "footer": "机械臂取氯金酸加入到溶液中",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "transfer_carrier",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "a14393dd-02ec-472c-ac06-fff020496cb7",
+        "parent_uuid": "",
+        "name": "rest_on_stirrer",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 3250.0,
+            "y": 2080.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "temp_c": 29,
+          "minutes": 10
+        },
+        "footer": "静置(磁力搅拌器)",
+        "device_name": "gn_quick_carrier_exchange",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "rest_on_stirrer",
+        "resource_name": "gn_quick_carrier_exchange"
+      },
+      {
+        "uuid": "baf7fba1-4539-4e48-a581-b769780afe27",
+        "parent_uuid": "",
+        "name": "transfer_carrier",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 3750.0,
+            "y": 2080.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_speed": 300,
+          "pick_place": 1,
+          "destination": "magnetic_stirrer"
+        },
+        "footer": "机械臂转移至离心机",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "transfer_carrier",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "350e1528-26b8-4604-aebc-e4beedfefe24",
+        "parent_uuid": "",
+        "name": "run",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 4250.0,
+            "y": 2080.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "rpm": 700,
+          "minutes": 15,
+          "plate_no": 2
+        },
+        "footer": "离心",
+        "device_name": "gn_centrifuge",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "run",
+        "resource_name": "gn_centrifuge"
+      },
+      {
+        "uuid": "8680690e-90b2-468f-9344-c538894a49d0",
+        "parent_uuid": "",
+        "name": "transfer_carrier",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 4750.0,
+            "y": 2080.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_speed": 300,
+          "pick_place": 1,
+          "destination": "centrifuge"
+        },
+        "footer": "机械臂转移至9320",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "transfer_carrier",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "fe938172-901f-4520-a8ca-0eba67803952",
+        "parent_uuid": "",
+        "name": "remove_liquid",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 5250.0,
+            "y": 2080.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "asp_vols": [
+            1400
+          ],
+          "targets": [],
+          "use_channels": [],
+          "flow_rates": [],
+          "offsets": [],
+          "liquid_height": [],
+          "blow_out_air_volume": [],
+          "spread": "wide",
+          "is_96_well": true,
+          "none_keys": []
+        },
+        "footer": "取上清液(1400µl)",
+        "device_name": "PRCXI",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "remove_liquid",
+        "resource_name": "liquid_handler.prcxi"
+      },
+      {
+        "uuid": "c7bc2d5b-c8f5-4325-945a-9e955c306b73",
+        "parent_uuid": "",
+        "name": "add_liquid",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 5750.0,
+            "y": 2080.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "asp_vols": [
+            500
+          ],
+          "dis_vols": [
+            500
+          ],
+          "reagent_sources": [],
+          "targets": [],
+          "use_channels": [],
+          "flow_rates": [],
+          "offsets": [],
+          "liquid_height": [],
+          "blow_out_air_volume": [],
+          "spread": "wide",
+          "is_96_well": false,
+          "mix_time": 0,
+          "mix_vol": 0,
+          "mix_rate": 0,
+          "mix_liquid_height": 0.0,
+          "none_keys": []
+        },
+        "footer": "加入20mM CTAC(500µl)",
+        "device_name": "PRCXI",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "add_liquid",
+        "resource_name": "liquid_handler.prcxi"
+      },
+      {
+        "uuid": "152e18ec-e6ba-4609-b8b8-47a2decd0cb6",
+        "parent_uuid": "",
+        "name": "mix",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 6250.0,
+            "y": 2080.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "mix_time": 10,
+          "mix_vol": 100,
+          "mix_rate": 150.0,
+          "height_to_bottom": 0.5,
+          "targets": [],
+          "offsets": [],
+          "none_keys": []
+        },
+        "footer": "混匀",
+        "device_name": "PRCXI",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "mix",
+        "resource_name": "liquid_handler.prcxi"
+      },
+      {
+        "uuid": "213faf92-a5d7-444a-8446-cf0c63f9ef4f",
+        "parent_uuid": "",
+        "name": "transfer_carrier",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 6750.0,
+            "y": 2080.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_speed": 300,
+          "pick_place": 1,
+          "destination": "prcxi"
+        },
+        "footer": "机械臂转移至离心机",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "transfer_carrier",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "44866eb7-9bef-49bb-87d8-b9bde5a973fa",
+        "parent_uuid": "",
+        "name": "run",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 7250.0,
+            "y": 2080.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "rpm": 700,
+          "minutes": 15,
+          "plate_no": 2
+        },
+        "footer": "离心",
+        "device_name": "gn_centrifuge",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "run",
+        "resource_name": "gn_centrifuge"
+      },
+      {
+        "uuid": "cd3214dc-4ffe-49b8-8c8a-a2c6aecaac84",
+        "parent_uuid": "",
+        "name": "transfer_carrier",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 7750.0,
+            "y": 2080.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_speed": 300,
+          "pick_place": 1,
+          "destination": "centrifuge"
+        },
+        "footer": "机械臂转移至9320",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "transfer_carrier",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "24f46a57-f755-450c-a799-a918f311f3b9",
+        "parent_uuid": "",
+        "name": "remove_liquid",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 8250.0,
+            "y": 2080.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "asp_vols": [
+            500
+          ],
+          "targets": [],
+          "use_channels": [],
+          "flow_rates": [],
+          "offsets": [],
+          "liquid_height": [],
+          "blow_out_air_volume": [],
+          "spread": "wide",
+          "is_96_well": true,
+          "none_keys": []
+        },
+        "footer": "取上清液(500µl)",
+        "device_name": "PRCXI",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "remove_liquid",
+        "resource_name": "liquid_handler.prcxi"
+      },
+      {
+        "uuid": "dffa741d-b50e-431d-828b-3c03ecb4ec4b",
+        "parent_uuid": "",
+        "name": "add_liquid",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 8750.0,
+            "y": 2080.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "asp_vols": [
+            1000
+          ],
+          "dis_vols": [
+            1000
+          ],
+          "reagent_sources": [],
+          "targets": [],
+          "use_channels": [],
+          "flow_rates": [],
+          "offsets": [],
+          "liquid_height": [],
+          "blow_out_air_volume": [],
+          "spread": "wide",
+          "is_96_well": false,
+          "mix_time": 0,
+          "mix_vol": 0,
+          "mix_rate": 0,
+          "mix_liquid_height": 0.0,
+          "none_keys": []
+        },
+        "footer": "加入20mM CTAC(1000µl)",
+        "device_name": "PRCXI",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "add_liquid",
+        "resource_name": "liquid_handler.prcxi"
+      },
+      {
+        "uuid": "5cbfe42e-11a6-47f8-812f-025f8b5aa033",
+        "parent_uuid": "",
+        "name": "mix",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 9250.0,
+            "y": 2080.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "mix_time": 10,
+          "mix_vol": 100,
+          "mix_rate": 150.0,
+          "height_to_bottom": 0.5,
+          "targets": [],
+          "offsets": [],
+          "none_keys": []
+        },
+        "footer": "混匀",
+        "device_name": "PRCXI",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "mix",
+        "resource_name": "liquid_handler.prcxi"
+      },
+      {
+        "uuid": "c50676dc-1aaf-4557-a894-d7ab44adb7ec",
+        "parent_uuid": "",
+        "name": "add_liquid",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 9750.0,
+            "y": 2080.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "asp_vols": [
+            500
+          ],
+          "dis_vols": [
+            500
+          ],
+          "reagent_sources": [],
+          "targets": [],
+          "use_channels": [],
+          "flow_rates": [],
+          "offsets": [],
+          "liquid_height": [],
+          "blow_out_air_volume": [],
+          "spread": "wide",
+          "is_96_well": false,
+          "mix_time": 0,
+          "mix_vol": 0,
+          "mix_rate": 0,
+          "mix_liquid_height": 0.0,
+          "none_keys": []
+        },
+        "footer": "移取500µl到酶标板",
+        "device_name": "PRCXI",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "add_liquid",
+        "resource_name": "liquid_handler.prcxi"
+      },
+      {
+        "uuid": "85ff38c1-f61a-4cf2-ae93-420f6187946f",
+        "parent_uuid": "",
+        "name": "transfer_carrier",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 10250.0,
+            "y": 2080.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_speed": 300,
+          "pick_place": 1,
+          "destination": "prcxi"
+        },
+        "footer": "机械臂转移至离心机",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "transfer_carrier",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "a97367d3-0fa5-4b90-b531-73bceab045fc",
+        "parent_uuid": "",
+        "name": "run",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 10750.0,
+            "y": 2080.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "rpm": 700,
+          "minutes": 15,
+          "plate_no": 2
+        },
+        "footer": "离心",
+        "device_name": "gn_centrifuge",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "run",
+        "resource_name": "gn_centrifuge"
+      },
+      {
+        "uuid": "9a121ccd-c9e0-42e3-8daa-cc225ece2c4b",
+        "parent_uuid": "",
+        "name": "transfer_carrier",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 11250.0,
+            "y": 2080.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_speed": 300,
+          "pick_place": 1,
+          "destination": "centrifuge"
+        },
+        "footer": "机械臂转移至9320",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "transfer_carrier",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "651e6b7a-8b4e-44f9-8543-dc679e4fab32",
+        "parent_uuid": "",
+        "name": "remove_liquid",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 11750.0,
+            "y": 2080.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "asp_vols": [
+            1000
+          ],
+          "targets": [],
+          "use_channels": [],
+          "flow_rates": [],
+          "offsets": [],
+          "liquid_height": [],
+          "blow_out_air_volume": [],
+          "spread": "wide",
+          "is_96_well": true,
+          "none_keys": []
+        },
+        "footer": "上清液(1000µl)",
+        "device_name": "PRCXI",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "remove_liquid",
+        "resource_name": "liquid_handler.prcxi"
+      },
+      {
+        "uuid": "d2ec3078-d3cf-4d4b-8164-af113afc59b8",
+        "parent_uuid": "",
+        "name": "add_liquid",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 12250.0,
+            "y": 2080.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "asp_vols": [
+            500
+          ],
+          "dis_vols": [
+            500
+          ],
+          "reagent_sources": [],
+          "targets": [],
+          "use_channels": [],
+          "flow_rates": [],
+          "offsets": [],
+          "liquid_height": [],
+          "blow_out_air_volume": [],
+          "spread": "wide",
+          "is_96_well": false,
+          "mix_time": 0,
+          "mix_vol": 0,
+          "mix_rate": 0,
+          "mix_liquid_height": 0.0,
+          "none_keys": []
+        },
+        "footer": "加100mM CTAC",
+        "device_name": "PRCXI",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "add_liquid",
+        "resource_name": "liquid_handler.prcxi"
+      },
+      {
+        "uuid": "732e98de-6067-469c-8acf-00fd55509231",
+        "parent_uuid": "",
+        "name": "mix",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 12750.0,
+            "y": 2080.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "mix_time": 10,
+          "mix_vol": 100,
+          "mix_rate": 150.0,
+          "height_to_bottom": 0.5,
+          "targets": [],
+          "offsets": [],
+          "none_keys": []
+        },
+        "footer": "混匀",
+        "device_name": "PRCXI",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "mix",
+        "resource_name": "liquid_handler.prcxi"
+      },
+      {
+        "uuid": "fa3ede83-fc74-4080-8bc3-b0bb642f9782",
+        "parent_uuid": "",
+        "name": "mix",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 13250.0,
+            "y": 2080.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "mix_time": 10,
+          "mix_vol": 100,
+          "mix_rate": 150.0,
+          "height_to_bottom": 0.5,
+          "targets": [],
+          "offsets": [],
+          "none_keys": []
+        },
+        "footer": "得到金四面体溶液",
+        "device_name": "PRCXI",
+        "disabled": true,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "mix",
+        "resource_name": "liquid_handler.prcxi"
+      },
+      {
+        "uuid": "fdf4d604-4f07-4876-8b9a-112458a20f4b",
+        "parent_uuid": "",
+        "name": "transfer_carrier",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 250.0,
+            "y": 2480.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_speed": 300,
+          "pick_place": 1,
+          "destination": "stack_bottle"
+        },
+        "footer": "机械臂取样品瓶至粉末加样仪",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "transfer_carrier",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "2014923f-98b8-459c-8fb2-2850c7ab2494",
+        "parent_uuid": "",
+        "name": "add_liquid",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 750.0,
+            "y": 2480.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "asp_vols": [
+            10000
+          ],
+          "dis_vols": [
+            10000
+          ],
+          "reagent_sources": [],
+          "targets": [],
+          "use_channels": [],
+          "flow_rates": [],
+          "offsets": [],
+          "liquid_height": [],
+          "blow_out_air_volume": [],
+          "spread": "wide",
+          "is_96_well": false,
+          "mix_time": 0,
+          "mix_vol": 0,
+          "mix_rate": 0,
+          "mix_liquid_height": 0.0,
+          "none_keys": []
+        },
+        "footer": "9320加样",
+        "device_name": "PRCXI",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "add_liquid",
+        "resource_name": "liquid_handler.prcxi"
+      },
+      {
+        "uuid": "cab96c70-205e-49cc-b215-76c8906ea918",
+        "parent_uuid": "",
+        "name": "transfer_carrier",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1250.0,
+            "y": 2480.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_speed": 300,
+          "pick_place": 1,
+          "destination": "solid_feed"
+        },
+        "footer": "机械臂转移至离心管液体处理设备",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "transfer_carrier",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "1c024e76-3550-4a8a-8184-28066e5bdabc",
+        "parent_uuid": "",
+        "name": "open_bottle_lid",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1750.0,
+            "y": 2480.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "bottle_index": 1,
+          "bottle_type": "small"
+        },
+        "footer": "试剂瓶开盖",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "open_bottle_lid",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "665a9e1d-2aa6-4fa6-a59b-b1e6541a34dc",
+        "parent_uuid": "",
+        "name": "ch8_dispense",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 2250.0,
+            "y": 2480.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "p1_pos": 300,
+          "x_pos": 3093,
+          "y_pos": -3181,
+          "z1_pos": 1330
+        },
+        "footer": "加水溶解",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "ch8_dispense",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "c424d7a2-a503-4135-8728-04e5237a0028",
+        "parent_uuid": "",
+        "name": "close_bottle_lid",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 2750.0,
+            "y": 2480.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "bottle_index": 1,
+          "bottle_type": "small"
+        },
+        "footer": "试剂瓶关盖",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "close_bottle_lid",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "3b668e33-f238-493d-9c82-9590180cd39e",
+        "parent_uuid": "",
+        "name": "transfer_carrier",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 3250.0,
+            "y": 2480.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_speed": 300,
+          "pick_place": 1,
+          "destination": "tube_handler"
+        },
+        "footer": "机械臂取溶液至第六列第一次加液",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "transfer_carrier",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "ae056b66-40b9-45aa-9823-4d88bc71bcbe",
+        "parent_uuid": "",
+        "name": "workflow_complete",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 13830.0,
+            "y": 2080.0,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "timeout": 10
+        },
+        "footer": "得到金四面体",
+        "device_name": "gn_system_control",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "",
+        "template_name": "workflow_complete",
+        "resource_name": "gn_system_control"
+      }
+    ],
+    "edges": [
+      {
+        "source_node_uuid": "41b55ed8-1db9-4732-8210-9f6205261a30",
+        "target_node_uuid": "72204dcc-3ca6-4765-84e1-eb6020df3f1a",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "72204dcc-3ca6-4765-84e1-eb6020df3f1a",
+        "target_node_uuid": "71071599-51b6-49be-bf81-5c637d57823b",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "71071599-51b6-49be-bf81-5c637d57823b",
+        "target_node_uuid": "4c53979e-94e7-4566-adef-1abad48b0cbc",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "4c53979e-94e7-4566-adef-1abad48b0cbc",
+        "target_node_uuid": "cec4fb18-cf8f-4ea6-830f-0aec9c3cffdd",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "72204dcc-3ca6-4765-84e1-eb6020df3f1a",
+        "target_node_uuid": "4ba2ef01-cf6d-4d99-94ad-e6218246e1fe",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "4ba2ef01-cf6d-4d99-94ad-e6218246e1fe",
+        "target_node_uuid": "67b00b11-479c-4de4-8dcd-30196f4673a3",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "67b00b11-479c-4de4-8dcd-30196f4673a3",
+        "target_node_uuid": "aab37b19-3ca7-4dc5-a7bf-31860f38f6e3",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "aab37b19-3ca7-4dc5-a7bf-31860f38f6e3",
+        "target_node_uuid": "f3495a82-3196-4deb-b08d-ab2362374036",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "f3495a82-3196-4deb-b08d-ab2362374036",
+        "target_node_uuid": "7e9cc3e6-11c4-43d5-853c-2a338321ae22",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "7e9cc3e6-11c4-43d5-853c-2a338321ae22",
+        "target_node_uuid": "063ed59f-13dd-4dda-8a10-32a96a69915c",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "063ed59f-13dd-4dda-8a10-32a96a69915c",
+        "target_node_uuid": "99a5ab74-aa9b-4aa1-b35f-58b23d3f93f1",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "72204dcc-3ca6-4765-84e1-eb6020df3f1a",
+        "target_node_uuid": "b286d73a-8924-479f-bd93-9ae980d5b6e2",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "b286d73a-8924-479f-bd93-9ae980d5b6e2",
+        "target_node_uuid": "8b50ab48-7172-4b8a-9336-148dc298c1e1",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "8b50ab48-7172-4b8a-9336-148dc298c1e1",
+        "target_node_uuid": "bd42c62c-89e6-4135-a894-475892586967",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "bd42c62c-89e6-4135-a894-475892586967",
+        "target_node_uuid": "7fb6f35a-184a-4e63-8532-e7099bbc5e40",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "7fb6f35a-184a-4e63-8532-e7099bbc5e40",
+        "target_node_uuid": "85018092-0721-4c01-ac86-23444c67944e",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "85018092-0721-4c01-ac86-23444c67944e",
+        "target_node_uuid": "4f40d51b-f0f5-4b44-9b4c-ee50390c98fb",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "4f40d51b-f0f5-4b44-9b4c-ee50390c98fb",
+        "target_node_uuid": "6ea5f32d-dce2-48eb-a162-5578596cfd1f",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "6ea5f32d-dce2-48eb-a162-5578596cfd1f",
+        "target_node_uuid": "f975ae0d-9dbb-4ad1-acaf-c832b1c9b774",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "f975ae0d-9dbb-4ad1-acaf-c832b1c9b774",
+        "target_node_uuid": "04b2ab83-1d3f-496e-b3d3-8bdd327fafb8",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "72204dcc-3ca6-4765-84e1-eb6020df3f1a",
+        "target_node_uuid": "2d29c14d-b3e9-494c-ad34-1594d5a02493",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "2d29c14d-b3e9-494c-ad34-1594d5a02493",
+        "target_node_uuid": "68411214-e40e-429c-8f08-515c62920102",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "68411214-e40e-429c-8f08-515c62920102",
+        "target_node_uuid": "5c43b367-20ae-4e25-8cc9-9660d3682291",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "5c43b367-20ae-4e25-8cc9-9660d3682291",
+        "target_node_uuid": "0742163e-01f4-4f5d-bbf6-ea035e3f4c7c",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "0742163e-01f4-4f5d-bbf6-ea035e3f4c7c",
+        "target_node_uuid": "fc3e4616-af10-4730-b0cd-d5af27b57793",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "fc3e4616-af10-4730-b0cd-d5af27b57793",
+        "target_node_uuid": "108d3d5c-b822-4e61-8e66-1ff252599ce0",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "108d3d5c-b822-4e61-8e66-1ff252599ce0",
+        "target_node_uuid": "a4dd8fde-74a5-4dc3-bebe-76b9c45a1abd",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "a4dd8fde-74a5-4dc3-bebe-76b9c45a1abd",
+        "target_node_uuid": "069ce7eb-2974-4976-b9f0-3627663dd91d",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "72204dcc-3ca6-4765-84e1-eb6020df3f1a",
+        "target_node_uuid": "95739680-70fc-4012-8a4c-a0cf27c7610b",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "95739680-70fc-4012-8a4c-a0cf27c7610b",
+        "target_node_uuid": "00d7e78a-9906-4a8e-9a45-8d10a0f8829d",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "00d7e78a-9906-4a8e-9a45-8d10a0f8829d",
+        "target_node_uuid": "196584e1-5d7d-4796-a8bf-6688a6ec09ba",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "196584e1-5d7d-4796-a8bf-6688a6ec09ba",
+        "target_node_uuid": "2809b55d-a70d-4754-b180-71f9f5d6bf54",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "2809b55d-a70d-4754-b180-71f9f5d6bf54",
+        "target_node_uuid": "64d45410-7a79-41d0-b491-028f91d6761f",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "64d45410-7a79-41d0-b491-028f91d6761f",
+        "target_node_uuid": "ee50add4-3cb4-4559-9cb1-f8ddd6bdf3dc",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "ee50add4-3cb4-4559-9cb1-f8ddd6bdf3dc",
+        "target_node_uuid": "5e97e8d9-a74f-4de3-b0fc-6b67af43b4ea",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "5e97e8d9-a74f-4de3-b0fc-6b67af43b4ea",
+        "target_node_uuid": "3ef1aff7-2d6d-460b-b684-af853577c646",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "3ef1aff7-2d6d-460b-b684-af853577c646",
+        "target_node_uuid": "e979d026-6847-4ece-9789-291655e609fc",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "e979d026-6847-4ece-9789-291655e609fc",
+        "target_node_uuid": "90a6fb01-f739-464a-b1c4-08c4921dd1ed",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "90a6fb01-f739-464a-b1c4-08c4921dd1ed",
+        "target_node_uuid": "fb0a3996-9f43-4d66-a2fb-b6c94d8a8e82",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "fb0a3996-9f43-4d66-a2fb-b6c94d8a8e82",
+        "target_node_uuid": "3858a34d-a8e1-4421-a4ad-eecaa44ff208",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "3858a34d-a8e1-4421-a4ad-eecaa44ff208",
+        "target_node_uuid": "cb55d280-c0b7-429a-b68b-fab088f2e84d",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "cb55d280-c0b7-429a-b68b-fab088f2e84d",
+        "target_node_uuid": "96c35bf3-c314-47cc-8e93-5203119814dd",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "96c35bf3-c314-47cc-8e93-5203119814dd",
+        "target_node_uuid": "852bab53-65ca-4e25-8884-4c3114364983",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "852bab53-65ca-4e25-8884-4c3114364983",
+        "target_node_uuid": "06fc609b-8425-4b1b-a742-b21c46f7d935",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "06fc609b-8425-4b1b-a742-b21c46f7d935",
+        "target_node_uuid": "364ef2c6-b73b-4a3a-8e4b-48b6ffcc38cc",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "364ef2c6-b73b-4a3a-8e4b-48b6ffcc38cc",
+        "target_node_uuid": "9de84911-4fcb-45a8-8eb6-724cec3f1549",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "9de84911-4fcb-45a8-8eb6-724cec3f1549",
+        "target_node_uuid": "acda5586-8a62-4b27-af70-6d0485e21cbc",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "acda5586-8a62-4b27-af70-6d0485e21cbc",
+        "target_node_uuid": "e154e0da-bb49-406b-94f8-1e60b5ffb2b9",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "e154e0da-bb49-406b-94f8-1e60b5ffb2b9",
+        "target_node_uuid": "396dfca2-3359-430c-b8f2-bdab73b7d08e",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "396dfca2-3359-430c-b8f2-bdab73b7d08e",
+        "target_node_uuid": "dead1c1a-5932-4d25-bb42-858881769b0e",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "dead1c1a-5932-4d25-bb42-858881769b0e",
+        "target_node_uuid": "2b66807c-f954-4f00-886e-0c7e2d4ec1d1",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "72204dcc-3ca6-4765-84e1-eb6020df3f1a",
+        "target_node_uuid": "5671556e-abaf-4e9f-aedc-a229f0db2a66",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "5671556e-abaf-4e9f-aedc-a229f0db2a66",
+        "target_node_uuid": "5a1bed89-095f-4229-a573-0ab19afd2070",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "5a1bed89-095f-4229-a573-0ab19afd2070",
+        "target_node_uuid": "81ef9528-149d-4ced-bc99-6ee3ff64b9a2",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "81ef9528-149d-4ced-bc99-6ee3ff64b9a2",
+        "target_node_uuid": "9aac9d41-a323-4b61-b364-d791284af12c",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "72204dcc-3ca6-4765-84e1-eb6020df3f1a",
+        "target_node_uuid": "0d2d413e-0abd-42a6-aeb6-ed9ee7d1204c",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "0d2d413e-0abd-42a6-aeb6-ed9ee7d1204c",
+        "target_node_uuid": "2faae702-c747-4b73-b214-60878cf373eb",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "2faae702-c747-4b73-b214-60878cf373eb",
+        "target_node_uuid": "972937ef-edcc-49a3-8ce7-077b1ca38b84",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "972937ef-edcc-49a3-8ce7-077b1ca38b84",
+        "target_node_uuid": "9cfde03c-3b90-49d0-b0d6-59f39d1039df",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "9cfde03c-3b90-49d0-b0d6-59f39d1039df",
+        "target_node_uuid": "c0cfdb6f-11c9-43e5-a8d9-8042f04be694",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "c0cfdb6f-11c9-43e5-a8d9-8042f04be694",
+        "target_node_uuid": "89d9ea80-9468-483f-89a8-1721bf23a6bb",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "89d9ea80-9468-483f-89a8-1721bf23a6bb",
+        "target_node_uuid": "a14393dd-02ec-472c-ac06-fff020496cb7",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "a14393dd-02ec-472c-ac06-fff020496cb7",
+        "target_node_uuid": "baf7fba1-4539-4e48-a581-b769780afe27",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "baf7fba1-4539-4e48-a581-b769780afe27",
+        "target_node_uuid": "350e1528-26b8-4604-aebc-e4beedfefe24",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "350e1528-26b8-4604-aebc-e4beedfefe24",
+        "target_node_uuid": "8680690e-90b2-468f-9344-c538894a49d0",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "8680690e-90b2-468f-9344-c538894a49d0",
+        "target_node_uuid": "fe938172-901f-4520-a8ca-0eba67803952",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "fe938172-901f-4520-a8ca-0eba67803952",
+        "target_node_uuid": "c7bc2d5b-c8f5-4325-945a-9e955c306b73",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "c7bc2d5b-c8f5-4325-945a-9e955c306b73",
+        "target_node_uuid": "152e18ec-e6ba-4609-b8b8-47a2decd0cb6",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "152e18ec-e6ba-4609-b8b8-47a2decd0cb6",
+        "target_node_uuid": "213faf92-a5d7-444a-8446-cf0c63f9ef4f",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "213faf92-a5d7-444a-8446-cf0c63f9ef4f",
+        "target_node_uuid": "44866eb7-9bef-49bb-87d8-b9bde5a973fa",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "44866eb7-9bef-49bb-87d8-b9bde5a973fa",
+        "target_node_uuid": "cd3214dc-4ffe-49b8-8c8a-a2c6aecaac84",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "cd3214dc-4ffe-49b8-8c8a-a2c6aecaac84",
+        "target_node_uuid": "24f46a57-f755-450c-a799-a918f311f3b9",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "24f46a57-f755-450c-a799-a918f311f3b9",
+        "target_node_uuid": "dffa741d-b50e-431d-828b-3c03ecb4ec4b",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "dffa741d-b50e-431d-828b-3c03ecb4ec4b",
+        "target_node_uuid": "5cbfe42e-11a6-47f8-812f-025f8b5aa033",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "5cbfe42e-11a6-47f8-812f-025f8b5aa033",
+        "target_node_uuid": "c50676dc-1aaf-4557-a894-d7ab44adb7ec",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "c50676dc-1aaf-4557-a894-d7ab44adb7ec",
+        "target_node_uuid": "85ff38c1-f61a-4cf2-ae93-420f6187946f",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "85ff38c1-f61a-4cf2-ae93-420f6187946f",
+        "target_node_uuid": "a97367d3-0fa5-4b90-b531-73bceab045fc",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "a97367d3-0fa5-4b90-b531-73bceab045fc",
+        "target_node_uuid": "9a121ccd-c9e0-42e3-8daa-cc225ece2c4b",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "9a121ccd-c9e0-42e3-8daa-cc225ece2c4b",
+        "target_node_uuid": "651e6b7a-8b4e-44f9-8543-dc679e4fab32",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "651e6b7a-8b4e-44f9-8543-dc679e4fab32",
+        "target_node_uuid": "d2ec3078-d3cf-4d4b-8164-af113afc59b8",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "d2ec3078-d3cf-4d4b-8164-af113afc59b8",
+        "target_node_uuid": "732e98de-6067-469c-8acf-00fd55509231",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "732e98de-6067-469c-8acf-00fd55509231",
+        "target_node_uuid": "fa3ede83-fc74-4080-8bc3-b0bb642f9782",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "72204dcc-3ca6-4765-84e1-eb6020df3f1a",
+        "target_node_uuid": "fdf4d604-4f07-4876-8b9a-112458a20f4b",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "fdf4d604-4f07-4876-8b9a-112458a20f4b",
+        "target_node_uuid": "2014923f-98b8-459c-8fb2-2850c7ab2494",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "2014923f-98b8-459c-8fb2-2850c7ab2494",
+        "target_node_uuid": "cab96c70-205e-49cc-b215-76c8906ea918",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "cab96c70-205e-49cc-b215-76c8906ea918",
+        "target_node_uuid": "1c024e76-3550-4a8a-8184-28066e5bdabc",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "1c024e76-3550-4a8a-8184-28066e5bdabc",
+        "target_node_uuid": "665a9e1d-2aa6-4fa6-a59b-b1e6541a34dc",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "665a9e1d-2aa6-4fa6-a59b-b1e6541a34dc",
+        "target_node_uuid": "c424d7a2-a503-4135-8728-04e5237a0028",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "c424d7a2-a503-4135-8728-04e5237a0028",
+        "target_node_uuid": "3b668e33-f238-493d-9c82-9590180cd39e",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "cec4fb18-cf8f-4ea6-830f-0aec9c3cffdd",
+        "target_node_uuid": "67b00b11-479c-4de4-8dcd-30196f4673a3",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "6ea5f32d-dce2-48eb-a162-5578596cfd1f",
+        "target_node_uuid": "67b00b11-479c-4de4-8dcd-30196f4673a3",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "a4dd8fde-74a5-4dc3-bebe-76b9c45a1abd",
+        "target_node_uuid": "00d7e78a-9906-4a8e-9a45-8d10a0f8829d",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "99a5ab74-aa9b-4aa1-b35f-58b23d3f93f1",
+        "target_node_uuid": "5e97e8d9-a74f-4de3-b0fc-6b67af43b4ea",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "81ef9528-149d-4ced-bc99-6ee3ff64b9a2",
+        "target_node_uuid": "89d9ea80-9468-483f-89a8-1721bf23a6bb",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "2b66807c-f954-4f00-886e-0c7e2d4ec1d1",
+        "target_node_uuid": "c0cfdb6f-11c9-43e5-a8d9-8042f04be694",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "3b668e33-f238-493d-9c82-9590180cd39e",
+        "target_node_uuid": "2faae702-c747-4b73-b214-60878cf373eb",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "fa3ede83-fc74-4080-8bc3-b0bb642f9782",
+        "target_node_uuid": "ae056b66-40b9-45aa-9823-4d88bc71bcbe",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      }
+    ]
+  }
+}

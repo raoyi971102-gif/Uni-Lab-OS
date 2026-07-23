@@ -244,6 +244,7 @@ Name,EnglishName,NodeType,DataType,NodeLanguage,NodeId,设备模块
 机械手机器人回原点,Robot_gohome,VARIABLE,INT16,Chinese,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_gohome,
 机械手机器人回原点完成,Robot_gohome_done,VARIABLE,INT16,Chinese,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_gohome_done,
 机械手机器人停止,Robot_STOP,VARIABLE,INT16,Chinese,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_STOP,
+机械手机器人夹取还是放置,Robot_Pick up or place,VARIABLE,INT16,Chinese,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_Pick up or place,
 机械手指令类型,Robot_CmdType,VARIABLE,INT16,Chinese,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_CmdType,
 机械手指令触发,Robot_CmdTrig,VARIABLE,INT16,Chinese,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_CmdTrig,
 固体加样X位置反馈,Solid_XPosFB,VARIABLE,INT16,Chinese,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Solid_XPosFB,"固体加样

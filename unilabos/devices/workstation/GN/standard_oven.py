@@ -1,8 +1,8 @@
 """
 常规烘箱 设备驱动
 
-根据 opcua_gn1.3.3.csv 中「常规烘箱」(前缀 Oven_) 定义，
-继承 OPC UA 通讯基类，实现指令触发/等待完成的动作函数。
+协议：opcua_gn1.3.3.csv「常规烘箱」(前缀 Oven_)。
+对外仅暴露 execute_command（Oven_CmdType + 写参）。
 
 指令类型 (Oven_CmdType)：
     1=启动 2=复位/停止
@@ -24,6 +24,7 @@ import time
 import logging
 import threading
 from enum import Enum
+from typing import Optional
 
 from unilabos.utils.log import logger
 from unilabos.registry.decorators import action, device, not_action
@@ -34,19 +35,34 @@ DEFAULT_CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "opc
 RUNNING_STOPPED = 0
 RUNNING_ACTIVE = 1
 
+# OPC 1.3.3 Oven_CmdType（与 Excel 表头一致）
+OVEN_CMD_LABELS = {
+    1: "启动",
+    2: "复位/停止",
+}
+
 
 class OvenCommand(int, Enum):
     """常规烘箱指令类型"""
+
     START = 1
-    RESET = 2   # 复位/停止
+    RESET = 2
+
+
+_EXECUTE_CMD_DOC = (
+    "按 Oven_CmdType 执行 OPC 1.3.3 指令。"
+    "1=启动（需 temperature/hours/minutes 写参） 2=复位/停止。"
+    "启动 wait=True 时等待 CompleteFB；timeout 默认 program_timeout=设定时长+300。"
+)
 
 
 @device(
     id="gn_standard_oven",
     display_name="常规烘箱",
     category=["workstation"],
-    description="GN 常规烘箱：设置温度与运行时间后启动烘干，OPC UA 控制",
+    description="GN 常规烘箱：设置温度与运行时间后启动烘干，OPC UA 控制，仅 execute_command 通用入口",
     icon="",
+    version="2.0.0",
 )
 class StandardOvenDevice(OpcUaClientWithSubscription):
     """常规烘箱设备类（OPC 前缀 Oven_）"""
@@ -81,46 +97,62 @@ class StandardOvenDevice(OpcUaClientWithSubscription):
         if csv_path:
             self.load_nodes_from_csv(csv_path)
 
-    # ==================== 动作函数 ====================
+    @action(auto_prefix=True, description=_EXECUTE_CMD_DOC)
+    def execute_command(
+        self,
+        cmd_type: int,
+        temperature: Optional[int] = None,
+        hours: int = 0,
+        minutes: int = 0,
+        wait: bool = True,
+        timeout: Optional[float] = None,
+    ) -> dict:
+        """唯一注册动作：写参 → CmdType → CmdTrig → 互锁/等待 CompleteFB。"""
+        cmd = int(cmd_type)
+        label = OVEN_CMD_LABELS.get(cmd, f"CmdType={cmd}")
 
-    @action(auto_prefix=True, description="启动烘箱（设置温度/时间后启动）")
-    def start(self, temperature: int, hours: int = 0, minutes: int = 0, wait: bool = True) -> dict:
-        """启动常规烘箱：设定温度(℃)、运行时间(小时+分钟)。
+        setpoints = self._build_setpoints(
+            cmd_type=cmd,
+            temperature=temperature,
+            hours=hours,
+            minutes=minutes,
+        )
 
-        仅当 Running_Status=0 时允许启动。
-        wait=True 时等待 Oven_CompleteFB（整段烘干程序结束，含设定时长）。
-        """
-        setpoints = {
+        if cmd == OvenCommand.START:
+            program_timeout = (
+                timeout if timeout is not None else (hours * 3600 + minutes * 60) + 300.0
+            )
+            ack_timeout = 60.0
+        else:
+            program_timeout = 120.0
+            ack_timeout = timeout if timeout is not None else 60.0
+
+        return self._run(
+            cmd,
+            label,
+            setpoints,
+            wait=wait,
+            program_timeout=program_timeout,
+            ack_timeout=ack_timeout,
+        )
+
+    @not_action
+    def _build_setpoints(
+        self,
+        cmd_type: int,
+        temperature: Optional[int] = None,
+        hours: int = 0,
+        minutes: int = 0,
+    ) -> dict:
+        if int(cmd_type) != OvenCommand.START:
+            return {}
+        if temperature is None:
+            raise ValueError("启动(CmdType=1) 需指定 temperature")
+        return {
             "Oven_TempSet": temperature,
             "Oven_TimeHourSet": hours,
             "Oven_TimeMinuteSet": minutes,
         }
-        program_timeout = (hours * 3600 + minutes * 60) + 300.0
-        return self._run(
-            OvenCommand.START,
-            "启动烘箱",
-            setpoints,
-            wait=wait,
-            program_timeout=program_timeout,
-        )
-
-    @action(auto_prefix=True, description="常规烘箱复位/停止")
-    def reset(self) -> dict:
-        """复位/停止。仅当 Running_Status=1 时允许，触发后 Running_Status 应变 0。"""
-        return self._run(OvenCommand.RESET, "复位/停止", wait=True, ack_timeout=60.0)
-
-    @action(auto_prefix=True, description="停止烘箱（同复位，CmdType=2）")
-    def stop(self) -> dict:
-        return self.reset()
-
-    @action(auto_prefix=True, description="通用指令：按 Oven_CmdType 执行任意指令")
-    def execute_command(self, cmd_type: int, timeout: float = 120.0) -> dict:
-        cmd = int(cmd_type)
-        if cmd == OvenCommand.START:
-            raise ValueError("启动请使用 start()，需指定温度与时间")
-        return self._run(cmd, f"指令{cmd_type}", wait=True, ack_timeout=timeout)
-
-    # ==================== 内部触发/等待逻辑（参照 centrifuge 写法） ====================
 
     @not_action
     def get_running_status(self) -> int:
@@ -157,8 +189,13 @@ class StandardOvenDevice(OpcUaClientWithSubscription):
         logger.info(f"互锁通过: Running_Status={current}，CmdType={int(cmd_type)}")
 
     @not_action
-    def _wait_running_status(self, expected: int, timeout: float = 60.0,
-                             interval: float = 0.5, description: str = "") -> bool:
+    def _wait_running_status(
+        self,
+        expected: int,
+        timeout: float = 60.0,
+        interval: float = 0.5,
+        description: str = "",
+    ) -> bool:
         state_label = "运行" if expected == RUNNING_ACTIVE else "停止"
         logger.info(f"等待 Running_Status→{expected}（{state_label}，{description}）...")
         start = time.time()
@@ -172,8 +209,13 @@ class StandardOvenDevice(OpcUaClientWithSubscription):
         return False
 
     @not_action
-    def _wait_until_true(self, node_name: str, timeout: float = 120.0,
-                         interval: float = 0.5, description: str = None) -> bool:
+    def _wait_until_true(
+        self,
+        node_name: str,
+        timeout: float = 120.0,
+        interval: float = 0.5,
+        description: str = None,
+    ) -> bool:
         desc = description or node_name
         logger.info(f"等待 {desc} 完成（轮询 {node_name}）...")
         start = time.time()
@@ -187,8 +229,13 @@ class StandardOvenDevice(OpcUaClientWithSubscription):
         return False
 
     @not_action
-    def _wait_until_false(self, node_name: str, timeout: float = 120.0,
-                          interval: float = 0.5, description: str = None) -> bool:
+    def _wait_until_false(
+        self,
+        node_name: str,
+        timeout: float = 120.0,
+        interval: float = 0.5,
+        description: str = None,
+    ) -> bool:
         desc = description or node_name
         logger.info(f"等待 {desc} 复位（轮询 {node_name}）...")
         start = time.time()
@@ -203,13 +250,15 @@ class StandardOvenDevice(OpcUaClientWithSubscription):
 
     @not_action
     def _trigger_and_wait_complete(self, description: str, timeout: float) -> None:
-        """等待 CompleteFB 完成并复位触发（参照 centrifuge）"""
-        if not self._wait_until_true(self.COMPLETE_NODE, timeout=timeout,
-                                     description=f"{description}程序"):
+        """等待 CompleteFB 完成并复位触发"""
+        if not self._wait_until_true(
+            self.COMPLETE_NODE, timeout=timeout, description=f"{description}程序"
+        ):
             raise ValueError(f"{description} 失败，CompleteFB 未完成")
         self.set_node_value(self.CMD_TRIG_NODE, 0)
-        if not self._wait_until_false(self.COMPLETE_NODE, timeout=60.0,
-                                      description=f"{description}CompleteFB复位"):
+        if not self._wait_until_false(
+            self.COMPLETE_NODE, timeout=60.0, description=f"{description}CompleteFB复位"
+        ):
             raise ValueError(f"{description} 失败，CompleteFB 未复位")
 
     @not_action
@@ -238,28 +287,36 @@ class StandardOvenDevice(OpcUaClientWithSubscription):
 
         if not wait:
             logger.info(f"{description} 已下发（不等待 CompleteFB）")
-            return {"success": True, "message": f"{description} 已下发", **self.get_status()}
+            return {
+                "success": True,
+                "message": f"{description} 已下发",
+                "cmd_type": cmd,
+                **self.get_status(),
+            }
 
         expected_ack = self._expected_running_status_after_ack(cmd)
 
         if cmd == OvenCommand.START:
-            # 启动确认：Running_Status→1；程序结束：CompleteFB（含设定时长）
-            if not self._wait_running_status(expected_ack, timeout=ack_timeout,
-                                             description="启动确认"):
+            if not self._wait_running_status(
+                expected_ack, timeout=ack_timeout, description="启动确认"
+            ):
                 raise ValueError(f"{description} 失败，Running_Status 未变为运行")
             self._trigger_and_wait_complete(description, timeout=program_timeout)
         else:
-            # 复位/停止：CompleteFB + Running_Status→0
             self._trigger_and_wait_complete(description, timeout=ack_timeout)
-            if not self._wait_running_status(expected_ack, timeout=ack_timeout,
-                                             description="停止确认"):
+            if not self._wait_running_status(
+                expected_ack, timeout=ack_timeout, description="停止确认"
+            ):
                 raise ValueError(f"{description} 失败，Running_Status 未变为停止")
 
         logger.info(f"{description} 完成")
         self._log_status(f"{description}后")
-        return {"success": True, "message": f"{description} 完成", **self.get_status()}
-
-    # ==================== 状态读取 ====================
+        return {
+            "success": True,
+            "message": f"{description} 完成",
+            "cmd_type": cmd,
+            **self.get_status(),
+        }
 
     @not_action
     def get_temperature(self) -> int:
@@ -288,8 +345,14 @@ class StandardOvenDevice(OpcUaClientWithSubscription):
     def run_test_flow(self, temperature: int = 80, hours: int = 0, minutes: int = 1) -> dict:
         """连通测试：启动（等待程序结束）→ 复位/停止"""
         logger.info("常规烘箱：开始测试流程...")
-        self.start(temperature=temperature, hours=hours, minutes=minutes, wait=True)
-        self.reset()
+        self.execute_command(
+            cmd_type=int(OvenCommand.START),
+            temperature=temperature,
+            hours=hours,
+            minutes=minutes,
+            wait=True,
+        )
+        self.execute_command(cmd_type=int(OvenCommand.RESET))
         logger.info("常规烘箱：测试流程完成")
         return {"success": True, "message": "常规烘箱测试流程完成"}
 
@@ -300,7 +363,6 @@ if __name__ == "__main__":
     OVEN_URL = "opc.tcp://192.168.6.6:4840"
     STATUS_LOG_INTERVAL = 15.0
 
-    # 单点调试：关闭订阅，仅轮询常规烘箱节点
     oven = StandardOvenDevice(
         url=OVEN_URL,
         csv_path=DEFAULT_CSV_PATH,
@@ -340,11 +402,11 @@ if __name__ == "__main__":
         elif choice == "0":
             print(oven.get_status())
         elif choice == "1":
-            oven.start(temperature=25, hours=0, minutes=1, wait=True)
+            oven.execute_command(cmd_type=1, temperature=25, hours=0, minutes=1, wait=True)
         elif choice == "2":
-            oven.start(temperature=25, hours=0, minutes=1, wait=False)
+            oven.execute_command(cmd_type=1, temperature=25, hours=0, minutes=1, wait=False)
         elif choice == "3":
-            oven.reset()
+            oven.execute_command(cmd_type=2)
         elif choice == "98":
             oven.run_test_flow(temperature=80, hours=0, minutes=1)
         else:
