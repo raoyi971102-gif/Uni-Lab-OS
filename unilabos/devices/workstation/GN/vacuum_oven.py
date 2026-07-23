@@ -1,4 +1,5 @@
 """
+unilab -g unilabos/devices/workstation/GN/GN_station.json --ak 4b9d0867-78f8-4933-80f9-50196afbb4e2 --sk e6beb860-c77a-4b70-a039-c83b2ff0424f --upload_registry --addr https://leap-lab.bohrium.com/api/v1 --disable_browser
 真空烘箱 设备驱动
 
 真空烘箱密码：7701
