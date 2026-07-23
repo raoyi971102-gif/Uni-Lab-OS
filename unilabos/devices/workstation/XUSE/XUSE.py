@@ -434,7 +434,41 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error("初始化工站失败")
             self.set_node_value("Station_Initialize", False)
             raise ValueError("初始化工站失败")
-    
+
+    # 加样单元初始化
+    @action(description="加样单元初始化（触发 Add_Sample_Initialize，等待 Add_Sample_Initialize_Complete）")
+    def trigger_add_powder_init(self) -> dict:
+        """
+        加样单元初始化：
+        - 先复位完成标志 Add_Sample_Initialize_Complete
+        - 触发 Add_Sample_Initialize（上升沿）
+        - 等待 Add_Sample_Initialize_Complete 变为 True
+        - 复位 Add_Sample_Initialize，返回成功
+
+        本动作只负责加样单元的自初始化，不影响机械臂等其它模块；与 trigger_init（整站初始化）
+        独立。如需在整站初始化前后单独重置加样单元，可调本动作。
+
+        Returns:
+            dict: 包含 success 和 message
+        """
+        logger.info("开始加样单元初始化...")
+        # 先复位完成标志与触发标志，避免残留信号
+        self.set_node_value("Add_Sample_Initialize_Complete", False)
+        time.sleep(1.0)
+        self.set_node_value("Add_Sample_Initialize", True)  # 上升沿触发
+        time.sleep(1.0)
+        if self._wait_until_true("Add_Sample_Initialize_Complete", description="加样初始化"):
+            logger.info("加样单元初始化成功")
+            self.set_node_value("Add_Sample_Initialize", False)  # 复位触发
+            return {
+                "success": True,
+                "message": "加样单元初始化成功",
+            }
+        else:
+            logger.error("加样单元初始化失败")
+            self.set_node_value("Add_Sample_Initialize", False)
+            raise ValueError("加样单元初始化失败")
+
     def is_robotic_arm_idle(self, arm_id: int) -> bool:
         """
         检查机械臂是否空闲
@@ -914,8 +948,9 @@ class XUSEDevice(OpcUaClientWithSubscription):
         - 触发 Add_Sample_Start_Process
         - 等待 Add_Sample_Process_Complete 后复位
 
-        所有加样相关参数（本罐参数：粉末名称/位置号/重量；工艺参数：xlsx 数组参数、震荡最高速度、粉末号）
-        请通过 set_add_powder_params 在本动作之前下发。
+        所有加样相关参数（单值参数：粉末名称/位置号/重量/震荡最高速度/粉末号；
+        数组参数：1ML/500NL 的开口量/落粉均速/旋转速度/提前停止量）
+        请通过 set_add_powder_params 加载 xlsx 在本动作之前下发。
         """
         logger.info("加粉...")
 
@@ -3134,47 +3169,66 @@ class XUSEDevice(OpcUaClientWithSubscription):
             "error": errors,
         }
 
+    # ============ 加样参数：xlsx 结构定义（供解析 / 模板生成 / 档案生成共用） ============
+    # 单值参数：sheet 名 → 支持的参数列表 [(节点名, 数据类型, caster, 说明)]
+    # 合并"本罐参数" + "工艺单值"到单个"单值参数" sheet，共 6 项。
+    _ADD_POWDER_SINGLE_SHEETS: dict = {
+        "单值参数": [
+            # —— 本罐参数（每次加样通常都会变） ——
+            ("粉末名称",             "STRING", lambda s: str(s).strip(),  "本罐粉末名称"),
+            ("加样_位置号",          "INT16",  lambda s: int(float(s)),   "加样位置号"),
+            ("加样_重量",            "FLOAT",  lambda s: float(s),        "加样目标重量（克）"),
+            # —— 工艺单值参数 ——
+            ("加样_1ML震荡最高速度",  "INT16",  lambda s: int(float(s)),   "1ML 震荡最高速度"),
+            ("加样_500NL震荡最高速度","INT16",  lambda s: int(float(s)),   "500NL 震荡最高速度"),
+            ("加样_粉末号",           "INT16",  lambda s: int(float(s)),   "加样粉末号"),
+        ],
+    }
+    # 数组参数：<基础名>[sheet_idx]（sheet 名为整数索引，默认给出 0~4 五组）
+    _ADD_POWDER_ARRAY_BASES: list = [
+        ("加样_1ML开口量",       "INT16", lambda s: int(float(s))),
+        ("加样_1ML落粉均速",     "FLOAT", lambda s: float(s)),
+        ("加样_1ML旋转速度",     "INT16", lambda s: int(float(s))),
+        ("加样_1ML提前停止量",   "INT32", lambda s: int(float(s))),
+        ("加样_500NL开口量",     "INT16", lambda s: int(float(s))),
+        ("加样_500NL落粉均速",   "FLOAT", lambda s: float(s)),
+        ("加样_500NL旋转速度",   "INT16", lambda s: int(float(s))),
+        ("加样_500NL提前停止量", "INT32", lambda s: int(float(s))),
+    ]
+    _ADD_POWDER_ARRAY_INDICES: list = [0, 1, 2, 3, 4]
+
     @action()
     def set_add_powder_params(
         self,
-        powder_name: str = "",
-        position_number: str = "",
-        weight: str = "",
         param_file: str = "",
-        vibration_max_speed_1ml: str = "",
-        vibration_max_speed_500nl: str = "",
-        powder_number: str = "",
+        record_dir: str = "",
     ) -> dict:
         """
-        设置加样参数（本罐参数 + xlsx 数组参数 + 3 个工艺单值参数）。
+        设置加样参数（一次性从 xlsx 下发所有参数）。
 
-        1) 本罐参数（每次加样通常都会变，作为直接入参）：
-           - powder_name：粉末名称（STRING）
-           - position_number：加样_位置号（INT16）
-           - weight：加样_重量（FLOAT）
-        2) xlsx 数组参数：
-           - param_file：Excel(.xlsx)，含若干 sheet，sheet 名 = 数组索引（默认模板给出 0~4 共 5 组）。
-             每个 sheet 两列：第一列"参数名"（不带索引后缀 [N]，也可带上），第二列"参数值"；首行为表头。
-             支持的基础参数名（8 项）：
-               加样_1ML开口量、加样_1ML落粉均速、加样_1ML旋转速度、加样_1ML提前停止量、
-               加样_500NL开口量、加样_500NL落粉均速、加样_500NL旋转速度、加样_500NL提前停止量
-             最终写入节点为 <基础名>[<sheet 索引>]；单元格为空的参数会跳过。
-        3) 工艺单值参数（不走 xlsx）：
-           - vibration_max_speed_1ml：加样_1ML震荡最高速度（INT16）
-           - vibration_max_speed_500nl：加样_500NL震荡最高速度（INT16）
-           - powder_number：加样_粉末号（INT16）
-        4) 只要有任一参数落地写入，就触发"加样参数下发"握手；全部为空 → 不做任何写入与握手。
+        本动作把加样所需的**全部**参数（单值参数 + 数组参数）
+        统一从一份 Excel(.xlsx) 文件读取并下发到 PLC；不再接收任何参数入参。
 
-        add_powder 只负责触发加粉动作，不再接收参数；请先调本动作把要用的参数下发完成，再调 add_powder。
+        xlsx 结构（sheet 名严格如下）:
+          - "单值参数"    ：3 列 [参数名 | 参数值 | 数据类型]，行支持 6 项：
+                            粉末名称 / 加样_位置号 / 加样_重量
+                            加样_1ML震荡最高速度 / 加样_500NL震荡最高速度 / 加样_粉末号
+          - "0" ~ "4"     ：3 列 [参数名 | 参数值 | 数据类型]，每个 sheet 名 = 数组索引，
+                            对应 8 项加样数组参数（1ML/500NL 各 4 个）：
+                            加样_1ML开口量 / 加样_1ML落粉均速 / 加样_1ML旋转速度 / 加样_1ML提前停止量
+                            加样_500NL开口量 / 加样_500NL落粉均速 / 加样_500NL旋转速度 / 加样_500NL提前停止量
+                            写入节点为 <基础名>[<sheet 索引>]。
+          - "_" 前缀 sheet（如 "_readme_"、"_meta_"）会被忽略；单元格为空的行会跳过；
+            全部为空 → 不做任何写入、不触发握手。
+
+        参数模板见 `templates/加样参数模板.xlsx`。档案 xlsx（保存在 record_dir 或默认
+        records/ 目录）与输入模板结构同构，可直接作为下次调用的 param_file 回放。
+
+        add_powder 只负责触发加粉动作，不再接收参数；请先调本动作把参数下发完成，再调 add_powder。
 
         Args:
-            powder_name[粉末名称]: 粉末名称，STRING（可选；留空即跳过）。
-            position_number[加样_位置号]: 加样位置号，INT16（可选；留空即跳过）。
-            weight[加样_重量]: 加样重量（克），FLOAT（可选；留空即跳过）。
-            param_file[加样参数文件]: 加样参数 Excel(.xlsx) 文件路径（可选；留空 = 不下发 xlsx 参数）。
-            vibration_max_speed_1ml[加样_1ML震荡最高速度]: 1ML 震荡最高速度，INT16（可选；留空即跳过）。
-            vibration_max_speed_500nl[加样_500NL震荡最高速度]: 500NL 震荡最高速度，INT16（可选；留空即跳过）。
-            powder_number[加样_粉末号]: 加样粉末号，INT16（可选；留空即跳过）。
+            param_file[加样参数文件]: 加样参数 Excel(.xlsx) 文件绝对路径（留空 = 不下发任何参数）。
+            record_dir[档案保存目录]: 本次下发档案 xlsx 的保存目录（可选; 留空 = 本模块下的 records/）。
         """
         import re
         import openpyxl
@@ -3182,95 +3236,115 @@ class XUSEDevice(OpcUaClientWithSubscription):
         written = 0
         errors = []
 
-        # xlsx 数组参数：<基础名>[sheet_idx]
-        _base_type_map = {
-            "加样_1ML开口量": int,
-            "加样_1ML落粉均速": float,
-            "加样_1ML旋转速度": int,
-            "加样_1ML提前停止量": int,
-            "加样_500NL开口量": int,
-            "加样_500NL落粉均速": float,
-            "加样_500NL旋转速度": int,
-            "加样_500NL提前停止量": int,
-        }
-        if param_file:
-            param_file = param_file.strip().strip('"').strip("'")
-            if not os.path.isfile(param_file):
-                error_msg = f"加样参数文件不存在: {param_file}"
-                logger.error(error_msg)
-                raise ValueError(error_msg)
-            try:
-                wb = openpyxl.load_workbook(param_file, data_only=True)
-            except Exception as e:
-                error_msg = f"无法打开加样参数文件 {param_file}: {e}"
-                logger.error(error_msg)
-                raise ValueError(error_msg)
+        # 快照收集（用于生成档案 xlsx，也用于回放）
+        xlsx_written = {}      # {sheet_idx: {base_name: coerced_value}}
+        single_written = {}    # {sheet_title: {node_name: coerced_value}}
+        # 解析出的原始入参（写档案时也保留一份，便于人工审阅）
+        parsed_single_raw = {}  # {sheet_title: {node_name: raw_str}}
 
-            for sheet in wb.worksheets:
-                try:
-                    sheet_idx = int(str(sheet.title).strip())
-                except ValueError:
-                    logger.warning(f"跳过无法识别索引的 sheet: {sheet.title}")
-                    continue
+        # --- 解析 xlsx（若未提供，则视为空参数请求，直接返回） ---
+        if not param_file or not str(param_file).strip():
+            logger.info("未提供 param_file，跳过参数下发")
+            return {
+                "success": True,
+                "message": "未提供 param_file，未做任何写入",
+                "data": {"written": 0, "record_file": None},
+                "error": errors,
+            }
+        param_file = param_file.strip().strip('"').strip("'")
+        if not os.path.isfile(param_file):
+            error_msg = f"加样参数文件不存在: {param_file}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        try:
+            wb = openpyxl.load_workbook(param_file, data_only=True)
+        except Exception as e:
+            error_msg = f"无法打开加样参数文件 {param_file}: {e}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        # 每个 sheet 按名字分派
+        single_sheet_specs = self._ADD_POWDER_SINGLE_SHEETS
+        array_bases = {name: (dtype, caster) for name, dtype, caster in self._ADD_POWDER_ARRAY_BASES}
+
+        for sheet in wb.worksheets:
+            title = str(sheet.title).strip()
+            if not title or title.startswith("_"):
+                continue  # _meta_ / _readme_ 等元信息 sheet 跳过
+
+            # ---- 单值参数 sheet ----
+            if title in single_sheet_specs:
+                spec_by_name = {node: (dtype, caster, note) for node, dtype, caster, note in single_sheet_specs[title]}
+                parsed_single_raw[title] = {}
                 for row_idx, row in enumerate(sheet.iter_rows(values_only=True), start=1):
-                    if row_idx == 1:  # 跳过表头
-                        continue
+                    if row_idx == 1:
+                        continue  # 表头
                     if not row or row[0] is None or str(row[0]).strip() == "":
                         continue
-                    raw_name = str(row[0]).strip()
-                    base_name = re.sub(r"\[\d+\]$", "", raw_name)  # 允许带/不带 [N]
-                    node_name = f"{base_name}[{sheet_idx}]"
+                    node_name = str(row[0]).strip()
                     value = row[1] if len(row) > 1 else None
                     if value is None or str(value).strip() == "":
                         continue
-                    caster = _base_type_map.get(base_name)
-                    if caster is None:
-                        errors.append(f"未知参数名: {raw_name} (sheet={sheet.title})")
+                    spec = spec_by_name.get(node_name)
+                    if spec is None:
+                        errors.append(f"未知单值参数名: {node_name} (sheet={title})")
                         continue
+                    _dtype, caster, _note = spec
+                    raw_s = str(value).strip()
+                    parsed_single_raw[title][node_name] = raw_s
                     try:
-                        coerced = caster(float(value))
+                        coerced = caster(raw_s)
                         logger.info(
                             f"[加样参数下发] 写入 {node_name} = {coerced!r} "
-                            f"(xlsx原始值={value!r} type={type(value).__name__} 目标类型={caster.__name__})"
+                            f"(sheet={title} 原始值={value!r})"
                         )
                         if self.set_node_value(node_name, coerced):
                             written += 1
+                            single_written.setdefault(title, {})[node_name] = coerced
                         else:
                             errors.append(f"{node_name} 写入失败")
+                    except ValueError:
+                        errors.append(f"{node_name} 无法解析: {value!r}")
                     except Exception as e:
                         errors.append(f"{node_name} 写入出错: {e}")
+                continue
 
-        # 单值参数（本罐参数 + 工艺单值）——留空即跳过；类型分别为 STRING / INT / FLOAT
-        _cast_str = lambda s: str(s).strip()
-        _cast_int = lambda s: int(float(s))
-        _cast_float = lambda s: float(s)
-        single_params = [
-            # 本罐参数（每次加样通常都会变）
-            ("粉末名称", powder_name, _cast_str),
-            ("加样_位置号", position_number, _cast_int),
-            ("加样_重量", weight, _cast_float),
-            # 工艺单值参数
-            ("加样_1ML震荡最高速度", vibration_max_speed_1ml, _cast_int),
-            ("加样_500NL震荡最高速度", vibration_max_speed_500nl, _cast_int),
-            ("加样_粉末号", powder_number, _cast_int),
-        ]
-        for node_name, raw, caster in single_params:
-            if raw is None:
-                continue
-            s = str(raw).strip()
-            if s == "":
-                continue
+            # ---- 数组参数 sheet（sheet 名 = 索引） ----
             try:
-                coerced = caster(s)
-                logger.info(f"[加样参数下发] 写入 {node_name} = {coerced!r} (原始值={raw!r})")
-                if self.set_node_value(node_name, coerced):
-                    written += 1
-                else:
-                    errors.append(f"{node_name} 写入失败")
+                sheet_idx = int(title)
             except ValueError:
-                errors.append(f"{node_name} 无法解析: {raw!r}")
-            except Exception as e:
-                errors.append(f"{node_name} 写入出错: {e}")
+                logger.warning(f"跳过无法识别的 sheet: {title!r}（既不在单值 sheet 集合中，也不是整数索引）")
+                continue
+
+            for row_idx, row in enumerate(sheet.iter_rows(values_only=True), start=1):
+                if row_idx == 1:
+                    continue
+                if not row or row[0] is None or str(row[0]).strip() == "":
+                    continue
+                raw_name = str(row[0]).strip()
+                base_name = re.sub(r"\[\d+\]$", "", raw_name)  # 允许带 [N] 后缀
+                node_name = f"{base_name}[{sheet_idx}]"
+                value = row[1] if len(row) > 1 else None
+                if value is None or str(value).strip() == "":
+                    continue
+                spec = array_bases.get(base_name)
+                if spec is None:
+                    errors.append(f"未知数组参数名: {raw_name} (sheet={title})")
+                    continue
+                _dtype, caster = spec
+                try:
+                    coerced = caster(str(value).strip())
+                    logger.info(
+                        f"[加样参数下发] 写入 {node_name} = {coerced!r} "
+                        f"(xlsx原始值={value!r} type={type(value).__name__})"
+                    )
+                    if self.set_node_value(node_name, coerced):
+                        written += 1
+                        xlsx_written.setdefault(sheet_idx, {})[base_name] = coerced
+                    else:
+                        errors.append(f"{node_name} 写入失败")
+                except Exception as e:
+                    errors.append(f"{node_name} 写入出错: {e}")
 
         # 有任意参数写入 → 触发参数下发握手；全空 → 直接返回
         if written == 0:
@@ -3278,22 +3352,184 @@ class XUSEDevice(OpcUaClientWithSubscription):
             return {
                 "success": True,
                 "message": "加样参数全部为空，未做任何写入",
-                "data": {"written": 0},
+                "data": {"written": 0, "record_file": None},
                 "error": errors,
             }
 
-        self._send_param_handshake(
+        handshake_ok = self._send_param_handshake(
             "Add_Sample_Parameter_Send",
             "Add_Sample_Parameter_Send_Complete",
             description="加样参数下发",
         )
         logger.info(f"加样参数下发完成，共 {written} 项")
+
+        # 存档：把本次下发的参数快照写入 <record_dir>/<时间>_<粉末名>.xlsx
+        # record_dir 留空则用本模块下的 records/
+        # 粉末名从解析出的 "单值参数" 中取；取不到时回退到 "no_powder"
+        # 兼容旧的 "本罐参数" 命名（迁移期）
+        powder_name_for_filename = ""
+        try:
+            for _title in ("单值参数", "本罐参数"):
+                v = single_written.get(_title, {}).get("粉末名称", "") or \
+                    parsed_single_raw.get(_title, {}).get("粉末名称", "")
+                if v:
+                    powder_name_for_filename = v
+                    break
+        except Exception:
+            pass
+
+        record_path = None
+        try:
+            record_path = self._dump_add_powder_snapshot(
+                param_file=param_file,
+                powder_name_for_filename=str(powder_name_for_filename or ""),
+                parsed_single_raw=parsed_single_raw,
+                xlsx_written=xlsx_written,
+                single_written=single_written,
+                written_count=written,
+                errors=errors,
+                handshake_ok=handshake_ok,
+                record_dir=record_dir,
+            )
+            logger.info(f"加样参数存档已生成: {record_path}")
+        except Exception as e:
+            logger.warning(f"加样参数存档写入失败（不影响主流程）: {e}")
+
         return {
             "success": True,
             "message": f"加样参数下发完成，共写入 {written} 项",
-            "data": {"written": written},
+            "data": {"written": written, "record_file": record_path},
             "error": errors,
         }
+
+    def _dump_add_powder_snapshot(
+        self,
+        *,
+        param_file: str,
+        powder_name_for_filename: str,
+        parsed_single_raw: dict,
+        xlsx_written: dict,
+        single_written: dict,
+        written_count: int,
+        errors: list,
+        handshake_ok: bool,
+        record_dir: str = "",
+    ) -> str:
+        """把本次加样参数下发的快照写入 <record_dir>/<时间>_<粉末名>.xlsx，返回文件绝对路径。
+
+        - record_dir 为空 → 默认使用本模块下的 records/ 子目录；
+        - record_dir 会做首尾空白和引号清洗；不存在则自动创建。
+
+        档案 xlsx **结构与输入模板完全一致**（可直接作为下次 param_file 回放）：
+        - "单值参数"、"0"~"4"：每个 sheet 3 列 [参数名, 参数值, 数据类型]
+        - "_meta_"：时间/xlsx 源文件/写入项数/握手状态/错误列表（此 sheet 会被解析时忽略，不影响回放）
+        """
+        import re
+        from datetime import datetime
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from openpyxl.utils import get_column_letter
+
+        now = datetime.now()
+        ts = now.strftime("%Y%m%d_%H%M%S")
+
+        # 文件名安全化：过滤 Windows 不允许的字符 \/:*?"<>|
+        safe_powder = re.sub(r'[\\/:*?"<>|\r\n\t]+', "_", str(powder_name_for_filename or "").strip())
+        if not safe_powder:
+            safe_powder = "no_powder"
+        # 防止过长
+        safe_powder = safe_powder[:80]
+
+        # 保存目录：入参 record_dir 优先；留空则用模块内 records/
+        rd = str(record_dir or "").strip().strip('"').strip("'")
+        if rd:
+            records_dir = os.path.abspath(os.path.expanduser(rd))
+        else:
+            here = os.path.dirname(os.path.abspath(__file__))
+            records_dir = os.path.join(here, "records")
+        os.makedirs(records_dir, exist_ok=True)
+
+        filename = f"{ts}_{safe_powder}.xlsx"
+        dst = os.path.join(records_dir, filename)
+        # 如果重名（同秒多次调用），追加序号
+        counter = 1
+        while os.path.exists(dst):
+            filename = f"{ts}_{safe_powder}_{counter}.xlsx"
+            dst = os.path.join(records_dir, filename)
+            counter += 1
+
+        # 样式
+        header_fill = PatternFill("solid", fgColor="FF1A3A63")
+        header_font = Font(bold=True, color="FFFFFFFF")
+        header_align = Alignment(horizontal="center", vertical="center")
+
+        def _apply_header(ws, ncols):
+            for c in range(1, ncols + 1):
+                cell = ws.cell(row=1, column=c)
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = header_align
+
+        wb = openpyxl.Workbook()
+        wb.remove(wb.active)
+
+        # --- 单值参数 sheet（"单值参数"：6 项） ---
+        # 已写入优先；否则用解析到的原始入参；否则留空
+        for sheet_title, spec in self._ADD_POWDER_SINGLE_SHEETS.items():
+            ws = wb.create_sheet(sheet_title)
+            ws.append(["参数名", "参数值", "数据类型"])
+            _apply_header(ws, 3)
+            written_this = single_written.get(sheet_title, {})
+            raw_this = parsed_single_raw.get(sheet_title, {})
+            for node, dtype, _caster, _note in spec:
+                if node in written_this:
+                    val = written_this[node]
+                elif node in raw_this:
+                    val = raw_this[node]
+                else:
+                    val = ""
+                ws.append([node, val, dtype])
+            for i, w in enumerate([26, 18, 12], start=1):
+                ws.column_dimensions[get_column_letter(i)].width = w
+            ws.freeze_panes = "A2"
+
+        # --- 数组参数 sheet（0~4 及所有出现过的索引） ---
+        indices = sorted(set(list(xlsx_written.keys()) + list(self._ADD_POWDER_ARRAY_INDICES)))
+        for idx in indices:
+            ws = wb.create_sheet(str(idx))
+            ws.append(["参数名", "参数值", "数据类型"])
+            _apply_header(ws, 3)
+            written_this_sheet = xlsx_written.get(idx, {})
+            for name, dtype, _caster in self._ADD_POWDER_ARRAY_BASES:
+                ws.append([name, written_this_sheet.get(name, ""), dtype])
+            for i, w in enumerate([26, 18, 12], start=1):
+                ws.column_dimensions[get_column_letter(i)].width = w
+            ws.freeze_panes = "A2"
+
+        # --- Sheet: _meta_（放最后；解析时被 _ 前缀过滤，不影响回放） ---
+        ws = wb.create_sheet("_meta_")
+        rows = [
+            ("下发时间",       now.strftime("%Y-%m-%d %H:%M:%S")),
+            ("xlsx 源文件",    param_file or "(未提供)"),
+            ("写入项数",       written_count),
+            ("参数下发握手",   "成功" if handshake_ok else "失败"),
+            ("错误数量",       len(errors)),
+        ]
+        ws["A1"] = "字段"
+        ws["B1"] = "值"
+        _apply_header(ws, 2)
+        for i, (k, v) in enumerate(rows, start=2):
+            ws.cell(row=i, column=1, value=k)
+            ws.cell(row=i, column=2, value=v)
+        if errors:
+            ws.cell(row=len(rows) + 3, column=1, value="errors").font = Font(bold=True)
+            for j, err in enumerate(errors, start=len(rows) + 4):
+                ws.cell(row=j, column=1, value=err)
+        ws.column_dimensions["A"].width = 22
+        ws.column_dimensions["B"].width = 60
+
+        wb.save(dst)
+        return dst
 
     def _send_param_handshake(self, send_node: str, complete_node: str, description: str) -> bool:
         """参数下发握手：上升沿触发下发 → 等待下发完成 → 复位触发并等待完成复位。
@@ -3381,6 +3617,7 @@ if __name__ == '__main__':
     while True:
         print("请选择操作：")
         print("0 初始化")
+        print("0-1 加样单元初始化")
         print("1-1 从罐架区取球磨罐")
         print("1-2 将空罐放到开盖区")
         print("1-3 打开罐上盖")
@@ -3431,6 +3668,8 @@ if __name__ == '__main__':
         choice = input("请输入操作序号：")
         if choice == "0":
             xuseDevice.trigger_init()
+        elif choice == "0-1":
+            xuseDevice.trigger_add_powder_init()
         elif choice.startswith("1-1 "):
             rack_pos = int(choice.split(" ")[1])
             xuseDevice.pick_can_from_can_rack(rack_pos)
