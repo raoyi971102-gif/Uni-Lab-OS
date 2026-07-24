@@ -1,57 +1,10 @@
 {
-    "nodes": [
-        {
-            "id": "GN_station",
-            "name": "GN_station",
-            "children": [
-                "gn_standard_oven",
-                "gn_locking_mechanism",
-                "gn_quick_carrier_exchange",
-                "gn_centrifuge",
-                "gn_vacuum_oven",
-                "PRCXI",
-                "gn_centrifuge_tube_liquid_handling",
-                "gn_rotary_stack",
-                "gn_solid_weighing",
-                "gn_robotic_arm"
-            ],
-            "parent": null,
-            "type": "device",
-            "class": "GN_station",
-            "icon": "GN_station_bg.png",
-            "position": {
-                "x": 0,
-                "y": 0,
-                "z": 0
-            },
-            "pose": {
-                "size": {
-                    "width": 2150,
-                    "height": 520,
-                    "depth": 0
-                },
-                "layout": "2d",
-                "position": {
-                    "x": 0,
-                    "y": 0,
-                    "z": 0
-                },
-                "scale": {
-                    "x": 1,
-                    "y": 1,
-                    "z": 1
-                }
-            },
-            "config": {
-                "background_image": "GN_station_bg.png"
-            },
-            "data": {}
-        },
+    "nodes": [      
         {
             "id": "gn_standard_oven",
             "name": "常规烘箱",
             "children": [],
-            "parent": "GN_station",
+            "parent": null,
             "type": "device",
             "class": "gn_standard_oven",
             "position": {
@@ -67,8 +20,8 @@
                 }
             },
             "config": {
-                "url": "opc.tcp://192.168.6.6:4840",
-                "use_subscription": true
+                "plc_device_id": "gn_plc",
+                "use_subscription": false
             },
             "data": {}
         },
@@ -76,7 +29,7 @@
             "id": "gn_locking_mechanism",
             "name": "锁紧模块",
             "children": [],
-            "parent": "GN_station",
+            "parent": null,
             "type": "device",
             "class": "gn_locking_mechanism",
             "position": {
@@ -92,8 +45,8 @@
                 }
             },
             "config": {
-                "url": "opc.tcp://192.168.6.6:4840",
-                "use_subscription": true
+                "plc_device_id": "gn_plc",
+                "use_subscription": false
             },
             "data": {}
         },
@@ -101,7 +54,7 @@
             "id": "gn_quick_carrier_exchange",
             "name": "快换模块",
             "children": [],
-            "parent": "GN_station",
+            "parent": null,
             "type": "device",
             "class": "gn_quick_carrier_exchange",
             "position": {
@@ -117,8 +70,8 @@
                 }
             },
             "config": {
-                "url": "opc.tcp://192.168.6.6:4840",
-                "use_subscription": true
+                "plc_device_id": "gn_plc",
+                "use_subscription": false
             },
             "data": {}
         },
@@ -126,7 +79,7 @@
             "id": "gn_centrifuge",
             "name": "离心机",
             "children": [],
-            "parent": "GN_station",
+            "parent": null,
             "type": "device",
             "class": "gn_centrifuge",
             "position": {
@@ -142,8 +95,8 @@
                 }
             },
             "config": {
-                "url": "opc.tcp://192.168.6.6:4840",
-                "use_subscription": true
+                "plc_device_id": "gn_plc",
+                "use_subscription": false
             },
             "data": {}
         },
@@ -151,7 +104,7 @@
             "id": "gn_vacuum_oven",
             "name": "真空烘箱",
             "children": [],
-            "parent": "GN_station",
+            "parent": null,
             "type": "device",
             "class": "gn_vacuum_oven",
             "position": {
@@ -167,8 +120,8 @@
                 }
             },
             "config": {
-                "url": "opc.tcp://192.168.6.6:4840",
-                "use_subscription": true
+                "plc_device_id": "gn_plc",
+                "use_subscription": false
             },
             "data": {}
         },
@@ -176,7 +129,7 @@
             "id": "gn_centrifuge_tube_liquid_handling",
             "name": "离心管液体处理",
             "children": [],
-            "parent": "GN_station",
+            "parent": null,
             "type": "device",
             "class": "gn_centrifuge_tube_liquid_handling",
             "position": {
@@ -192,8 +145,8 @@
                 }
             },
             "config": {
-                "url": "opc.tcp://192.168.6.6:4840",
-                "use_subscription": true
+                "plc_device_id": "gn_plc",
+                "use_subscription": false
             },
             "data": {}
         },
@@ -201,7 +154,7 @@
             "id": "gn_rotary_stack",
             "name": "旋转堆栈",
             "children": [],
-            "parent": "GN_station",
+            "parent": null,
             "type": "device",
             "class": "gn_rotary_stack",
             "position": {
@@ -217,8 +170,8 @@
                 }
             },
             "config": {
-                "url": "opc.tcp://192.168.6.6:4840",
-                "use_subscription": true
+                "plc_device_id": "gn_plc",
+                "use_subscription": false
             },
             "data": {}
         },
@@ -226,7 +179,7 @@
             "id": "gn_solid_weighing",
             "name": "固体加样",
             "children": [],
-            "parent": "GN_station",
+            "parent": null,
             "type": "device",
             "class": "gn_solid_weighing",
             "position": {
@@ -242,8 +195,8 @@
                 }
             },
             "config": {
-                "url": "opc.tcp://192.168.6.6:4840",
-                "use_subscription": true
+                "plc_device_id": "gn_plc",
+                "use_subscription": false
             },
             "data": {}
         },
@@ -251,7 +204,7 @@
             "id": "gn_robotic_arm",
             "name": "机械手",
             "children": [],
-            "parent": "GN_station",
+            "parent": null,
             "type": "device",
             "class": "gn_robotic_arm",
             "position": {
@@ -266,7 +219,10 @@
                     "depth": 400
                 }
             },
-            "config": {},
+            "config": {
+                "plc_device_id": "gn_plc",
+                "use_subscription": false
+            },
             "data": {}
         },
         {
@@ -274,10 +230,10 @@
             "name": "PRCXI",
             "type": "device",
             "class": "liquid_handler.prcxi",
-            "parent": "",
+            "parent": null,
             "pose": {
                 "size": {
-                    "width": 825,
+                    "width": 1,
                     "height": 400,
                     "depth": 0
                 }
@@ -285,7 +241,7 @@
             "config": {
                 "axis": "Left",
                 "deck": {
-                    "_resource_type": "unilabos.devices.liquid_handling.prcxi.prcxi:PRCXI9300Deck",
+                    "_resource_type": "unilabos.devices.workstation.GN.liquid_handling.prcxi.prcxi:PRCXI9300Deck",
                     "_resource_child_name": "PRCXI_Deck"
                 },
                 "host": "127.0.0.1",
@@ -294,33 +250,17 @@
                 "setup": false,
                 "is_9320": true,
                 "timeout": 10,
-                "matrix_id": "",
+                "matrix_id": "32f6e587-c5cf-4efa-b82f-85b61ac8b6d8",
                 "simulator": false,
-                "channel_num": 8,
+                "channel_num": 96,
                 "protocol_version": "v04",
                 "start_rail": 0,
                 "row_nums": 4,
                 "column_nums": 4,
                 "prc_sites_config": [
-                    {"number": 1,  "row": 0, "col": 0, "row_span": 1, "col_span": 1},
-                    {"number": 2,  "row": 1, "col": 0, "row_span": 1, "col_span": 1},
-                    {"number": 3,  "row": 2, "col": 0, "row_span": 1, "col_span": 1},
-                    {"number": 4,  "row": 3, "col": 0, "row_span": 1, "col_span": 1},
-                    {"number": 5,  "row": 0, "col": 1, "row_span": 1, "col_span": 1},
-                    {"number": 6,  "row": 1, "col": 1, "row_span": 1, "col_span": 1},
-                    {"number": 7,  "row": 2, "col": 1, "row_span": 1, "col_span": 1},
-                    {"number": 8,  "row": 3, "col": 1, "row_span": 1, "col_span": 1},
-                    {"number": 9,  "row": 0, "col": 2, "row_span": 1, "col_span": 1},
-                    {"number": 10, "row": 1, "col": 2, "row_span": 1, "col_span": 1},
-                    {"number": 11, "row": 2, "col": 2, "row_span": 1, "col_span": 1},
-                    {"number": 12, "row": 3, "col": 2, "row_span": 1, "col_span": 1},
-                    {"number": 13, "row": 0, "col": 3, "row_span": 1, "col_span": 1},
-                    {"number": 14, "row": 1, "col": 3, "row_span": 1, "col_span": 1},
-                    {"number": 15, "row": 2, "col": 3, "row_span": 1, "col_span": 1},
-                    {"number": 16, "row": 3, "col": 3, "row_span": 1, "col_span": 1}
                 ],
                 "pip_setting": {
-                    "left": {"vol": 300, "channels": 96}
+                    "left": {"vol": 1250, "channels": 96}
                 },
                 "step_mode": false,
                 "touch_tip_mode": "native",
