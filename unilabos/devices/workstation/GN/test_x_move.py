@@ -25,29 +25,42 @@ URL = "opc.tcp://192.168.6.6:4840"
 DEFAULT_SPEED = 300
 
 
-def read_x(robot) -> object:
-    """安全回读当前 X（Robot_XPosFB）。"""
+def _read(robot, node):
+    """安全读取任一节点，失败返回 None。"""
     try:
-        return robot.get_node_value("Robot_XPosFB", force_read=True)
+        return robot.get_node_value(node, force_read=True)
     except Exception as e:
-        logger.error(f"读取 Robot_XPosFB 失败: {e}")
+        logger.error(f"读取 {node} 失败: {e}")
         return None
 
 
+def read_x(robot) -> object:
+    """安全回读当前 X（Robot_XPosFB）。"""
+    return _read(robot, "Robot_XPosFB")
+
+
 def test_move(robot, target_x: int, speed: int = DEFAULT_SPEED) -> None:
-    """移动到目标 X 并核对到位误差。"""
+    """移动到目标 X，打印 距离/XPosSet/FinishFB 便于核对握手。"""
     before = read_x(robot)
-    logger.info(f"→ 目标 X={target_x}（当前 X={before}，速度={speed}）")
+    fb_before = _read(robot, "Robot_FinishFB")
+    distance = (int(target_x) - int(before)) if isinstance(before, (int, float)) else "N/A"
+    logger.info(f"→ 目标 X={target_x}｜当前 X={before}｜距离={distance}｜"
+                f"速度={speed}｜触发前 FinishFB={fb_before}")
     t0 = time.time()
     try:
         robot.move_x(int(target_x), x_speed=speed, timeout=120.0)
     except Exception as e:
-        logger.error(f"✗ 移动失败: {e}")
+        logger.error(f"✗ 移动失败: {e}（触发后 FinishFB={_read(robot, 'Robot_FinishFB')}，"
+                     f"Error_code={_read(robot, 'Robot_Error_code')}）")
         return
     after = read_x(robot)
+    xposset = _read(robot, "Robot_XPosSet")
+    fb_after = _read(robot, "Robot_FinishFB")
     dt = time.time() - t0
     err = (after - target_x) if isinstance(after, (int, float)) else "N/A"
-    logger.info(f"✓ 到位：X={after}（目标 {target_x}，误差 {err}，耗时 {dt:.1f}s）")
+    logger.info(f"✓ 完成：X={after}（目标 {target_x}，误差 {err}）｜"
+                f"XPosSet回读={xposset}｜FinishFB={fb_after}｜耗时 {dt:.1f}s")
+
 
 
 def _print_stations() -> list:

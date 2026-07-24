@@ -458,19 +458,14 @@ class OpcUaClientWithSubscription(BaseOpcUaClient):
         # 缓存相关属性
         self._node_values = {}
         self._cache_timeout = cache_timeout
-        
-        # 连接状态监控（保活）
-        # 间隔需短于服务器空闲超时，保持连接热度避免被关闭（现场实测 <30s 会断，故取 10s）
-        self._connection_check_interval = 10.0
-        self._connection_monitor_running = False
-        self._connection_monitor_thread = None
-        
+
+        # 断线按需重连（无后台线程）：仅当读/写实际失败时才重连并重试一次；限流避免重连风暴
+        self._reconnect_min_interval = 3.0
+        self._last_reconnect_ts = 0.0
+
         # 连接到服务器
         self._connect()
-        
-        # 启动连接监控
-        self._start_connection_monitor()
-        
+
 
     def _connect(self) -> None:
         """连接到OPC UA服务器"""
@@ -581,16 +576,16 @@ class OpcUaClientWithSubscription(BaseOpcUaClient):
         else:
             raise ValueError(f"未找到名称为 '{name}' 的节点")
         
-        # 如果强制读取，直接从服务器读取
+        # 如果强制读取，直接从服务器读取（失败时自动重连重试）
         if force_read:
-            with self._client_lock:
-                value, _ = self.use_node(chinese_name).read()
+            value, error = self._read_raw(chinese_name)
+            if not error:
                 self._node_values[chinese_name] = {
                     'value': value,
                     'timestamp': time.time(),
                     'source': 'forced_read'
                 }
-                return value
+            return value
         
         # 检查缓存
         if use_cache and chinese_name in self._node_values:
@@ -601,23 +596,18 @@ class OpcUaClientWithSubscription(BaseOpcUaClient):
                 logger.trace(f"从缓存读取: {chinese_name} = {cache_entry['value']} (age: {cache_age:.2f}s, source: {cache_entry.get('source', 'unknown')})")
                 return cache_entry['value']
         
-        # 缓存过期或不存在，从服务器读取
-        with self._client_lock:
-            try:
-                value, error = self.use_node(chinese_name).read()
-                if not error:
-                    self._node_values[chinese_name] = {
-                        'value': value,
-                        'timestamp': time.time(),
-                        'source': 'on_demand_read'
-                    }
-                    return value
-                else:
-                    logger.warning(f"读取节点 {chinese_name} 失败")
-                    return None
-            except Exception as e:
-                logger.error(f"读取节点 {chinese_name} 出错: {e}")
-                return None
+        # 缓存过期或不存在，从服务器读取（失败时自动重连重试）
+        value, error = self._read_raw(chinese_name)
+        if not error:
+            self._node_values[chinese_name] = {
+                'value': value,
+                'timestamp': time.time(),
+                'source': 'on_demand_read'
+            }
+            return value
+        else:
+            logger.warning(f"读取节点 {chinese_name} 失败")
+            return None
     
     def set_node_value(self, name, value):
         """设置节点值"""
@@ -629,71 +619,27 @@ class OpcUaClientWithSubscription(BaseOpcUaClient):
         else:
             raise ValueError(f"未找到名称为 '{name}' 的节点")
         
-        with self._client_lock:
-            try:
-                node = self.use_node(chinese_name)
-                error = node.write(value)
-                
-                if not error:
-                    self._node_values[chinese_name] = {
-                        'value': value,
-                        'timestamp': time.time(),
-                        'source': 'write'
-                    }
-                    logger.debug(f"写入成功: {chinese_name} = {value}")
-                    return True
-                else:
-                    logger.warning(f"写入节点 {chinese_name} 失败")
-                    return False
-            except Exception as e:
-                logger.error(f"写入节点 {chinese_name} 出错: {e}")
-                return False
-    
-    def _check_connection(self) -> bool:
-        """轻量探活：读一次命名空间数组保持连接热度。失败返回 False（不在此处打日志，
-        由监控线程按状态变化决定，避免每周期刷屏）。"""
-        try:
-            with self._client_lock:
-                if self.client:
-                    self.client.get_namespace_array()
-                    return True
-        except Exception:
+        error = self._write_raw(chinese_name, value)
+        if not error:
+            self._node_values[chinese_name] = {
+                'value': value,
+                'timestamp': time.time(),
+                'source': 'write'
+            }
+            logger.debug(f"写入成功: {chinese_name} = {value}")
+            return True
+        else:
+            logger.warning(f"写入节点 {chinese_name} 失败")
             return False
-        return False
-
-    def _connection_monitor_worker(self):
-        """连接保活 + 监控线程。
-
-        以短于服务器空闲超时的间隔（_connection_check_interval）周期探活，
-        保持连接"热度"避免被服务器关闭；断线时静默重连，**仅在连接状态
-        真正发生变化时打日志**（断开一次 WARNING、恢复一次 INFO），不再刷屏。
-        """
-        self._connection_monitor_running = True
-        logger.info(f"连接保活线程已启动 (探活间隔: {self._connection_check_interval}秒)")
-
-        was_connected = True  # 启动时已连接
-        while self._connection_monitor_running:
-            try:
-                if self._check_connection():
-                    if not was_connected:
-                        logger.info("✓ OPC UA 连接已恢复")
-                        was_connected = True
-                else:
-                    if was_connected:
-                        logger.warning("检测到 OPC UA 连接断开，正在后台重连...")
-                        was_connected = False
-                    # 静默重连：成功则打一条恢复日志，失败则下个周期再试（不刷屏）
-                    if self._try_reconnect():
-                        logger.info("✓ OPC UA 重连成功")
-                        was_connected = True
-            except Exception as e:
-                logger.error(f"连接监控出错: {e}")
-
-            time.sleep(self._connection_check_interval)
-
-    def _try_reconnect(self) -> bool:
-        """断线重连：复用同一 client 重建会话，成功后重建订阅。失败返回 False（不抛异常）。"""
+    
+    def _reconnect(self) -> bool:
+        """断线按需重连（无后台线程）：复用同一 client 重建会话，成功后重建订阅。
+        限流：距上次重连不足 _reconnect_min_interval 秒则跳过，避免读写连续失败时重连风暴。"""
         with self._client_lock:
+            now = time.time()
+            if now - self._last_reconnect_ts < self._reconnect_min_interval:
+                return False
+            self._last_reconnect_ts = now
             if not self.client:
                 return False
             try:
@@ -702,37 +648,50 @@ class OpcUaClientWithSubscription(BaseOpcUaClient):
                 except Exception:
                     pass
                 self.client.connect()
+                logger.info("✓ OPC UA 断线重连成功")
                 if self._use_subscription:
                     try:
                         self._setup_subscriptions()
                     except Exception as e:
                         logger.warning(f"重连后重建订阅失败（不影响按需读写）: {e}")
                 return True
-            except Exception:
+            except Exception as e:
+                logger.error(f"OPC UA 断线重连失败: {e}")
                 return False
 
-    
-    def _start_connection_monitor(self):
-        """启动连接监控线程"""
-        if self._connection_monitor_thread is not None and self._connection_monitor_thread.is_alive():
-            logger.warning("连接监控线程已在运行")
-            return
-            
-        import threading
-        self._connection_monitor_thread = threading.Thread(
-            target=self._connection_monitor_worker, 
-            daemon=True,
-            name="OpcUaConnectionMonitor"
-        )
-        self._connection_monitor_thread.start()
-    
-    def _stop_connection_monitor(self):
-        """停止连接监控线程"""
-        self._connection_monitor_running = False
-        if self._connection_monitor_thread and self._connection_monitor_thread.is_alive():
-            self._connection_monitor_thread.join(timeout=2.0)
-            logger.info("连接监控线程已停止")
-    
+    def _read_raw(self, chinese_name):
+        """读取一次；失败(含 Broken pipe)则重连后重试一次。返回 (value, error)。"""
+        with self._client_lock:
+            try:
+                value, error = self.use_node(chinese_name).read()
+            except Exception as e:
+                logger.error(f"读取节点 {chinese_name} 出错: {e}")
+                value, error = None, True
+            if error and self._reconnect():
+                try:
+                    value, error = self.use_node(chinese_name).read()
+                except Exception as e:
+                    logger.error(f"重连后读取 {chinese_name} 仍出错: {e}")
+                    value, error = None, True
+            return value, error
+
+    def _write_raw(self, chinese_name, value) -> bool:
+        """写入一次；失败(含 Broken pipe)则重连后重试一次。返回 error(True=失败)。"""
+        with self._client_lock:
+            try:
+                error = self.use_node(chinese_name).write(value)
+            except Exception as e:
+                logger.error(f"写入节点 {chinese_name} 出错: {e}")
+                error = True
+            if error and self._reconnect():
+                try:
+                    error = self.use_node(chinese_name).write(value)
+                except Exception as e:
+                    logger.error(f"重连后写入 {chinese_name} 仍出错: {e}")
+                    error = True
+            return error
+
+
     def read_node(self, node_name: str) -> str:
         """读取节点值的便捷方法（使用缓存）"""
         try:
@@ -852,10 +811,7 @@ class OpcUaClientWithSubscription(BaseOpcUaClient):
     def disconnect(self):
         """断开连接并清理资源"""
         logger.info("正在断开连接...")
-        
-        # 停止连接监控
-        self._stop_connection_monitor()
-        
+
         # 删除订阅
         if self._subscription:
             try:

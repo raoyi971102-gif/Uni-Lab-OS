@@ -2,8 +2,11 @@
 机械手 设备驱动（OPC UA 1.3.6，前缀 Robot_）
 
 职责：只负责在各工站抓 / 放。参数 = 工站(station) + 物料(item_type) + 抓取数字(number)。
-流程：X 走到工站 → 按瓶/板微调 X → 按 number 写 PLC 触发抓/放。
-抓与放对机械手而言只是 Robot_CmdType 写入值不同：3=夹料(取) / 4=放料(放)，流程一致。
+流程（各步逐个触发、等 FinishFB=1 完成后再下一步）：
+  1) X 小车移动：读当前 X → 距离=目标绝对坐标−当前 → 写距离到 Robot_XPosSet，
+     CmdType 恒=2，触发一次，等 Robot_XPosFB 到达目标绝对坐标（X 移动全程 FinishFB=1）；
+  2)（旋转堆栈）按 number 转到对应列，等旋转到位；
+  3) 抓/放：写模块号+板位到对应寄存器 → CmdType=3(夹料)/4(放料) → 触发，等 FinishFB 完成。
 
 抓放协议（1.3.6）：
     Robot_ModuleNoSet 选工站 → Robot_<工站>=number（工位号）→ Robot_CmdType(3/4)
@@ -40,12 +43,16 @@ DEFAULT_CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "opc
 ITEM_PLATE = "plate"    # 孔板/板位
 ITEM_BOTTLE = "bottle"  # 瓶位
 
+X_REACH_TOL = 0         # X 到位容差（Robot_XPosFB 与目标绝对坐标之差 ≤ 此值即视为到位）
+
 
 class RobotCommand(int, Enum):
-    """机械手指令类型 (Robot_CmdType，1.3.6)"""
+    """机械手指令类型 (Robot_CmdType，1.3.6)。
+    注意：X 小车移动统一用 CmdType=2 + 带符号的相对距离，方向由距离正负体现，
+    不再按左右分 1/2。X_LEFT 仅作协议对照保留。"""
 
     X_LEFT = 1
-    X_RIGHT = 2
+    X_RIGHT = 2        # X 移动统一用此值（配合带符号距离）
     PICK = 3          # 夹料（取）
     PLACE = 4         # 放料（放）
     STOP = 6          # 停止
@@ -190,50 +197,61 @@ class RoboticArmDevice(GNStationClient):
 
     @not_action
     def _pick_or_place(self, mode, station, item_type, number, x_speed, timeout) -> dict:
-        """抓/放单工站：空闲检查 → X 走到工站并按瓶/板选位 →（旋转堆栈：请求旋转到 number
-        对应列并等旋转到位）→ 按 number 写 PLC 触发抓/放。"""
+        """抓/放单工站（各步逐个触发、等 FinishFB=1 完成后再下一步）：
+        1) 小车 move_x 到工站绝对坐标，等 FinishFB=1；
+        2)（旋转堆栈）按 number（工站内子位置）转到对应列并校验旋转到位；
+        3) 写模块号(Robot_ModuleNoSet=当前工站) → 写工站子位置(Robot_<工站>=number)
+           → CmdType(3取/4放) → 触发，等 FinishFB=1。"""
         st = self._station(station)
         target_x = self._target_x(station, item_type)
+        cmd = int(MODE_TO_CMD[mode])
         logger.info(f"机械手：{mode} @{station}（module={st.module_no} X={target_x} {item_type} number={number}）")
 
-        self.ensure_idle()
+        # 1) 小车到工站绝对坐标（move_x 内部：读当前→算距离→CmdType2→触发→等 FinishFB）
         self.move_x(target_x, x_speed, timeout)
+        logger.info(f"机械手：小车已到位 X={target_x}（FinishFB=1），准备{mode}")
 
-        # 旋转堆栈：抓取前先请求按 number 转到对应列并等旋转到位，再执行抓取。
-        # 注意：旋转用绝对 R 定位，依赖 R0 基准——需在开机/换批时外部单独调一次 rotary_stack.reset()。
+        # 2) 旋转堆栈：按 number 转到对应列并校验到位（绝对 R 定位，依赖开机/换批时外部先 reset() 建 R0）
         if st.rotary:
             column = rotary_stack.rotate_for_number(self, number, timeout=timeout)
-            logger.info(f"机械手：旋转堆栈已到位第{column}列，开始{mode}")
+            logger.info(f"机械手：旋转堆栈已校验到位第{column}列，开始{mode}")
 
-        cmd = int(MODE_TO_CMD[mode])
+        # 3) 抓/放：写模块号 → 写工站子位置(number) → CmdType(3/4) → 触发，等 FinishFB=1
         self._run_action(
             cmd,
             setpoints={"Robot_ModuleNoSet": st.module_no, st.action_node: number},
-            description=f"{mode}(CmdType={cmd}) {st.action_node}={number}",
+            description=f"{mode}(CmdType={cmd}) 模块={st.module_no} {st.action_node}={number}",
             timeout=timeout,
         )
         self.set_node_value(st.action_node, 0)
+        logger.info(f"机械手：{mode}@{station} 完成（number={number}）")
         return {"success": True, "message": f"{mode}@{station} 完成", "x": target_x, "number": number}
 
     @not_action
     def move_x(self, target_x: int, x_speed: int = 300, timeout: float = 120.0) -> dict:
-        """X 移动到绝对位置：按当前 X 选左/右，等 Robot_XPosFB 到位。"""
+        """X 移动到绝对坐标（相对移动实现）：
+        读当前 X(Robot_XPosFB) → 距离 = 目标绝对坐标 − 当前 → 把距离写 Robot_XPosSet，
+        CmdType 恒为 2，触发一次 → 等 Robot_XPosFB 到达目标绝对坐标（±X_REACH_TOL）判完成。
+        （X 移动全程 FinishFB=1，不能用忙→闲判完成，故用位置反馈到位。）"""
         current = self.get_node_value("Robot_XPosFB", force_read=True)
-        if current == target_x:
+        if current is None:
+            raise ValueError("无法读取当前 X 位置(Robot_XPosFB)，连接可能已断开")
+        distance = int(target_x) - int(current)
+        if distance == 0:
+            logger.info(f"X 已在目标 {target_x}，无需移动")
             return {"success": True, "message": f"X 已在 {target_x}"}
-        go_right = current is None or current < target_x
-        cmd = int(RobotCommand.X_RIGHT if go_right else RobotCommand.X_LEFT)
-        self.run_command(
-            cmd_type=cmd,
-            setpoints={"Robot_XPosSet": target_x, "Robot_XSpeedSet": x_speed},
-            done_node=None,
-            reach_checks=[("Robot_XPosFB", target_x, 0)],  # PLC 精确到位，要求 Robot_XPosFB == 目标 X
-            clear_done=False,
-            interlock=self.ensure_idle,
-            description=f"X{'向右' if go_right else '向左'}移至{target_x}",
+
+        # 移动指令类型恒为 2；移动距离(带符号)写 Robot_XPosSet；等 Robot_XPosFB 到达目标绝对坐标
+        self._run_action(
+            2,
+            setpoints={"Robot_XPosSet": distance, "Robot_XSpeedSet": x_speed},
+            reach=("Robot_XPosFB", int(target_x), X_REACH_TOL),
+            description=f"X 移动距离 {distance}（{current}→{target_x}）",
             timeout=timeout,
         )
-        return {"success": True, "message": f"X 到位 {target_x}"}
+        after = self.get_node_value("Robot_XPosFB", force_read=True)
+        logger.info(f"X 移动完成：当前 X={after}（目标 {target_x}）")
+        return {"success": True, "message": f"X 到位 {target_x}", "x": after}
 
     @not_action
     def _robot_cmd(self, cmd: RobotCommand, desc: str, timeout: float) -> dict:
@@ -243,10 +261,13 @@ class RoboticArmDevice(GNStationClient):
 
     @not_action
     def _run_action(self, cmd_type: int, description: str, timeout: float,
-                    setpoints: Optional[dict] = None, busy_timeout: float = 5.0) -> None:
-        """就绪/忙握手（Robot_FinishFB：1=就绪/空闲，0=执行中）：
-        确认就绪 → 写点位+CmdType → CmdTrig=1 → 等 FinishFB 先转 0(忙) 再回 1(完成) → CmdTrig=0。
-        （不再清 FinishFB——空闲态它本就是 1。）"""
+                    setpoints: Optional[dict] = None, busy_timeout: float = 5.0,
+                    reach=None) -> None:
+        """指令触发 + 完成判定：
+        确认就绪 → 写点位+CmdType → CmdTrig=1 → 判完成 → CmdTrig=0。
+        完成判定两种：
+          reach=(反馈节点, 目标, 容差) → 等该反馈到位（如 X 移动等 Robot_XPosFB 到目标绝对坐标）；
+          reach=None → 走 FinishFB 就绪/忙握手（1=就绪/空闲，0=执行中，忙→闲判完成）。"""
         self.ensure_idle()
         if setpoints:
             for node, val in setpoints.items():
@@ -260,16 +281,22 @@ class RoboticArmDevice(GNStationClient):
         if not (ok_type and ok_trig):
             raise ValueError(f"{description} 指令写入失败（连接可能已断开，请重试）")
 
-        # 先等 FinishFB 变 0（忙，确认指令被接受），再等其回 1（完成）
-        if self.wait_false("Robot_FinishFB", timeout=busy_timeout, description=f"{description} 开始执行"):
-            done = self.wait_true("Robot_FinishFB", timeout=timeout, description=f"{description} 完成")
+        if reach is not None:
+            # 位置到位判据：等反馈节点到达目标（如 X 移动，FinishFB 全程为 1 不可用）
+            fb_node, target, tol = reach
+            done = self.wait_reached(fb_node, target, tol, timeout=timeout,
+                                     description=f"{description} 到位")
         else:
-            logger.warning(f"[{description}] 未观察到 FinishFB 变忙（可能瞬时完成或指令未被接受）")
-            done = bool(self.get_node_value("Robot_FinishFB", force_read=True))
+            # 就绪/忙握手：先等 FinishFB 变 0（忙），再等其回 1（完成）
+            if self.wait_false("Robot_FinishFB", timeout=busy_timeout, description=f"{description} 开始执行"):
+                done = self.wait_true("Robot_FinishFB", timeout=timeout, description=f"{description} 完成")
+            else:
+                logger.warning(f"[{description}] 未观察到 FinishFB 变忙（可能瞬时完成或指令未被接受）")
+                done = bool(self.get_node_value("Robot_FinishFB", force_read=True))
 
         self.set_node_value("Robot_CmdTrig", 0)
         if not done:
-            raise ValueError(f"{description} 未完成，Error_code={self.get_node_value('Robot_Error_code', force_read=True)}")
+            raise ValueError(f"{description} 未完成/未到位，Error_code={self.get_node_value('Robot_Error_code', force_read=True)}")
         logger.info(f"{description} 完成")
 
     @not_action
