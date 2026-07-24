@@ -459,8 +459,9 @@ class OpcUaClientWithSubscription(BaseOpcUaClient):
         self._node_values = {}
         self._cache_timeout = cache_timeout
         
-        # 连接状态监控
-        self._connection_check_interval = 30.0
+        # 连接状态监控（保活）
+        # 间隔需短于服务器空闲超时，保持连接热度避免被关闭（现场实测 <30s 会断，故取 10s）
+        self._connection_check_interval = 10.0
         self._connection_monitor_running = False
         self._connection_monitor_thread = None
         
@@ -649,60 +650,67 @@ class OpcUaClientWithSubscription(BaseOpcUaClient):
                 return False
     
     def _check_connection(self) -> bool:
-        """检查连接状态"""
+        """轻量探活：读一次命名空间数组保持连接热度。失败返回 False（不在此处打日志，
+        由监控线程按状态变化决定，避免每周期刷屏）。"""
         try:
             with self._client_lock:
                 if self.client:
                     self.client.get_namespace_array()
                     return True
-        except Exception as e:
-            logger.warning(f"连接检查失败: {e}")
+        except Exception:
             return False
         return False
-    
+
     def _connection_monitor_worker(self):
-        """连接监控线程工作函数"""
+        """连接保活 + 监控线程。
+
+        以短于服务器空闲超时的间隔（_connection_check_interval）周期探活，
+        保持连接"热度"避免被服务器关闭；断线时静默重连，**仅在连接状态
+        真正发生变化时打日志**（断开一次 WARNING、恢复一次 INFO），不再刷屏。
+        """
         self._connection_monitor_running = True
-        logger.info(f"连接监控线程已启动 (检查间隔: {self._connection_check_interval}秒)")
-        
-        reconnect_attempts = 0
-        max_reconnect_attempts = 5
-        
+        logger.info(f"连接保活线程已启动 (探活间隔: {self._connection_check_interval}秒)")
+
+        was_connected = True  # 启动时已连接
         while self._connection_monitor_running:
             try:
-                if not self._check_connection():
-                    logger.warning("检测到连接断开，尝试重新连接...")
-                    reconnect_attempts += 1
-                    
-                    if reconnect_attempts <= max_reconnect_attempts:
-                        try:
-                            with self._client_lock:
-                                if self.client:
-                                    try:
-                                        self.client.disconnect()
-                                    except:
-                                        pass
-                                    
-                                    self.client.connect()
-                                    logger.info("✓ 重新连接成功")
-                                    
-                                    if self._use_subscription:
-                                        self._setup_subscriptions()
-                                    
-                                    reconnect_attempts = 0
-                        except Exception as e:
-                            logger.error(f"重新连接失败 (尝试 {reconnect_attempts}/{max_reconnect_attempts}): {e}")
-                            time.sleep(5)
-                    else:
-                        logger.error(f"达到最大重连次数 ({max_reconnect_attempts})，停止重连")
-                        self._connection_monitor_running = False
+                if self._check_connection():
+                    if not was_connected:
+                        logger.info("✓ OPC UA 连接已恢复")
+                        was_connected = True
                 else:
-                    reconnect_attempts = 0
-                
+                    if was_connected:
+                        logger.warning("检测到 OPC UA 连接断开，正在后台重连...")
+                        was_connected = False
+                    # 静默重连：成功则打一条恢复日志，失败则下个周期再试（不刷屏）
+                    if self._try_reconnect():
+                        logger.info("✓ OPC UA 重连成功")
+                        was_connected = True
             except Exception as e:
                 logger.error(f"连接监控出错: {e}")
-            
+
             time.sleep(self._connection_check_interval)
+
+    def _try_reconnect(self) -> bool:
+        """断线重连：复用同一 client 重建会话，成功后重建订阅。失败返回 False（不抛异常）。"""
+        with self._client_lock:
+            if not self.client:
+                return False
+            try:
+                try:
+                    self.client.disconnect()
+                except Exception:
+                    pass
+                self.client.connect()
+                if self._use_subscription:
+                    try:
+                        self._setup_subscriptions()
+                    except Exception as e:
+                        logger.warning(f"重连后重建订阅失败（不影响按需读写）: {e}")
+                return True
+            except Exception:
+                return False
+
     
     def _start_connection_monitor(self):
         """启动连接监控线程"""
