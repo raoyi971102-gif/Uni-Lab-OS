@@ -20,7 +20,8 @@
                 }
             },
             "config": {
-                "plc_device_id": "gn_plc",
+                "url": "opc.tcp://192.168.6.6:4840",
+                "csv_path": "opcua_gn1.3.3.csv",
                 "use_subscription": false
             },
             "data": {}
@@ -45,7 +46,8 @@
                 }
             },
             "config": {
-                "plc_device_id": "gn_plc",
+                "url": "opc.tcp://192.168.6.6:4840",
+                "csv_path": "opcua_gn1.3.3.csv",
                 "use_subscription": false
             },
             "data": {}
@@ -70,7 +72,8 @@
                 }
             },
             "config": {
-                "plc_device_id": "gn_plc",
+                "url": "opc.tcp://192.168.6.6:4840",
+                "csv_path": "opcua_gn1.3.3.csv",
                 "use_subscription": false
             },
             "data": {}
@@ -95,7 +98,8 @@
                 }
             },
             "config": {
-                "plc_device_id": "gn_plc",
+                "url": "opc.tcp://192.168.6.6:4840",
+                "csv_path": "opcua_gn1.3.3.csv",
                 "use_subscription": false
             },
             "data": {}
@@ -120,7 +124,8 @@
                 }
             },
             "config": {
-                "plc_device_id": "gn_plc",
+                "url": "opc.tcp://192.168.6.6:4840",
+                "csv_path": "opcua_gn1.3.3.csv",
                 "use_subscription": false
             },
             "data": {}
@@ -145,7 +150,8 @@
                 }
             },
             "config": {
-                "plc_device_id": "gn_plc",
+                "url": "opc.tcp://192.168.6.6:4840",
+                "csv_path": "opcua_gn1.3.3.csv",
                 "use_subscription": false
             },
             "data": {}
@@ -170,7 +176,8 @@
                 }
             },
             "config": {
-                "plc_device_id": "gn_plc",
+                "url": "opc.tcp://192.168.6.6:4840",
+                "csv_path": "opcua_gn1.3.3.csv",
                 "use_subscription": false
             },
             "data": {}
@@ -195,7 +202,8 @@
                 }
             },
             "config": {
-                "plc_device_id": "gn_plc",
+                "url": "opc.tcp://192.168.6.6:4840",
+                "csv_path": "opcua_gn1.3.3.csv",
                 "use_subscription": false
             },
             "data": {}
@@ -220,7 +228,8 @@
                 }
             },
             "config": {
-                "plc_device_id": "gn_plc",
+                "url": "opc.tcp://192.168.6.6:4840",
+                "csv_path": "opcua_gn1.3.5.csv",
                 "use_subscription": false
             },
             "data": {}
