@@ -15,7 +15,7 @@ from typing import Optional
 
 from unilabos.utils.log import logger
 from unilabos.registry.decorators import action, device, not_action
-from unilabos.devices.workstation.AI4C.base_opcua_client import OpcUaClientWithSubscription
+from unilabos.devices.workstation.GN.gn_opcua_device import GnOpcUaDevice
 
 DEFAULT_CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "opcua_gn1.3.3.csv")
 
@@ -110,7 +110,7 @@ _EXECUTE_CMD_DOC = (
     icon="",
     version="2.0.0",
 )
-class LockingMechanismDevice(OpcUaClientWithSubscription):
+class LockingMechanismDevice(GnOpcUaDevice):
     """锁紧模块设备类（OPC 前缀 Lock_）"""
 
     CMD_TYPE_NODE = "Lock_CmdType"
@@ -119,11 +119,12 @@ class LockingMechanismDevice(OpcUaClientWithSubscription):
 
     def __init__(
         self,
-        url: str,
+        url: Optional[str] = None,
+        plc_device_id: Optional[str] = None,
         csv_path: str = DEFAULT_CSV_PATH,
         username: str = None,
         password: str = None,
-        use_subscription: bool = True,
+        use_subscription: bool = False,
         cache_timeout: float = 5.0,
         subscription_interval: int = 500,
         *args,
@@ -131,6 +132,8 @@ class LockingMechanismDevice(OpcUaClientWithSubscription):
     ):
         super().__init__(
             url=url,
+            plc_device_id=plc_device_id,
+            csv_path=csv_path,
             username=username,
             password=password,
             use_subscription=use_subscription,
@@ -139,8 +142,6 @@ class LockingMechanismDevice(OpcUaClientWithSubscription):
             *args,
             **kwargs,
         )
-        if csv_path:
-            self.load_nodes_from_csv(csv_path)
 
     @action(auto_prefix=True, description=_EXECUTE_CMD_DOC)
     def execute_command(

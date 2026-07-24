@@ -1,184 +1,40 @@
 {
-    "nodes": [      
+    "nodes": [
         {
-            "id": "gn_standard_oven",
-            "name": "常规烘箱",
-            "children": [],
+            "id": "GN_station",
+            "name": "GN_station",
+            "children": [
+                "gn_solid_weighing",
+                "gn_centrifuge_tube_liquid_handling"
+            ],
             "parent": null,
             "type": "device",
-            "class": "gn_standard_oven",
+            "class": "GN_station",
             "position": {
                 "x": 0,
-                "y": 90,
+                "y": 0,
                 "z": 0
             },
             "pose": {
                 "size": {
-                    "width": 150,
-                    "height": 180,
-                    "depth": 400
+                    "width": 450,
+                    "height": 300,
+                    "depth": 0
+                },
+                "layout": "2d",
+                "position": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                },
+                "scale": {
+                    "x": 1,
+                    "y": 1,
+                    "z": 1
                 }
             },
             "config": {
-                "url": "opc.tcp://192.168.6.6:4840",
-                "csv_path": "opcua_gn1.3.3.csv",
-                "use_subscription": false
-            },
-            "data": {}
-        },
-        {
-            "id": "gn_locking_mechanism",
-            "name": "锁紧模块",
-            "children": [],
-            "parent": null,
-            "type": "device",
-            "class": "gn_locking_mechanism",
-            "position": {
-                "x": 160,
-                "y": 90,
-                "z": 0
-            },
-            "pose": {
-                "size": {
-                    "width": 150,
-                    "height": 180,
-                    "depth": 400
-                }
-            },
-            "config": {
-                "url": "opc.tcp://192.168.6.6:4840",
-                "csv_path": "opcua_gn1.3.3.csv",
-                "use_subscription": false
-            },
-            "data": {}
-        },
-        {
-            "id": "gn_quick_carrier_exchange",
-            "name": "快换模块",
-            "children": [],
-            "parent": null,
-            "type": "device",
-            "class": "gn_quick_carrier_exchange",
-            "position": {
-                "x": 280,
-                "y": 90,
-                "z": 0
-            },
-            "pose": {
-                "size": {
-                    "width": 150,
-                    "height": 180,
-                    "depth": 400
-                }
-            },
-            "config": {
-                "url": "opc.tcp://192.168.6.6:4840",
-                "csv_path": "opcua_gn1.3.3.csv",
-                "use_subscription": false
-            },
-            "data": {}
-        },
-        {
-            "id": "gn_centrifuge",
-            "name": "离心机",
-            "children": [],
-            "parent": null,
-            "type": "device",
-            "class": "gn_centrifuge",
-            "position": {
-                "x": 470,
-                "y": 90,
-                "z": 0
-            },
-            "pose": {
-                "size": {
-                    "width": 150,
-                    "height": 180,
-                    "depth": 400
-                }
-            },
-            "config": {
-                "url": "opc.tcp://192.168.6.6:4840",
-                "csv_path": "opcua_gn1.3.3.csv",
-                "use_subscription": false
-            },
-            "data": {}
-        },
-        {
-            "id": "gn_vacuum_oven",
-            "name": "真空烘箱",
-            "children": [],
-            "parent": null,
-            "type": "device",
-            "class": "gn_vacuum_oven",
-            "position": {
-                "x": 655,
-                "y": 90,
-                "z": 0
-            },
-            "pose": {
-                "size": {
-                    "width": 150,
-                    "height": 180,
-                    "depth": 400
-                }
-            },
-            "config": {
-                "url": "opc.tcp://192.168.6.6:4840",
-                "csv_path": "opcua_gn1.3.3.csv",
-                "use_subscription": false
-            },
-            "data": {}
-        },
-        {
-            "id": "gn_centrifuge_tube_liquid_handling",
-            "name": "离心管液体处理",
-            "children": [],
-            "parent": null,
-            "type": "device",
-            "class": "gn_centrifuge_tube_liquid_handling",
-            "position": {
-                "x": 1215,
-                "y": 90,
-                "z": 0
-            },
-            "pose": {
-                "size": {
-                    "width": 150,
-                    "height": 180,
-                    "depth": 400
-                }
-            },
-            "config": {
-                "url": "opc.tcp://192.168.6.6:4840",
-                "csv_path": "opcua_gn1.3.3.csv",
-                "use_subscription": false
-            },
-            "data": {}
-        },
-        {
-            "id": "gn_rotary_stack",
-            "name": "旋转堆栈",
-            "children": [],
-            "parent": null,
-            "type": "device",
-            "class": "gn_rotary_stack",
-            "position": {
-                "x": 1655,
-                "y": 90,
-                "z": 0
-            },
-            "pose": {
-                "size": {
-                    "width": 150,
-                    "height": 180,
-                    "depth": 400
-                }
-            },
-            "config": {
-                "url": "opc.tcp://192.168.6.6:4840",
-                "csv_path": "opcua_gn1.3.3.csv",
-                "use_subscription": false
+                "protocol_type": []
             },
             "data": {}
         },
@@ -186,11 +42,11 @@
             "id": "gn_solid_weighing",
             "name": "固体加样",
             "children": [],
-            "parent": null,
+            "parent": "GN_station",
             "type": "device",
             "class": "gn_solid_weighing",
             "position": {
-                "x": 1960,
+                "x": 100,
                 "y": 90,
                 "z": 0
             },
@@ -203,118 +59,346 @@
             },
             "config": {
                 "url": "opc.tcp://192.168.6.6:4840",
-                "csv_path": "opcua_gn1.3.3.csv",
-                "use_subscription": false
+                "xlsx_path": "OPC_UA协议1.3.4(1).xlsx",
+                "use_subscription": true
             },
-            "data": {}
+            "data": {
+                "actions": [
+                    {
+                        "menu_id": "1",
+                        "name": "夹爪夹取（料架）",
+                        "action": "auto-execute_command",
+                        "params": {
+                            "cmd_type": 12,
+                            "x_pos": 20,
+                            "y_pos": 2100,
+                            "material_z_pos": 0,
+                            "gripper_z_pos": 2200,
+                            "door_pos": 0,
+                            "volune_weight": 0,
+                            "x_speed": 300,
+                            "y_speed": 300,
+                            "material_z_speed": 0,
+                            "gripper_z_speed": 300,
+                            "door_speed": 0,
+                            "timeout": 180.0
+                        }
+                    },
+                    {
+                        "menu_id": "2",
+                        "name": "夹爪放置（加样工位）",
+                        "action": "auto-execute_command",
+                        "params": {
+                            "cmd_type": 13,
+                            "x_pos": -1730,
+                            "y_pos": 1540,
+                            "material_z_pos": 0,
+                            "gripper_z_pos": 1130,
+                            "door_pos": 0,
+                            "volune_weight": 0,
+                            "x_speed": 300,
+                            "y_speed": 300,
+                            "material_z_speed": 0,
+                            "gripper_z_speed": 300,
+                            "door_speed": 0,
+                            "timeout": 180.0
+                        }
+                    },
+                    {
+                        "menu_id": "3",
+                        "name": "取料筒后向外",
+                        "action": "auto-execute_command",
+                        "params": {
+                            "cmd_type": 10,
+                            "x_pos": -1900,
+                            "y_pos": 2220,
+                            "material_z_pos": 235000,
+                            "gripper_z_pos": 0,
+                            "door_pos": 0,
+                            "volune_weight": 0,
+                            "x_speed": 500,
+                            "y_speed": 500,
+                            "material_z_speed": 0,
+                            "gripper_z_speed": 0,
+                            "door_speed": 0,
+                            "timeout": 180.0
+                        }
+                    },
+                    {
+                        "menu_id": "4",
+                        "name": "料筒加样",
+                        "action": "auto-execute_command",
+                        "params": {
+                            "cmd_type": 11,
+                            "x_pos": -300,
+                            "y_pos": 700,
+                            "material_z_pos": 40000,
+                            "gripper_z_pos": 0,
+                            "door_pos": 3700,
+                            "volune_weight": 30,
+                            "x_speed": 500,
+                            "y_speed": 500,
+                            "material_z_speed": 0,
+                            "gripper_z_speed": 0,
+                            "door_speed": 150,
+                            "timeout": 600.0
+                        }
+                    },
+                    {
+                        "menu_id": "5",
+                        "name": "放料筒向里",
+                        "action": "auto-execute_command",
+                        "params": {
+                            "cmd_type": 18,
+                            "x_pos": -1900,
+                            "y_pos": 2220,
+                            "material_z_pos": 235000,
+                            "gripper_z_pos": 0,
+                            "door_pos": 0,
+                            "volune_weight": 0,
+                            "x_speed": 500,
+                            "y_speed": 500,
+                            "material_z_speed": 0,
+                            "gripper_z_speed": 0,
+                            "door_speed": 0,
+                            "timeout": 180.0
+                        }
+                    },
+                    {
+                        "menu_id": "6",
+                        "name": "夹爪夹取（加样工位）",
+                        "action": "auto-execute_command",
+                        "params": {
+                            "cmd_type": 12,
+                            "x_pos": -1730,
+                            "y_pos": 1540,
+                            "material_z_pos": 0,
+                            "gripper_z_pos": 1130,
+                            "door_pos": 0,
+                            "volune_weight": 0,
+                            "x_speed": 300,
+                            "y_speed": 300,
+                            "material_z_speed": 0,
+                            "gripper_z_speed": 300,
+                            "door_speed": 0,
+                            "timeout": 180.0
+                        }
+                    },
+                    {
+                        "menu_id": "7",
+                        "name": "夹爪放置（料架）",
+                        "action": "auto-execute_command",
+                        "params": {
+                            "cmd_type": 13,
+                            "x_pos": 20,
+                            "y_pos": 2100,
+                            "material_z_pos": 0,
+                            "gripper_z_pos": 2180,
+                            "door_pos": 0,
+                            "volune_weight": 0,
+                            "x_speed": 300,
+                            "y_speed": 300,
+                            "material_z_speed": 0,
+                            "gripper_z_speed": 300,
+                            "door_speed": 0,
+                            "timeout": 180.0
+                        }
+                    },
+                    {
+                        "menu_id": "8",
+                        "name": "复位",
+                        "action": "auto-execute_command",
+                        "params": {
+                            "cmd_type": 20,
+                            "x_pos": 0,
+                            "y_pos": 0,
+                            "material_z_pos": 0,
+                            "gripper_z_pos": 0,
+                            "door_pos": 0,
+                            "volune_weight": 0,
+                            "x_speed": 0,
+                            "y_speed": 0,
+                            "material_z_speed": 0,
+                            "gripper_z_speed": 0,
+                            "door_speed": 0,
+                            "timeout": 180.0
+                        }
+                    },
+                    {
+                        "menu_id": "14",
+                        "name": "天枰去皮",
+                        "action": "auto-execute_command",
+                        "params": {
+                            "cmd_type": 14,
+                            "timeout": 180.0
+                        }
+                    },
+                    {
+                        "menu_id": "15",
+                        "name": "天枰称重",
+                        "action": "auto-execute_command",
+                        "params": {
+                            "cmd_type": 15,
+                            "timeout": 180.0
+                        }
+                    }
+                ]
+            }
         },
         {
-            "id": "gn_robotic_arm",
-            "name": "机械手",
+            "id": "gn_centrifuge_tube_liquid_handling",
+            "name": "离心管液体处理",
             "children": [],
-            "parent": null,
+            "parent": "GN_station",
             "type": "device",
-            "class": "gn_robotic_arm",
+            "class": "gn_centrifuge_tube_liquid_handling",
             "position": {
-                "x": 0,
-                "y": 0,
+                "x": 260,
+                "y": 90,
                 "z": 0
             },
             "pose": {
                 "size": {
-                    "width": 2110,
-                    "height": 90,
+                    "width": 150,
+                    "height": 180,
                     "depth": 400
                 }
             },
             "config": {
                 "url": "opc.tcp://192.168.6.6:4840",
-                "csv_path": "opcua_gn1.3.5.csv",
-                "use_subscription": false
-            },
-            "data": {}
-        },
-        {
-            "id": "PRCXI",
-            "name": "PRCXI",
-            "type": "device",
-            "class": "liquid_handler.prcxi",
-            "parent": null,
-            "pose": {
-                "size": {
-                    "width": 1,
-                    "height": 400,
-                    "depth": 0
-                }
-            },
-            "config": {
-                "axis": "Left",
-                "deck": {
-                    "_resource_type": "unilabos.devices.workstation.GN.liquid_handling.prcxi.prcxi:PRCXI9300Deck",
-                    "_resource_child_name": "PRCXI_Deck"
-                },
-                "host": "127.0.0.1",
-                "port": 9999,
-                "debug": false,
-                "setup": false,
-                "is_9320": true,
-                "timeout": 10,
-                "matrix_id": "32f6e587-c5cf-4efa-b82f-85b61ac8b6d8",
-                "simulator": false,
-                "channel_num": 96,
-                "protocol_version": "v04",
-                "start_rail": 0,
-                "row_nums": 4,
-                "column_nums": 4,
-                "prc_sites_config": [
-                ],
-                "pip_setting": {
-                    "left": {"vol": 1250, "channels": 96}
-                },
-                "step_mode": false,
-                "touch_tip_mode": "native",
-                "touch_tip_wall": "follow_axis"
+                "xlsx_path": "OPC_UA协议1.3.4(1).xlsx",
+                "use_subscription": true
             },
             "data": {
-                "reset_ok": true
-            },
-            "schema": {},
-            "description": "",
-            "model": null,
-            "position": {
-                "x": 0,
-                "y": 240,
-                "z": 0
+                "actions": [
+                    {
+                        "menu_id": "1",
+                        "name": "8通道装载",
+                        "action": "auto-ch8_load",
+                        "params": {}
+                    },
+                    {
+                        "menu_id": "2",
+                        "name": "8通道吸液",
+                        "action": "auto-ch8_aspirate",
+                        "params": {}
+                    },
+                    {
+                        "menu_id": "3",
+                        "name": "8通道放液",
+                        "action": "auto-ch8_dispense",
+                        "params": {}
+                    },
+                    {
+                        "menu_id": "4",
+                        "name": "8通道混匀",
+                        "action": "auto-ch8_mix",
+                        "params": {}
+                    },
+                    {
+                        "menu_id": "5",
+                        "name": "8通道卸载",
+                        "action": "auto-ch8_unload",
+                        "params": {}
+                    },
+                    {
+                        "menu_id": "6",
+                        "name": "大夹爪抓取",
+                        "action": "auto-big_gripper_pick",
+                        "params": {}
+                    },
+                    {
+                        "menu_id": "7",
+                        "name": "大夹爪放置",
+                        "action": "auto-big_gripper_place",
+                        "params": {}
+                    },
+                    {
+                        "menu_id": "8",
+                        "name": "超声波混匀",
+                        "action": "auto-ultrasound_mix",
+                        "params": {}
+                    },
+                    {
+                        "menu_id": "9",
+                        "name": "大夹爪抓取(2)",
+                        "action": "auto-big_gripper_pick_2",
+                        "params": {}
+                    },
+                    {
+                        "menu_id": "10",
+                        "name": "大夹爪放置(2)",
+                        "action": "auto-big_gripper_place_2",
+                        "params": {}
+                    },
+                    {
+                        "menu_id": "11",
+                        "name": "小夹爪开盖",
+                        "action": "auto-small_gripper_open_lid",
+                        "params": {}
+                    },
+                    {
+                        "menu_id": "12",
+                        "name": "小夹爪放置",
+                        "action": "auto-small_gripper_place",
+                        "params": {}
+                    },
+                    {
+                        "menu_id": "13",
+                        "name": "单通道装载",
+                        "action": "auto-ch1_load",
+                        "params": {}
+                    },
+                    {
+                        "menu_id": "14",
+                        "name": "单通道吸液",
+                        "action": "auto-ch1_aspirate",
+                        "params": {}
+                    },
+                    {
+                        "menu_id": "15",
+                        "name": "单通道放液",
+                        "action": "auto-ch1_dispense",
+                        "params": {}
+                    },
+                    {
+                        "menu_id": "16",
+                        "name": "单通道卸载",
+                        "action": "auto-ch1_unload",
+                        "params": {}
+                    },
+                    {
+                        "menu_id": "17",
+                        "name": "小夹爪抓取",
+                        "action": "auto-small_gripper_pick",
+                        "params": {}
+                    },
+                    {
+                        "menu_id": "18",
+                        "name": "小夹爪关盖",
+                        "action": "auto-small_gripper_close_lid",
+                        "params": {}
+                    },
+                    {
+                        "menu_id": "19",
+                        "name": "复位",
+                        "action": "auto-reset",
+                        "params": {}
+                    },
+                    {
+                        "menu_id": "20",
+                        "name": "超声波混匀立即停止",
+                        "action": "auto-ultrasound_stop",
+                        "params": {}
+                    },
+                    {
+                        "menu_id": "37",
+                        "name": "XYZ回原点",
+                        "action": "auto-home_xyz",
+                        "params": {}
+                    }
+                ]
             }
-        },
-        {
-            "id": "PRCXI_Deck",
-            "name": "PRCXI_Deck",
-            "children": [],
-            "parent": "PRCXI",
-            "type": "deck",
-            "class": "",
-            "position": {
-                "x": 0,
-                "y": 0,
-                "z": 0
-            },
-            "config": {
-                "type": "PRCXI9300Deck",
-                "size_x": 825,
-                "size_y": 400,
-                "size_z": 17,
-                "rotation": {
-                    "x": 0,
-                    "y": 0,
-                    "z": 0,
-                    "type": "Rotation"
-                },
-                "category": "deck",
-                "barcode": null,
-                "preferred_pickup_location": null
-            },
-            "data": {}
         }
     ],
     "links": []

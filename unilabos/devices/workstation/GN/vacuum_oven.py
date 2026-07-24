@@ -1,6 +1,5 @@
 """
-unilab -g unilabos/devices/workstation/GN/GN_station.json --ak 4b9d0867-78f8-4933-80f9-50196afbb4e2 --sk e6beb860-c77a-4b70-a039-c83b2ff0424f --upload_registry --addr https://leap-lab.bohrium.com/api/v1 --disable_browser
-真空烘箱 设备驱动
+unilab -g unilabos\devices\workstation\GN\GN_station.json --ak b19d8b2f-8067-4821-a163-7bf15abb0b2e --sk 3f620bb2-7687-44cc-949f-a1fbdf043d48 --upload_registry --addr https://leap-lab.bohrium.com/api/v1 --disable_browser    
 
 真空烘箱密码：7701
 温度报警：130°C
@@ -24,7 +23,7 @@ from typing import Optional
 
 from unilabos.utils.log import logger
 from unilabos.registry.decorators import action, device, not_action
-from unilabos.devices.workstation.AI4C.base_opcua_client import OpcUaClientWithSubscription
+from unilabos.devices.workstation.GN.gn_opcua_device import GnOpcUaDevice
 
 DEFAULT_CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "opcua_gn1.3.3.csv")
 
@@ -63,7 +62,7 @@ _EXECUTE_CMD_DOC = (
     icon="",
     version="2.0.0",
 )
-class VacuumOvenDevice(OpcUaClientWithSubscription):
+class VacuumOvenDevice(GnOpcUaDevice):
     """真空烘箱设备类（OPC 前缀 VacuumOven_）"""
 
     CMD_TYPE_NODE = "VacuumOven_CmdType"
@@ -73,11 +72,12 @@ class VacuumOvenDevice(OpcUaClientWithSubscription):
 
     def __init__(
         self,
-        url: str,
+        url: Optional[str] = None,
+        plc_device_id: Optional[str] = None,
         csv_path: str = DEFAULT_CSV_PATH,
         username: str = None,
         password: str = None,
-        use_subscription: bool = True,
+        use_subscription: bool = False,
         cache_timeout: float = 5.0,
         subscription_interval: int = 500,
         *args,
@@ -85,6 +85,8 @@ class VacuumOvenDevice(OpcUaClientWithSubscription):
     ):
         super().__init__(
             url=url,
+            plc_device_id=plc_device_id,
+            csv_path=csv_path,
             username=username,
             password=password,
             use_subscription=use_subscription,
@@ -93,8 +95,6 @@ class VacuumOvenDevice(OpcUaClientWithSubscription):
             *args,
             **kwargs,
         )
-        if csv_path:
-            self.load_nodes_from_csv(csv_path)
 
     @action(auto_prefix=True, description=_EXECUTE_CMD_DOC)
     def execute_command(

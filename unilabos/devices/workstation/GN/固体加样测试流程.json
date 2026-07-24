@@ -1,0 +1,548 @@
+{
+  "target_lab_uuid": "a79a5b60-a3de-4d7d-aed7-6a11a14a4341",
+  "name": "固体加样测试流程",
+  "data": {
+    "workflow_uuid": "d5fe59d2-a0e9-42a9-81b7-3054a213fb32",
+    "workflow_name": "固体加样测试流程",
+    "nodes": [
+      {
+        "uuid": "6b6e048a-9737-482d-8c4f-0b339477ddbf",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": -32,
+            "y": 210,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_pos": 20,
+          "y_pos": 2100,
+          "timeout": 180,
+          "x_speed": 300,
+          "y_speed": 300,
+          "cmd_type": 12,
+          "door_pos": 0,
+          "door_speed": 0,
+          "gripper_z_pos": 2200,
+          "volune_weight": 0,
+          "material_z_pos": 0,
+          "gripper_z_speed": 300,
+          "material_z_speed": 0
+        },
+        "footer": "",
+        "device_name": "gn_solid_weighing",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "c003dbf6-1d2d-4461-87cb-cfd7895ade8d",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_solid_weighing"
+      },
+      {
+        "uuid": "8985d0ed-eedf-4440-bae8-a2e163b4b877",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 398,
+            "y": 210,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_pos": -1730,
+          "y_pos": 1540,
+          "timeout": 180,
+          "x_speed": 300,
+          "y_speed": 300,
+          "cmd_type": 13,
+          "door_pos": 0,
+          "door_speed": 0,
+          "gripper_z_pos": 1130,
+          "volune_weight": 0,
+          "material_z_pos": 0,
+          "gripper_z_speed": 300,
+          "material_z_speed": 0
+        },
+        "footer": "",
+        "device_name": "gn_solid_weighing",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "c003dbf6-1d2d-4461-87cb-cfd7895ade8d",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_solid_weighing"
+      },
+      {
+        "uuid": "df3596dd-fe95-4256-9840-8433dde7da86",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 828,
+            "y": 210,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_pos": -1900,
+          "y_pos": 2220,
+          "timeout": 180,
+          "x_speed": 500,
+          "y_speed": 500,
+          "cmd_type": 10,
+          "door_pos": 0,
+          "door_speed": 0,
+          "gripper_z_pos": 0,
+          "volune_weight": 0,
+          "material_z_pos": 235000,
+          "gripper_z_speed": 0,
+          "material_z_speed": 0
+        },
+        "footer": "",
+        "device_name": "gn_solid_weighing",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "c003dbf6-1d2d-4461-87cb-cfd7895ade8d",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_solid_weighing"
+      },
+      {
+        "uuid": "7fd0f04f-2a7c-415c-9b61-2f8759e7d4af",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1258,
+            "y": 210,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_pos": -300,
+          "y_pos": 700,
+          "timeout": 600,
+          "x_speed": 500,
+          "y_speed": 500,
+          "cmd_type": 11,
+          "door_pos": 3700,
+          "door_speed": 150,
+          "gripper_z_pos": 0,
+          "volune_weight": 500,
+          "material_z_pos": 40000,
+          "gripper_z_speed": 0,
+          "material_z_speed": 0
+        },
+        "footer": "",
+        "device_name": "gn_solid_weighing",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "c003dbf6-1d2d-4461-87cb-cfd7895ade8d",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_solid_weighing"
+      },
+      {
+        "uuid": "6bdb573d-c7f4-4823-a27f-fafa8b0b6afd",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1688,
+            "y": 210,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_pos": -1900,
+          "y_pos": 2220,
+          "timeout": 180,
+          "x_speed": 500,
+          "y_speed": 500,
+          "cmd_type": 18,
+          "door_pos": 0,
+          "door_speed": 0,
+          "gripper_z_pos": 0,
+          "volune_weight": 0,
+          "material_z_pos": 235000,
+          "gripper_z_speed": 0,
+          "material_z_speed": 0
+        },
+        "footer": "",
+        "device_name": "gn_solid_weighing",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "c003dbf6-1d2d-4461-87cb-cfd7895ade8d",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_solid_weighing"
+      },
+      {
+        "uuid": "423c276d-b82e-4cca-8781-f68c79d493d1",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 2118,
+            "y": 210,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_pos": -1730,
+          "y_pos": 1540,
+          "timeout": 180,
+          "x_speed": 300,
+          "y_speed": 300,
+          "cmd_type": 12,
+          "door_pos": 0,
+          "door_speed": 0,
+          "gripper_z_pos": 1130,
+          "volune_weight": 0,
+          "material_z_pos": 0,
+          "gripper_z_speed": 300,
+          "material_z_speed": 0
+        },
+        "footer": "",
+        "device_name": "gn_solid_weighing",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "c003dbf6-1d2d-4461-87cb-cfd7895ade8d",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_solid_weighing"
+      },
+      {
+        "uuid": "768c8acf-cb73-4c2f-98ea-13924642e3ff",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 2548,
+            "y": 210,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_pos": 20,
+          "y_pos": 2100,
+          "timeout": 180,
+          "x_speed": 300,
+          "y_speed": 300,
+          "cmd_type": 13,
+          "door_pos": 0,
+          "door_speed": 0,
+          "gripper_z_pos": 2180,
+          "volune_weight": 0,
+          "material_z_pos": 0,
+          "gripper_z_speed": 300,
+          "material_z_speed": 0
+        },
+        "footer": "",
+        "device_name": "gn_solid_weighing",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "c003dbf6-1d2d-4461-87cb-cfd7895ade8d",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_solid_weighing"
+      },
+      {
+        "uuid": "334e6a11-4ace-481e-bda4-9e6cdfb7a10f",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 2978,
+            "y": 210,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "x_pos": 0,
+          "y_pos": 0,
+          "timeout": 180,
+          "x_speed": 0,
+          "y_speed": 0,
+          "cmd_type": 20,
+          "door_pos": 0,
+          "door_speed": 0,
+          "gripper_z_pos": 0,
+          "volune_weight": 0,
+          "material_z_pos": 0,
+          "gripper_z_speed": 0,
+          "material_z_speed": 0
+        },
+        "footer": "",
+        "device_name": "gn_solid_weighing",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "c003dbf6-1d2d-4461-87cb-cfd7895ade8d",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_solid_weighing"
+      }
+    ],
+    "edges": [
+      {
+        "source_node_uuid": "6b6e048a-9737-482d-8c4f-0b339477ddbf",
+        "target_node_uuid": "8985d0ed-eedf-4440-bae8-a2e163b4b877",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "8985d0ed-eedf-4440-bae8-a2e163b4b877",
+        "target_node_uuid": "df3596dd-fe95-4256-9840-8433dde7da86",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "df3596dd-fe95-4256-9840-8433dde7da86",
+        "target_node_uuid": "7fd0f04f-2a7c-415c-9b61-2f8759e7d4af",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "7fd0f04f-2a7c-415c-9b61-2f8759e7d4af",
+        "target_node_uuid": "6bdb573d-c7f4-4823-a27f-fafa8b0b6afd",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "6bdb573d-c7f4-4823-a27f-fafa8b0b6afd",
+        "target_node_uuid": "423c276d-b82e-4cca-8781-f68c79d493d1",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "423c276d-b82e-4cca-8781-f68c79d493d1",
+        "target_node_uuid": "768c8acf-cb73-4c2f-98ea-13924642e3ff",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "768c8acf-cb73-4c2f-98ea-13924642e3ff",
+        "target_node_uuid": "334e6a11-4ace-481e-bda4-9e6cdfb7a10f",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      }
+    ]
+  }
+}

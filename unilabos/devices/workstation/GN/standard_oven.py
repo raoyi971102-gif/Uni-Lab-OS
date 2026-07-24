@@ -28,7 +28,7 @@ from typing import Optional
 
 from unilabos.utils.log import logger
 from unilabos.registry.decorators import action, device, not_action
-from unilabos.devices.workstation.AI4C.base_opcua_client import OpcUaClientWithSubscription
+from unilabos.devices.workstation.GN.gn_opcua_device import GnOpcUaDevice
 
 DEFAULT_CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "opcua_gn1.3.3.csv")
 
@@ -64,7 +64,7 @@ _EXECUTE_CMD_DOC = (
     icon="",
     version="2.0.0",
 )
-class StandardOvenDevice(OpcUaClientWithSubscription):
+class StandardOvenDevice(GnOpcUaDevice):
     """常规烘箱设备类（OPC 前缀 Oven_）"""
 
     CMD_TYPE_NODE = "Oven_CmdType"
@@ -74,11 +74,12 @@ class StandardOvenDevice(OpcUaClientWithSubscription):
 
     def __init__(
         self,
-        url: str,
+        url: Optional[str] = None,
+        plc_device_id: Optional[str] = None,
         csv_path: str = DEFAULT_CSV_PATH,
         username: str = None,
         password: str = None,
-        use_subscription: bool = True,
+        use_subscription: bool = False,
         cache_timeout: float = 5.0,
         subscription_interval: int = 500,
         *args,
@@ -86,6 +87,8 @@ class StandardOvenDevice(OpcUaClientWithSubscription):
     ):
         super().__init__(
             url=url,
+            plc_device_id=plc_device_id,
+            csv_path=csv_path,
             username=username,
             password=password,
             use_subscription=use_subscription,
@@ -94,8 +97,6 @@ class StandardOvenDevice(OpcUaClientWithSubscription):
             *args,
             **kwargs,
         )
-        if csv_path:
-            self.load_nodes_from_csv(csv_path)
 
     @action(auto_prefix=True, description=_EXECUTE_CMD_DOC)
     def execute_command(
@@ -342,7 +343,7 @@ class StandardOvenDevice(OpcUaClientWithSubscription):
         )
 
     @not_action
-    def run_test_flow(self, temperature: int = 80, hours: int = 0, minutes: int = 1) -> dict:
+    def run_test_flow(self, temperature: int = 25, hours: int = 0, minutes: int = 1) -> dict:
         """连通测试：启动（等待程序结束）→ 复位/停止"""
         logger.info("常规烘箱：开始测试流程...")
         self.execute_command(

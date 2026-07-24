@@ -6,7 +6,7 @@
     "workflow_name": "金四面体合成工作流",
     "nodes": [
       {
-        "uuid": "41b55ed8-1db9-4732-8210-9f6205261a30",
+        "uuid": "af728c04-7f0e-463c-8703-59bb0cb33452",
         "parent_uuid": "",
         "name": "manual_prepare",
         "type": "ILab",
@@ -54,7 +54,7 @@
         "resource_name": "gn_system_control"
       },
       {
-        "uuid": "72204dcc-3ca6-4765-84e1-eb6020df3f1a",
+        "uuid": "32fef858-0a36-4650-b376-570cdecb39b9",
         "parent_uuid": "",
         "name": "manual_prepare",
         "type": "ILab",
@@ -102,9 +102,9 @@
         "resource_name": "gn_system_control"
       },
       {
-        "uuid": "71071599-51b6-49be-bf81-5c637d57823b",
+        "uuid": "4858647c-3f71-4a98-89fa-08cb5ed6bd8f",
         "parent_uuid": "",
-        "name": "open_bottle_lid",
+        "name": "auto-small_gripper_open_lid",
         "type": "ILab",
         "icon": "",
         "pose": {
@@ -137,23 +137,20 @@
           "extra": null,
           "cross_section_type": "rectangle"
         },
-        "param": {
-          "bottle_index": 1,
-          "bottle_type": "large"
-        },
+        "param": {},
         "footer": "氯金酸原液瓶开盖",
         "device_name": "gn_centrifuge_tube_liquid_handling",
         "disabled": false,
         "minimized": false,
         "lab_node_type": "Device",
         "template_uuid": "",
-        "template_name": "open_bottle_lid",
+        "template_name": "auto-small_gripper_open_lid",
         "resource_name": "gn_centrifuge_tube_liquid_handling"
       },
       {
-        "uuid": "4c53979e-94e7-4566-adef-1abad48b0cbc",
+        "uuid": "99014fa3-cf67-4f13-817e-e38ebb8f590d",
         "parent_uuid": "",
-        "name": "ch8_dispense",
+        "name": "auto-ch8_aspirate",
         "type": "ILab",
         "icon": "",
         "pose": {
@@ -186,24 +183,20 @@
           "extra": null,
           "cross_section_type": "rectangle"
         },
-        "param": {
-          "p1_pos": 300,
-          "bottle_type": "large",
-          "bottle_index": 1
-        },
+        "param": {},
         "footer": "氯金酸原液加冰水稀释",
         "device_name": "gn_centrifuge_tube_liquid_handling",
         "disabled": false,
         "minimized": false,
         "lab_node_type": "Device",
         "template_uuid": "",
-        "template_name": "ch8_dispense",
+        "template_name": "auto-ch8_aspirate",
         "resource_name": "gn_centrifuge_tube_liquid_handling"
       },
       {
-        "uuid": "cec4fb18-cf8f-4ea6-830f-0aec9c3cffdd",
+        "uuid": "7a79c77a-cf10-42fb-8624-259ca222369f",
         "parent_uuid": "",
-        "name": "close_bottle_lid",
+        "name": "auto-small_gripper_close_lid",
         "type": "ILab",
         "icon": "",
         "pose": {
@@ -236,21 +229,18 @@
           "extra": null,
           "cross_section_type": "rectangle"
         },
-        "param": {
-          "bottle_index": 1,
-          "bottle_type": "large"
-        },
+        "param": {},
         "footer": "氯金酸原液瓶关盖",
         "device_name": "gn_centrifuge_tube_liquid_handling",
         "disabled": false,
         "minimized": false,
         "lab_node_type": "Device",
         "template_uuid": "",
-        "template_name": "close_bottle_lid",
+        "template_name": "auto-small_gripper_close_lid",
         "resource_name": "gn_centrifuge_tube_liquid_handling"
       },
       {
-        "uuid": "4ba2ef01-cf6d-4d99-94ad-e6218246e1fe",
+        "uuid": "f609ed63-a065-4d7f-85c5-38536be45d8e",
         "parent_uuid": "",
         "name": "transfer_carrier",
         "type": "ILab",
@@ -288,9 +278,10 @@
         "param": {
           "x_speed": 300,
           "pick_place": 1,
+          "timeout": 180.0,
           "destination": "stack_plate"
         },
-        "footer": "机械臂取96孔深孔板至9320移液工作站",
+        "footer": "机械臂取96孔深孔板至9320移液工作站（机械臂）",
         "device_name": "gn_robotic_arm",
         "disabled": false,
         "minimized": false,
@@ -300,7 +291,7 @@
         "resource_name": "gn_robotic_arm"
       },
       {
-        "uuid": "67b00b11-479c-4de4-8dcd-30196f4673a3",
+        "uuid": "9722e331-730e-4cf2-a867-3cfbb938faee",
         "parent_uuid": "",
         "name": "add_liquid",
         "type": "ILab",
@@ -361,7 +352,7 @@
           "mix_liquid_height": 0.0,
           "none_keys": []
         },
-        "footer": "9320加液(800µl氯金酸+800µl CTAB+300µl NaBH4)",
+        "footer": "移液工作站对其进行加液（9320）",
         "device_name": "PRCXI",
         "disabled": false,
         "minimized": false,
@@ -371,7 +362,7 @@
         "resource_name": "liquid_handler.prcxi"
       },
       {
-        "uuid": "aab37b19-3ca7-4dc5-a7bf-31860f38f6e3",
+        "uuid": "9549d7e3-eaab-4eb3-b2d0-0efd5fbb0d17",
         "parent_uuid": "",
         "name": "mix",
         "type": "ILab",
@@ -415,7 +406,7 @@
           "offsets": [],
           "none_keys": []
         },
-        "footer": "9320吹打混匀",
+        "footer": "9320对其进行吹打混匀（9320）",
         "device_name": "PRCXI",
         "disabled": false,
         "minimized": false,
@@ -425,7 +416,7 @@
         "resource_name": "liquid_handler.prcxi"
       },
       {
-        "uuid": "f3495a82-3196-4deb-b08d-ab2362374036",
+        "uuid": "207f84ad-f1c5-4566-9f69-21c28e04868b",
         "parent_uuid": "",
         "name": "mix",
         "type": "ILab",
@@ -469,7 +460,7 @@
           "offsets": [],
           "none_keys": []
         },
-        "footer": "得到混合溶液A",
+        "footer": "得到混合溶液A（禁用）",
         "device_name": "PRCXI",
         "disabled": true,
         "minimized": false,
@@ -479,7 +470,7 @@
         "resource_name": "liquid_handler.prcxi"
       },
       {
-        "uuid": "7e9cc3e6-11c4-43d5-853c-2a338321ae22",
+        "uuid": "ff834b44-32f7-4050-b6f0-b865c3dde7cd",
         "parent_uuid": "",
         "name": "transfer_carrier",
         "type": "ILab",
@@ -517,9 +508,10 @@
         "param": {
           "x_speed": 300,
           "pick_place": 1,
+          "timeout": 180.0,
           "destination": "magnetic_stirrer"
         },
-        "footer": "机械臂将其转移到磁力搅拌器",
+        "footer": "机械臂将其转移到磁力搅拌器（机械臂）",
         "device_name": "gn_robotic_arm",
         "disabled": false,
         "minimized": false,
@@ -529,7 +521,7 @@
         "resource_name": "gn_robotic_arm"
       },
       {
-        "uuid": "063ed59f-13dd-4dda-8a10-32a96a69915c",
+        "uuid": "e2790925-0137-4742-83c4-b22f04d628ea",
         "parent_uuid": "",
         "name": "magnetic_stir",
         "type": "ILab",
@@ -569,7 +561,7 @@
           "temp_c": 30,
           "minutes": 1
         },
-        "footer": "磁力搅拌/混合液A(1500rpm/30s)",
+        "footer": "磁力搅拌/混合液A（磁力搅拌器）",
         "device_name": "gn_quick_carrier_exchange",
         "disabled": false,
         "minimized": false,
@@ -579,7 +571,7 @@
         "resource_name": "gn_quick_carrier_exchange"
       },
       {
-        "uuid": "99a5ab74-aa9b-4aa1-b35f-58b23d3f93f1",
+        "uuid": "1805cf46-3a6f-4e11-8cf1-49182272ed55",
         "parent_uuid": "",
         "name": "rest_on_stirrer",
         "type": "ILab",
@@ -618,7 +610,7 @@
           "temp_c": 30,
           "minutes": 270
         },
-        "footer": "静置28-32℃/4.5h，得到种子溶液",
+        "footer": "静置，得到种子溶液（禁用）",
         "device_name": "gn_quick_carrier_exchange",
         "disabled": true,
         "minimized": false,
@@ -628,7 +620,7 @@
         "resource_name": "gn_quick_carrier_exchange"
       },
       {
-        "uuid": "b286d73a-8924-479f-bd93-9ae980d5b6e2",
+        "uuid": "85141ba4-b7aa-4421-b085-7bf1604fb692",
         "parent_uuid": "",
         "name": "transfer_carrier",
         "type": "ILab",
@@ -666,9 +658,10 @@
         "param": {
           "x_speed": 300,
           "pick_place": 1,
+          "timeout": 180.0,
           "destination": "stack_reagent"
         },
-        "footer": "机械臂取储液槽至固体粉末加样仪",
+        "footer": "机械臂取储液槽至固体粉末加样仪（机械臂）",
         "device_name": "gn_robotic_arm",
         "disabled": false,
         "minimized": false,
@@ -678,7 +671,7 @@
         "resource_name": "gn_robotic_arm"
       },
       {
-        "uuid": "8b50ab48-7172-4b8a-9336-148dc298c1e1",
+        "uuid": "93d921aa-6a49-4f1e-b26e-de09a9188b27",
         "parent_uuid": "",
         "name": "dispense_powder",
         "type": "ILab",
@@ -716,7 +709,7 @@
         "param": {
           "weight_mg": 50
         },
-        "footer": "固体粉末加样仪加NaBH4粉末",
+        "footer": "固体粉末加样仪加NaBH4粉末（固体粉末加样仪）",
         "device_name": "gn_solid_weighing",
         "disabled": false,
         "minimized": false,
@@ -726,7 +719,7 @@
         "resource_name": "gn_solid_weighing"
       },
       {
-        "uuid": "bd42c62c-89e6-4135-a894-475892586967",
+        "uuid": "5eb015bb-61a3-494f-a7d3-a4757d38d881",
         "parent_uuid": "",
         "name": "transfer_carrier",
         "type": "ILab",
@@ -764,9 +757,10 @@
         "param": {
           "x_speed": 300,
           "pick_place": 1,
+          "timeout": 180.0,
           "destination": "solid_feed"
         },
-        "footer": "机械臂取该样品至离心管液体处理设备",
+        "footer": "机械臂取该样品至离心管液体处理设备（机械臂）",
         "device_name": "gn_robotic_arm",
         "disabled": false,
         "minimized": false,
@@ -776,9 +770,9 @@
         "resource_name": "gn_robotic_arm"
       },
       {
-        "uuid": "7fb6f35a-184a-4e63-8532-e7099bbc5e40",
+        "uuid": "ac1f3d18-f00d-433e-b506-4b12cdab44c0",
         "parent_uuid": "",
-        "name": "open_bottle_lid",
+        "name": "auto-small_gripper_open_lid",
         "type": "ILab",
         "icon": "",
         "pose": {
@@ -811,23 +805,20 @@
           "extra": null,
           "cross_section_type": "rectangle"
         },
-        "param": {
-          "bottle_index": 2,
-          "bottle_type": "large"
-        },
-        "footer": "试剂瓶开盖",
+        "param": {},
+        "footer": "试剂瓶开盖（离心管液体处理）",
         "device_name": "gn_centrifuge_tube_liquid_handling",
         "disabled": false,
         "minimized": false,
         "lab_node_type": "Device",
         "template_uuid": "",
-        "template_name": "open_bottle_lid",
+        "template_name": "auto-small_gripper_open_lid",
         "resource_name": "gn_centrifuge_tube_liquid_handling"
       },
       {
-        "uuid": "85018092-0721-4c01-ac86-23444c67944e",
+        "uuid": "5ef0e6f2-2f0d-44de-b09f-fbb794ae2447",
         "parent_uuid": "",
-        "name": "ch8_aspirate",
+        "name": "auto-ch8_aspirate",
         "type": "ILab",
         "icon": "",
         "pose": {
@@ -860,25 +851,20 @@
           "extra": null,
           "cross_section_type": "rectangle"
         },
-        "param": {
-          "p1_pos": 300,
-          "x_pos": 4563,
-          "y_pos": -2121,
-          "z1_pos": 1380
-        },
-        "footer": "加冰水稀释",
+        "param": {},
+        "footer": "加冰水稀释（离心管液体处理）",
         "device_name": "gn_centrifuge_tube_liquid_handling",
         "disabled": false,
         "minimized": false,
         "lab_node_type": "Device",
         "template_uuid": "",
-        "template_name": "ch8_aspirate",
+        "template_name": "auto-ch8_aspirate",
         "resource_name": "gn_centrifuge_tube_liquid_handling"
       },
       {
-        "uuid": "4f40d51b-f0f5-4b44-9b4c-ee50390c98fb",
+        "uuid": "37f9f417-2c30-4647-90ff-7967b767722a",
         "parent_uuid": "",
-        "name": "ultrasound_mix",
+        "name": "auto-ultrasound_mix",
         "type": "ILab",
         "icon": "",
         "pose": {
@@ -911,24 +897,20 @@
           "extra": null,
           "cross_section_type": "rectangle"
         },
-        "param": {
-          "ultrasound_time": 5,
-          "m_pos": 300,
-          "m_speed": 300
-        },
-        "footer": "超声震荡",
+        "param": {},
+        "footer": "超声震荡（离心管液体处理）",
         "device_name": "gn_centrifuge_tube_liquid_handling",
         "disabled": false,
         "minimized": false,
         "lab_node_type": "Device",
         "template_uuid": "",
-        "template_name": "ultrasound_mix",
+        "template_name": "auto-ultrasound_mix",
         "resource_name": "gn_centrifuge_tube_liquid_handling"
       },
       {
-        "uuid": "6ea5f32d-dce2-48eb-a162-5578596cfd1f",
+        "uuid": "fe64bcf4-90bf-4681-ab2c-0f8ea1193894",
         "parent_uuid": "",
-        "name": "ultrasound_mix",
+        "name": "auto-ultrasound_stop",
         "type": "ILab",
         "icon": "",
         "pose": {
@@ -961,24 +943,20 @@
           "extra": null,
           "cross_section_type": "rectangle"
         },
-        "param": {
-          "ultrasound_time": 0,
-          "m_pos": 300,
-          "m_speed": 300
-        },
-        "footer": "得到NaBH4溶液",
+        "param": {},
+        "footer": "得到NaBH4溶液（禁用）",
         "device_name": "gn_centrifuge_tube_liquid_handling",
         "disabled": true,
         "minimized": false,
         "lab_node_type": "Device",
         "template_uuid": "",
-        "template_name": "ultrasound_mix",
+        "template_name": "auto-ultrasound_stop",
         "resource_name": "gn_centrifuge_tube_liquid_handling"
       },
       {
-        "uuid": "f975ae0d-9dbb-4ad1-acaf-c832b1c9b774",
+        "uuid": "273ac093-68ff-4d62-a635-962f4d1e4c00",
         "parent_uuid": "",
-        "name": "close_bottle_lid",
+        "name": "auto-small_gripper_close_lid",
         "type": "ILab",
         "icon": "",
         "pose": {
@@ -1011,21 +989,18 @@
           "extra": null,
           "cross_section_type": "rectangle"
         },
-        "param": {
-          "bottle_index": 2,
-          "bottle_type": "large"
-        },
-        "footer": "试剂瓶关盖",
+        "param": {},
+        "footer": "试剂瓶关盖（离心管液体处理）",
         "device_name": "gn_centrifuge_tube_liquid_handling",
         "disabled": false,
         "minimized": false,
         "lab_node_type": "Device",
         "template_uuid": "",
-        "template_name": "close_bottle_lid",
+        "template_name": "auto-small_gripper_close_lid",
         "resource_name": "gn_centrifuge_tube_liquid_handling"
       },
       {
-        "uuid": "04b2ab83-1d3f-496e-b3d3-8bdd327fafb8",
+        "uuid": "42bc37b5-b469-4824-ba7b-0ed37f8812c6",
         "parent_uuid": "",
         "name": "transfer_carrier",
         "type": "ILab",
@@ -1063,9 +1038,10 @@
         "param": {
           "x_speed": 300,
           "pick_place": 1,
+          "timeout": 180.0,
           "destination": "tube_handler"
         },
-        "footer": "机械臂转移溶液至移液工作站",
+        "footer": "机械臂转移溶液至移液工作站（机械臂）",
         "device_name": "gn_robotic_arm",
         "disabled": false,
         "minimized": false,
@@ -1075,7 +1051,7 @@
         "resource_name": "gn_robotic_arm"
       },
       {
-        "uuid": "2d29c14d-b3e9-494c-ad34-1594d5a02493",
+        "uuid": "05d1fdff-8ca2-48d7-a98a-a2aa94567e82",
         "parent_uuid": "",
         "name": "transfer_carrier",
         "type": "ILab",
@@ -1113,9 +1089,10 @@
         "param": {
           "x_speed": 300,
           "pick_place": 1,
+          "timeout": 180.0,
           "destination": "stack_reagent"
         },
-        "footer": "机械臂取储液槽至粉末加样仪",
+        "footer": "机械臂取储液槽至粉末加样仪（机械臂）",
         "device_name": "gn_robotic_arm",
         "disabled": false,
         "minimized": false,
@@ -1125,7 +1102,7 @@
         "resource_name": "gn_robotic_arm"
       },
       {
-        "uuid": "68411214-e40e-429c-8f08-515c62920102",
+        "uuid": "8f112fc2-15ed-46b2-bb65-ac6d1677d348",
         "parent_uuid": "",
         "name": "dispense_powder",
         "type": "ILab",
@@ -1163,7 +1140,7 @@
         "param": {
           "weight_mg": 30
         },
-        "footer": "加抗坏血酸粉末",
+        "footer": "加抗坏血酸粉末（粉末加样仪）",
         "device_name": "gn_solid_weighing",
         "disabled": false,
         "minimized": false,
@@ -1173,7 +1150,7 @@
         "resource_name": "gn_solid_weighing"
       },
       {
-        "uuid": "5c43b367-20ae-4e25-8cc9-9660d3682291",
+        "uuid": "4caf4e84-867a-46ff-a1e3-2f7b35ffcae3",
         "parent_uuid": "",
         "name": "transfer_carrier",
         "type": "ILab",
@@ -1211,9 +1188,10 @@
         "param": {
           "x_speed": 300,
           "pick_place": 1,
+          "timeout": 180.0,
           "destination": "solid_feed"
         },
-        "footer": "机械臂转移粉末样品至离心管液体处理器",
+        "footer": "机械臂转移粉末样品至离心管液体处理器（机械臂）",
         "device_name": "gn_robotic_arm",
         "disabled": false,
         "minimized": false,
@@ -1223,9 +1201,9 @@
         "resource_name": "gn_robotic_arm"
       },
       {
-        "uuid": "0742163e-01f4-4f5d-bbf6-ea035e3f4c7c",
+        "uuid": "e24a8281-d370-4dcf-8a17-a65bd28c84db",
         "parent_uuid": "",
-        "name": "open_bottle_lid",
+        "name": "auto-small_gripper_open_lid",
         "type": "ILab",
         "icon": "",
         "pose": {
@@ -1258,23 +1236,20 @@
           "extra": null,
           "cross_section_type": "rectangle"
         },
-        "param": {
-          "bottle_index": 3,
-          "bottle_type": "large"
-        },
-        "footer": "试剂瓶开盖",
+        "param": {},
+        "footer": "试剂瓶开盖（离心管液体处理）",
         "device_name": "gn_centrifuge_tube_liquid_handling",
         "disabled": false,
         "minimized": false,
         "lab_node_type": "Device",
         "template_uuid": "",
-        "template_name": "open_bottle_lid",
+        "template_name": "auto-small_gripper_open_lid",
         "resource_name": "gn_centrifuge_tube_liquid_handling"
       },
       {
-        "uuid": "fc3e4616-af10-4730-b0cd-d5af27b57793",
+        "uuid": "2387f674-51a3-4766-a71b-f7d39c466bc0",
         "parent_uuid": "",
-        "name": "ch8_dispense",
+        "name": "auto-ch8_dispense",
         "type": "ILab",
         "icon": "",
         "pose": {
@@ -1307,25 +1282,20 @@
           "extra": null,
           "cross_section_type": "rectangle"
         },
-        "param": {
-          "p1_pos": 300,
-          "x_pos": 3093,
-          "y_pos": -3181,
-          "z1_pos": 1330
-        },
-        "footer": "加水稀释",
+        "param": {},
+        "footer": "加水稀释（离心管液体处理）",
         "device_name": "gn_centrifuge_tube_liquid_handling",
         "disabled": false,
         "minimized": false,
         "lab_node_type": "Device",
         "template_uuid": "",
-        "template_name": "ch8_dispense",
+        "template_name": "auto-ch8_dispense",
         "resource_name": "gn_centrifuge_tube_liquid_handling"
       },
       {
-        "uuid": "108d3d5c-b822-4e61-8e66-1ff252599ce0",
+        "uuid": "749af9be-3f10-42e5-b25a-7a38ec6aa25b",
         "parent_uuid": "",
-        "name": "ch8_mix",
+        "name": "auto-ch8_mix",
         "type": "ILab",
         "icon": "",
         "pose": {
@@ -1358,26 +1328,20 @@
           "extra": null,
           "cross_section_type": "rectangle"
         },
-        "param": {
-          "p1_pos": 300,
-          "mix_counts": 10,
-          "x_pos": 3093,
-          "y_pos": -3181,
-          "z1_pos": 1330
-        },
-        "footer": "吹打混匀",
+        "param": {},
+        "footer": "吹打混匀（离心管液体处理）",
         "device_name": "gn_centrifuge_tube_liquid_handling",
         "disabled": false,
         "minimized": false,
         "lab_node_type": "Device",
         "template_uuid": "",
-        "template_name": "ch8_mix",
+        "template_name": "auto-ch8_mix",
         "resource_name": "gn_centrifuge_tube_liquid_handling"
       },
       {
-        "uuid": "a4dd8fde-74a5-4dc3-bebe-76b9c45a1abd",
+        "uuid": "054e746d-66d8-4e82-9b27-ba51266d9bd0",
         "parent_uuid": "",
-        "name": "ultrasound_mix",
+        "name": "auto-ultrasound_stop",
         "type": "ILab",
         "icon": "",
         "pose": {
@@ -1410,24 +1374,20 @@
           "extra": null,
           "cross_section_type": "rectangle"
         },
-        "param": {
-          "ultrasound_time": 0,
-          "m_pos": 300,
-          "m_speed": 300
-        },
-        "footer": "得到抗坏血酸溶液",
+        "param": {},
+        "footer": "得到抗坏血酸溶液（离心管液体处理，禁用）",
         "device_name": "gn_centrifuge_tube_liquid_handling",
         "disabled": true,
         "minimized": false,
         "lab_node_type": "Device",
         "template_uuid": "",
-        "template_name": "ultrasound_mix",
+        "template_name": "auto-ultrasound_stop",
         "resource_name": "gn_centrifuge_tube_liquid_handling"
       },
       {
-        "uuid": "069ce7eb-2974-4976-b9f0-3627663dd91d",
+        "uuid": "4727b5ef-b181-42c6-8613-c1389e9437da",
         "parent_uuid": "",
-        "name": "close_bottle_lid",
+        "name": "auto-small_gripper_close_lid",
         "type": "ILab",
         "icon": "",
         "pose": {
@@ -1460,21 +1420,18 @@
           "extra": null,
           "cross_section_type": "rectangle"
         },
-        "param": {
-          "bottle_index": 3,
-          "bottle_type": "large"
-        },
-        "footer": "试剂瓶关盖",
+        "param": {},
+        "footer": "试剂瓶关盖（离心管液体处理）",
         "device_name": "gn_centrifuge_tube_liquid_handling",
         "disabled": false,
         "minimized": false,
         "lab_node_type": "Device",
         "template_uuid": "",
-        "template_name": "close_bottle_lid",
+        "template_name": "auto-small_gripper_close_lid",
         "resource_name": "gn_centrifuge_tube_liquid_handling"
       },
       {
-        "uuid": "95739680-70fc-4012-8a4c-a0cf27c7610b",
+        "uuid": "307b2d82-33b0-40de-a234-73d019deb985",
         "parent_uuid": "",
         "name": "transfer_carrier",
         "type": "ILab",
@@ -1512,9 +1469,10 @@
         "param": {
           "x_speed": 300,
           "pick_place": 1,
+          "timeout": 180.0,
           "destination": "stack_plate"
         },
-        "footer": "机械臂取96孔板至9320",
+        "footer": "机械臂取96孔板至9320（机械臂）",
         "device_name": "gn_robotic_arm",
         "disabled": false,
         "minimized": false,
@@ -1524,7 +1482,7 @@
         "resource_name": "gn_robotic_arm"
       },
       {
-        "uuid": "00d7e78a-9906-4a8e-9a45-8d10a0f8829d",
+        "uuid": "6bbbd4cb-facd-4371-8372-5804d73ad395",
         "parent_uuid": "",
         "name": "transfer_carrier",
         "type": "ILab",
@@ -1562,9 +1520,10 @@
         "param": {
           "x_speed": 300,
           "pick_place": 1,
+          "timeout": 180.0,
           "destination": "tube_handler"
         },
-        "footer": "机械臂取抗坏血酸溶液至第一次加液",
+        "footer": "机械臂取抗坏血酸溶液至第四列第一次加液（机械臂）",
         "device_name": "gn_robotic_arm",
         "disabled": false,
         "minimized": false,
@@ -1574,7 +1533,7 @@
         "resource_name": "gn_robotic_arm"
       },
       {
-        "uuid": "196584e1-5d7d-4796-a8bf-6688a6ec09ba",
+        "uuid": "4e47351d-149b-4b0e-beeb-b533c2cd8f38",
         "parent_uuid": "",
         "name": "add_liquid",
         "type": "ILab",
@@ -1635,7 +1594,7 @@
           "mix_liquid_height": 0.0,
           "none_keys": []
         },
-        "footer": "9320取CTAC和氯金酸稀释后加入",
+        "footer": "9320取CTAC和氯金酸稀释后加入（9320）",
         "device_name": "PRCXI",
         "disabled": false,
         "minimized": false,
@@ -1645,7 +1604,7 @@
         "resource_name": "liquid_handler.prcxi"
       },
       {
-        "uuid": "2809b55d-a70d-4754-b180-71f9f5d6bf54",
+        "uuid": "9947318f-9db7-4125-9613-86a30f114a02",
         "parent_uuid": "",
         "name": "transfer_carrier",
         "type": "ILab",
@@ -1683,9 +1642,10 @@
         "param": {
           "x_speed": 300,
           "pick_place": 1,
-          "destination": "prcxi"
+          "timeout": 180.0,
+          "destination": "magnetic_stirrer"
         },
-        "footer": "机械臂取样品至磁力搅拌器",
+        "footer": "机械臂取样品至磁力搅拌器（机械臂）",
         "device_name": "gn_robotic_arm",
         "disabled": false,
         "minimized": false,
@@ -1695,7 +1655,7 @@
         "resource_name": "gn_robotic_arm"
       },
       {
-        "uuid": "64d45410-7a79-41d0-b491-028f91d6761f",
+        "uuid": "669df6c9-6a10-4e01-8bae-41b0cd5cbfbe",
         "parent_uuid": "",
         "name": "magnetic_stir",
         "type": "ILab",
@@ -1735,7 +1695,7 @@
           "temp_c": 28,
           "minutes": 2
         },
-        "footer": "磁力搅拌",
+        "footer": "磁力搅拌（磁力搅拌器）",
         "device_name": "gn_quick_carrier_exchange",
         "disabled": false,
         "minimized": false,
@@ -1745,7 +1705,7 @@
         "resource_name": "gn_quick_carrier_exchange"
       },
       {
-        "uuid": "ee50add4-3cb4-4559-9cb1-f8ddd6bdf3dc",
+        "uuid": "699a015c-1995-43b1-9d37-4b8f5d4f8190",
         "parent_uuid": "",
         "name": "transfer_carrier",
         "type": "ILab",
@@ -1783,9 +1743,10 @@
         "param": {
           "x_speed": 300,
           "pick_place": 1,
+          "timeout": 180.0,
           "destination": "magnetic_stirrer"
         },
-        "footer": "机械臂转移至9320",
+        "footer": "机械臂转移至9320（机械臂）",
         "device_name": "gn_robotic_arm",
         "disabled": false,
         "minimized": false,
@@ -1795,7 +1756,7 @@
         "resource_name": "gn_robotic_arm"
       },
       {
-        "uuid": "5e97e8d9-a74f-4de3-b0fc-6b67af43b4ea",
+        "uuid": "57fda5ef-b353-45ea-85bb-cc4e0cd96f4f",
         "parent_uuid": "",
         "name": "transfer_carrier",
         "type": "ILab",
@@ -1833,9 +1794,10 @@
         "param": {
           "x_speed": 300,
           "pick_place": 1,
+          "timeout": 180.0,
           "destination": "magnetic_stirrer"
         },
-        "footer": "机械臂取种子溶液至第二次加液",
+        "footer": "机械臂取种子溶液到第二次加液（机械臂）",
         "device_name": "gn_robotic_arm",
         "disabled": false,
         "minimized": false,
@@ -1845,7 +1807,7 @@
         "resource_name": "gn_robotic_arm"
       },
       {
-        "uuid": "3ef1aff7-2d6d-460b-b684-af853577c646",
+        "uuid": "2f69de55-f25f-474b-b28e-fc530b86ec17",
         "parent_uuid": "",
         "name": "add_liquid",
         "type": "ILab",
@@ -1912,7 +1874,7 @@
         "resource_name": "liquid_handler.prcxi"
       },
       {
-        "uuid": "e979d026-6847-4ece-9789-291655e609fc",
+        "uuid": "158a6da3-bd06-4c11-a2d1-8b1f331ada9d",
         "parent_uuid": "",
         "name": "transfer_carrier",
         "type": "ILab",
@@ -1950,9 +1912,10 @@
         "param": {
           "x_speed": 300,
           "pick_place": 1,
-          "destination": "prcxi"
+          "timeout": 180.0,
+          "destination": "magnetic_stirrer"
         },
-        "footer": "机械臂转移加液后溶液至磁力搅拌器",
+        "footer": "机械臂转移加液后溶液至磁力搅拌器（机械臂）",
         "device_name": "gn_robotic_arm",
         "disabled": false,
         "minimized": false,
@@ -1962,7 +1925,7 @@
         "resource_name": "gn_robotic_arm"
       },
       {
-        "uuid": "90a6fb01-f739-464a-b1c4-08c4921dd1ed",
+        "uuid": "ba709f72-743b-4271-9038-74d6e2aa932c",
         "parent_uuid": "",
         "name": "magnetic_stir",
         "type": "ILab",
@@ -2002,7 +1965,7 @@
           "temp_c": 28,
           "minutes": 60
         },
-        "footer": "磁力搅拌",
+        "footer": "磁力搅拌（磁力搅拌器）",
         "device_name": "gn_quick_carrier_exchange",
         "disabled": false,
         "minimized": false,
@@ -2012,7 +1975,7 @@
         "resource_name": "gn_quick_carrier_exchange"
       },
       {
-        "uuid": "fb0a3996-9f43-4d66-a2fb-b6c94d8a8e82",
+        "uuid": "47801238-664e-49dd-a809-2e25b3155eed",
         "parent_uuid": "",
         "name": "transfer_carrier",
         "type": "ILab",
@@ -2050,9 +2013,10 @@
         "param": {
           "x_speed": 300,
           "pick_place": 1,
+          "timeout": 180.0,
           "destination": "magnetic_stirrer"
         },
-        "footer": "机械臂转移至离心机",
+        "footer": "机械臂取溶液至离心机（机械臂）",
         "device_name": "gn_robotic_arm",
         "disabled": false,
         "minimized": false,
@@ -2062,7 +2026,7 @@
         "resource_name": "gn_robotic_arm"
       },
       {
-        "uuid": "3858a34d-a8e1-4421-a4ad-eecaa44ff208",
+        "uuid": "22d06175-7b59-46c8-8db0-b38f849bbc9a",
         "parent_uuid": "",
         "name": "run",
         "type": "ILab",
@@ -2102,7 +2066,7 @@
           "minutes": 10,
           "plate_no": 2
         },
-        "footer": "离心",
+        "footer": "离心（离心机）",
         "device_name": "gn_centrifuge",
         "disabled": false,
         "minimized": false,
@@ -2112,7 +2076,7 @@
         "resource_name": "gn_centrifuge"
       },
       {
-        "uuid": "cb55d280-c0b7-429a-b68b-fab088f2e84d",
+        "uuid": "259ff575-16ae-4e8e-8a3d-5eeb07985a21",
         "parent_uuid": "",
         "name": "transfer_carrier",
         "type": "ILab",
@@ -2150,9 +2114,10 @@
         "param": {
           "x_speed": 300,
           "pick_place": 1,
+          "timeout": 180.0,
           "destination": "centrifuge"
         },
-        "footer": "机械臂转移至9320",
+        "footer": "机械臂取溶液至9320（机械臂）",
         "device_name": "gn_robotic_arm",
         "disabled": false,
         "minimized": false,
@@ -2162,7 +2127,7 @@
         "resource_name": "gn_robotic_arm"
       },
       {
-        "uuid": "96c35bf3-c314-47cc-8e93-5203119814dd",
+        "uuid": "b53430ea-8aab-47e4-a1ad-42b9516d00f7",
         "parent_uuid": "",
         "name": "remove_liquid",
         "type": "ILab",
@@ -2211,7 +2176,7 @@
           "is_96_well": true,
           "none_keys": []
         },
-        "footer": "取上清液(1400µl)",
+        "footer": "取上清液（1400µl）（9320）",
         "device_name": "PRCXI",
         "disabled": false,
         "minimized": false,
@@ -2221,7 +2186,7 @@
         "resource_name": "liquid_handler.prcxi"
       },
       {
-        "uuid": "852bab53-65ca-4e25-8884-4c3114364983",
+        "uuid": "3953d451-4c77-4b9e-8650-3b0bec4b3185",
         "parent_uuid": "",
         "name": "add_liquid",
         "type": "ILab",
@@ -2278,7 +2243,7 @@
           "mix_liquid_height": 0.0,
           "none_keys": []
         },
-        "footer": "加入20mM CTAC(500µl)",
+        "footer": "加入20mM CTAC（500µl）（9320）",
         "device_name": "PRCXI",
         "disabled": false,
         "minimized": false,
@@ -2288,7 +2253,7 @@
         "resource_name": "liquid_handler.prcxi"
       },
       {
-        "uuid": "06fc609b-8425-4b1b-a742-b21c46f7d935",
+        "uuid": "5774e343-28f7-4d7a-bfb6-fb050e7b0f70",
         "parent_uuid": "",
         "name": "mix",
         "type": "ILab",
@@ -2332,7 +2297,7 @@
           "offsets": [],
           "none_keys": []
         },
-        "footer": "混匀",
+        "footer": "混匀（9320）",
         "device_name": "PRCXI",
         "disabled": false,
         "minimized": false,
@@ -2342,7 +2307,7 @@
         "resource_name": "liquid_handler.prcxi"
       },
       {
-        "uuid": "364ef2c6-b73b-4a3a-8e4b-48b6ffcc38cc",
+        "uuid": "1d3467f3-a557-4a99-804a-c773d051b745",
         "parent_uuid": "",
         "name": "transfer_carrier",
         "type": "ILab",
@@ -2380,9 +2345,10 @@
         "param": {
           "x_speed": 300,
           "pick_place": 1,
+          "timeout": 180.0,
           "destination": "prcxi"
         },
-        "footer": "机械臂转移至离心机",
+        "footer": "机械臂取溶液至离心机（机械臂）",
         "device_name": "gn_robotic_arm",
         "disabled": false,
         "minimized": false,
@@ -2392,7 +2358,7 @@
         "resource_name": "gn_robotic_arm"
       },
       {
-        "uuid": "9de84911-4fcb-45a8-8eb6-724cec3f1549",
+        "uuid": "e1172731-ea89-4422-811f-dc5a456f8716",
         "parent_uuid": "",
         "name": "run",
         "type": "ILab",
@@ -2432,7 +2398,7 @@
           "minutes": 10,
           "plate_no": 2
         },
-        "footer": "离心",
+        "footer": "离心（离心机）",
         "device_name": "gn_centrifuge",
         "disabled": false,
         "minimized": false,
@@ -2442,7 +2408,7 @@
         "resource_name": "gn_centrifuge"
       },
       {
-        "uuid": "acda5586-8a62-4b27-af70-6d0485e21cbc",
+        "uuid": "934dcc2a-2e09-4f28-aff3-3c566136c2a7",
         "parent_uuid": "",
         "name": "transfer_carrier",
         "type": "ILab",
@@ -2480,9 +2446,10 @@
         "param": {
           "x_speed": 300,
           "pick_place": 1,
+          "timeout": 180.0,
           "destination": "centrifuge"
         },
-        "footer": "机械臂转移至9320",
+        "footer": "机械臂取溶液至9320（机械臂）",
         "device_name": "gn_robotic_arm",
         "disabled": false,
         "minimized": false,
@@ -2492,7 +2459,7 @@
         "resource_name": "gn_robotic_arm"
       },
       {
-        "uuid": "e154e0da-bb49-406b-94f8-1e60b5ffb2b9",
+        "uuid": "865cea5c-bc63-48ab-993d-8d6b1af559c7",
         "parent_uuid": "",
         "name": "remove_liquid",
         "type": "ILab",
@@ -2541,7 +2508,7 @@
           "is_96_well": true,
           "none_keys": []
         },
-        "footer": "取上清液(1400µl)",
+        "footer": "取上清液（1400µl）（9320）",
         "device_name": "PRCXI",
         "disabled": false,
         "minimized": false,
@@ -2551,7 +2518,7 @@
         "resource_name": "liquid_handler.prcxi"
       },
       {
-        "uuid": "396dfca2-3359-430c-b8f2-bdab73b7d08e",
+        "uuid": "b6d36a18-07e5-4799-b0e5-8f623e40cd69",
         "parent_uuid": "",
         "name": "add_liquid",
         "type": "ILab",
@@ -2608,7 +2575,7 @@
           "mix_liquid_height": 0.0,
           "none_keys": []
         },
-        "footer": "加入20mM CTAC(500µl)",
+        "footer": "加入20mM CTAC（500µl）（9320）",
         "device_name": "PRCXI",
         "disabled": false,
         "minimized": false,
@@ -2618,7 +2585,7 @@
         "resource_name": "liquid_handler.prcxi"
       },
       {
-        "uuid": "dead1c1a-5932-4d25-bb42-858881769b0e",
+        "uuid": "6f5a58e5-c3bc-4c9e-bca3-3b4e65ece679",
         "parent_uuid": "",
         "name": "mix",
         "type": "ILab",
@@ -2662,7 +2629,7 @@
           "offsets": [],
           "none_keys": []
         },
-        "footer": "混匀",
+        "footer": "混匀（9320）",
         "device_name": "PRCXI",
         "disabled": false,
         "minimized": false,
@@ -2672,7 +2639,7 @@
         "resource_name": "liquid_handler.prcxi"
       },
       {
-        "uuid": "2b66807c-f954-4f00-886e-0c7e2d4ec1d1",
+        "uuid": "96db8f7a-335b-498f-aa16-377a949be453",
         "parent_uuid": "",
         "name": "mix",
         "type": "ILab",
@@ -2716,7 +2683,7 @@
           "offsets": [],
           "none_keys": []
         },
-        "footer": "得到金球溶液",
+        "footer": "得到金球溶液（9320，禁用）",
         "device_name": "PRCXI",
         "disabled": true,
         "minimized": false,
@@ -2726,7 +2693,7 @@
         "resource_name": "liquid_handler.prcxi"
       },
       {
-        "uuid": "5671556e-abaf-4e9f-aedc-a229f0db2a66",
+        "uuid": "219ad05a-62b9-4f4c-94db-a3a600a59365",
         "parent_uuid": "",
         "name": "transfer_carrier",
         "type": "ILab",
@@ -2764,9 +2731,10 @@
         "param": {
           "x_speed": 300,
           "pick_place": 1,
+          "timeout": 180.0,
           "destination": "stack_reagent"
         },
-        "footer": "机械臂取储液槽至离心管液体处理设备",
+        "footer": "机械臂取储液槽至离心管液体处理设备（机械臂）",
         "device_name": "gn_robotic_arm",
         "disabled": false,
         "minimized": false,
@@ -2776,9 +2744,9 @@
         "resource_name": "gn_robotic_arm"
       },
       {
-        "uuid": "5a1bed89-095f-4229-a573-0ab19afd2070",
+        "uuid": "9667cb4d-1dfe-42ab-9714-92812d6d9874",
         "parent_uuid": "",
-        "name": "open_bottle_lid",
+        "name": "auto-small_gripper_open_lid",
         "type": "ILab",
         "icon": "",
         "pose": {
@@ -2811,23 +2779,20 @@
           "extra": null,
           "cross_section_type": "rectangle"
         },
-        "param": {
-          "bottle_index": 4,
-          "bottle_type": "large"
-        },
-        "footer": "试剂瓶开盖",
+        "param": {},
+        "footer": "试剂瓶开盖（离心管液体处理）",
         "device_name": "gn_centrifuge_tube_liquid_handling",
         "disabled": false,
         "minimized": false,
         "lab_node_type": "Device",
         "template_uuid": "",
-        "template_name": "open_bottle_lid",
+        "template_name": "auto-small_gripper_open_lid",
         "resource_name": "gn_centrifuge_tube_liquid_handling"
       },
       {
-        "uuid": "81ef9528-149d-4ced-bc99-6ee3ff64b9a2",
+        "uuid": "703b6546-a3d7-4b05-9357-8e6d9f1a9466",
         "parent_uuid": "",
-        "name": "ch8_dispense",
+        "name": "auto-ch8_dispense",
         "type": "ILab",
         "icon": "",
         "pose": {
@@ -2860,25 +2825,20 @@
           "extra": null,
           "cross_section_type": "rectangle"
         },
-        "param": {
-          "p1_pos": 300,
-          "x_pos": 3093,
-          "y_pos": -3181,
-          "z1_pos": 1330
-        },
-        "footer": "加液",
+        "param": {},
+        "footer": "加液（离心管液体处理设备）",
         "device_name": "gn_centrifuge_tube_liquid_handling",
         "disabled": false,
         "minimized": false,
         "lab_node_type": "Device",
         "template_uuid": "",
-        "template_name": "ch8_dispense",
+        "template_name": "auto-ch8_dispense",
         "resource_name": "gn_centrifuge_tube_liquid_handling"
       },
       {
-        "uuid": "9aac9d41-a323-4b61-b364-d791284af12c",
+        "uuid": "260896dd-1a06-4688-8eab-c699cfba4786",
         "parent_uuid": "",
-        "name": "close_bottle_lid",
+        "name": "auto-small_gripper_close_lid",
         "type": "ILab",
         "icon": "",
         "pose": {
@@ -2911,21 +2871,18 @@
           "extra": null,
           "cross_section_type": "rectangle"
         },
-        "param": {
-          "bottle_index": 4,
-          "bottle_type": "large"
-        },
-        "footer": "试剂瓶关盖",
+        "param": {},
+        "footer": "试剂瓶关盖（离心管液体处理）",
         "device_name": "gn_centrifuge_tube_liquid_handling",
         "disabled": false,
         "minimized": false,
         "lab_node_type": "Device",
         "template_uuid": "",
-        "template_name": "close_bottle_lid",
+        "template_name": "auto-small_gripper_close_lid",
         "resource_name": "gn_centrifuge_tube_liquid_handling"
       },
       {
-        "uuid": "0d2d413e-0abd-42a6-aeb6-ed9ee7d1204c",
+        "uuid": "ce481544-45b8-402f-8f92-41190a0aa31b",
         "parent_uuid": "",
         "name": "transfer_carrier",
         "type": "ILab",
@@ -2963,9 +2920,10 @@
         "param": {
           "x_speed": 300,
           "pick_place": 1,
+          "timeout": 180.0,
           "destination": "stack_plate"
         },
-        "footer": "机械臂取96孔板至9320",
+        "footer": "机械臂取96孔板至9320（机械臂）",
         "device_name": "gn_robotic_arm",
         "disabled": false,
         "minimized": false,
@@ -2975,7 +2933,7 @@
         "resource_name": "gn_robotic_arm"
       },
       {
-        "uuid": "2faae702-c747-4b73-b214-60878cf373eb",
+        "uuid": "63233d90-a896-400a-bbd3-c088898a3a50",
         "parent_uuid": "",
         "name": "add_liquid",
         "type": "ILab",
@@ -3036,7 +2994,7 @@
           "mix_liquid_height": 0.0,
           "none_keys": []
         },
-        "footer": "加液",
+        "footer": "加液（9320）",
         "device_name": "PRCXI",
         "disabled": false,
         "minimized": false,
@@ -3046,7 +3004,7 @@
         "resource_name": "liquid_handler.prcxi"
       },
       {
-        "uuid": "972937ef-edcc-49a3-8ce7-077b1ca38b84",
+        "uuid": "0cd07d3f-ef86-4755-b36b-5f6687d7b12a",
         "parent_uuid": "",
         "name": "transfer_carrier",
         "type": "ILab",
@@ -3084,9 +3042,10 @@
         "param": {
           "x_speed": 300,
           "pick_place": 1,
-          "destination": "prcxi"
+          "timeout": 180.0,
+          "destination": "magnetic_stirrer"
         },
-        "footer": "机械臂取溶液至磁力搅拌器",
+        "footer": "机械臂取溶液至磁力搅拌器（机械臂）",
         "device_name": "gn_robotic_arm",
         "disabled": false,
         "minimized": false,
@@ -3096,7 +3055,7 @@
         "resource_name": "gn_robotic_arm"
       },
       {
-        "uuid": "9cfde03c-3b90-49d0-b0d6-59f39d1039df",
+        "uuid": "f99cd2d1-1728-4e04-b661-ba5b987d8a5e",
         "parent_uuid": "",
         "name": "magnetic_stir",
         "type": "ILab",
@@ -3136,7 +3095,7 @@
           "temp_c": 30,
           "minutes": 5
         },
-        "footer": "磁力搅拌",
+        "footer": "磁力搅拌（磁力搅拌器）",
         "device_name": "gn_quick_carrier_exchange",
         "disabled": false,
         "minimized": false,
@@ -3146,7 +3105,7 @@
         "resource_name": "gn_quick_carrier_exchange"
       },
       {
-        "uuid": "c0cfdb6f-11c9-43e5-a8d9-8042f04be694",
+        "uuid": "c60baca7-71c4-4681-b270-b803f8a33fa6",
         "parent_uuid": "",
         "name": "transfer_carrier",
         "type": "ILab",
@@ -3184,9 +3143,10 @@
         "param": {
           "x_speed": 300,
           "pick_place": 1,
+          "timeout": 180.0,
           "destination": "prcxi"
         },
-        "footer": "机械臂取金球溶液加入到溶液中",
+        "footer": "机械臂取金球溶液加入到溶液中（机械臂）",
         "device_name": "gn_robotic_arm",
         "disabled": false,
         "minimized": false,
@@ -3196,7 +3156,7 @@
         "resource_name": "gn_robotic_arm"
       },
       {
-        "uuid": "89d9ea80-9468-483f-89a8-1721bf23a6bb",
+        "uuid": "b77464d6-4071-412c-b4bb-0ea8f0a10987",
         "parent_uuid": "",
         "name": "transfer_carrier",
         "type": "ILab",
@@ -3234,9 +3194,10 @@
         "param": {
           "x_speed": 300,
           "pick_place": 1,
+          "timeout": 180.0,
           "destination": "tube_handler"
         },
-        "footer": "机械臂取氯金酸加入到溶液中",
+        "footer": "机械臂取氯金酸加入到溶液中（机械臂）",
         "device_name": "gn_robotic_arm",
         "disabled": false,
         "minimized": false,
@@ -3246,7 +3207,7 @@
         "resource_name": "gn_robotic_arm"
       },
       {
-        "uuid": "a14393dd-02ec-472c-ac06-fff020496cb7",
+        "uuid": "9556ad06-30f6-4fe3-ab9f-8d85a7697eed",
         "parent_uuid": "",
         "name": "rest_on_stirrer",
         "type": "ILab",
@@ -3285,7 +3246,7 @@
           "temp_c": 29,
           "minutes": 10
         },
-        "footer": "静置(磁力搅拌器)",
+        "footer": "静置（磁力搅拌器）",
         "device_name": "gn_quick_carrier_exchange",
         "disabled": false,
         "minimized": false,
@@ -3295,7 +3256,7 @@
         "resource_name": "gn_quick_carrier_exchange"
       },
       {
-        "uuid": "baf7fba1-4539-4e48-a581-b769780afe27",
+        "uuid": "f640a11f-0a0b-4758-a062-ca00f28fa094",
         "parent_uuid": "",
         "name": "transfer_carrier",
         "type": "ILab",
@@ -3333,9 +3294,10 @@
         "param": {
           "x_speed": 300,
           "pick_place": 1,
+          "timeout": 180.0,
           "destination": "magnetic_stirrer"
         },
-        "footer": "机械臂转移至离心机",
+        "footer": "机械臂取溶液至离心机（机械臂）",
         "device_name": "gn_robotic_arm",
         "disabled": false,
         "minimized": false,
@@ -3345,7 +3307,7 @@
         "resource_name": "gn_robotic_arm"
       },
       {
-        "uuid": "350e1528-26b8-4604-aebc-e4beedfefe24",
+        "uuid": "873c3c88-717c-4a2e-9f5f-13daff5b7ff3",
         "parent_uuid": "",
         "name": "run",
         "type": "ILab",
@@ -3385,7 +3347,7 @@
           "minutes": 15,
           "plate_no": 2
         },
-        "footer": "离心",
+        "footer": "离心（离心机）",
         "device_name": "gn_centrifuge",
         "disabled": false,
         "minimized": false,
@@ -3395,7 +3357,7 @@
         "resource_name": "gn_centrifuge"
       },
       {
-        "uuid": "8680690e-90b2-468f-9344-c538894a49d0",
+        "uuid": "45f40668-da01-4439-aa9b-2b507984c37c",
         "parent_uuid": "",
         "name": "transfer_carrier",
         "type": "ILab",
@@ -3433,9 +3395,10 @@
         "param": {
           "x_speed": 300,
           "pick_place": 1,
+          "timeout": 180.0,
           "destination": "centrifuge"
         },
-        "footer": "机械臂转移至9320",
+        "footer": "机械臂取溶液至9320（机械臂）",
         "device_name": "gn_robotic_arm",
         "disabled": false,
         "minimized": false,
@@ -3445,7 +3408,7 @@
         "resource_name": "gn_robotic_arm"
       },
       {
-        "uuid": "fe938172-901f-4520-a8ca-0eba67803952",
+        "uuid": "a3cedffa-9ada-45cf-beb7-ab100950bc0b",
         "parent_uuid": "",
         "name": "remove_liquid",
         "type": "ILab",
@@ -3494,7 +3457,7 @@
           "is_96_well": true,
           "none_keys": []
         },
-        "footer": "取上清液(1400µl)",
+        "footer": "取上清液（1400µl）（9320）",
         "device_name": "PRCXI",
         "disabled": false,
         "minimized": false,
@@ -3504,7 +3467,7 @@
         "resource_name": "liquid_handler.prcxi"
       },
       {
-        "uuid": "c7bc2d5b-c8f5-4325-945a-9e955c306b73",
+        "uuid": "48eeea2e-b412-4b4a-857d-59bc3c902bfa",
         "parent_uuid": "",
         "name": "add_liquid",
         "type": "ILab",
@@ -3561,7 +3524,7 @@
           "mix_liquid_height": 0.0,
           "none_keys": []
         },
-        "footer": "加入20mM CTAC(500µl)",
+        "footer": "加入20mM CTAC（500µl）（9320）",
         "device_name": "PRCXI",
         "disabled": false,
         "minimized": false,
@@ -3571,7 +3534,7 @@
         "resource_name": "liquid_handler.prcxi"
       },
       {
-        "uuid": "152e18ec-e6ba-4609-b8b8-47a2decd0cb6",
+        "uuid": "499e910a-5d2f-41be-9119-09ec3fb69525",
         "parent_uuid": "",
         "name": "mix",
         "type": "ILab",
@@ -3615,7 +3578,7 @@
           "offsets": [],
           "none_keys": []
         },
-        "footer": "混匀",
+        "footer": "混匀（9320）",
         "device_name": "PRCXI",
         "disabled": false,
         "minimized": false,
@@ -3625,7 +3588,7 @@
         "resource_name": "liquid_handler.prcxi"
       },
       {
-        "uuid": "213faf92-a5d7-444a-8446-cf0c63f9ef4f",
+        "uuid": "dee4a46d-f281-4f8b-b553-dd3b7e9ec301",
         "parent_uuid": "",
         "name": "transfer_carrier",
         "type": "ILab",
@@ -3663,9 +3626,10 @@
         "param": {
           "x_speed": 300,
           "pick_place": 1,
+          "timeout": 180.0,
           "destination": "prcxi"
         },
-        "footer": "机械臂转移至离心机",
+        "footer": "机械臂取溶液至离心机（机械臂）",
         "device_name": "gn_robotic_arm",
         "disabled": false,
         "minimized": false,
@@ -3675,7 +3639,7 @@
         "resource_name": "gn_robotic_arm"
       },
       {
-        "uuid": "44866eb7-9bef-49bb-87d8-b9bde5a973fa",
+        "uuid": "4f012e59-d1cf-4df5-9eab-31884b09a036",
         "parent_uuid": "",
         "name": "run",
         "type": "ILab",
@@ -3715,7 +3679,7 @@
           "minutes": 15,
           "plate_no": 2
         },
-        "footer": "离心",
+        "footer": "离心（离心机）",
         "device_name": "gn_centrifuge",
         "disabled": false,
         "minimized": false,
@@ -3725,7 +3689,7 @@
         "resource_name": "gn_centrifuge"
       },
       {
-        "uuid": "cd3214dc-4ffe-49b8-8c8a-a2c6aecaac84",
+        "uuid": "d554de53-a9c3-4db4-9436-a6e35597bdd0",
         "parent_uuid": "",
         "name": "transfer_carrier",
         "type": "ILab",
@@ -3763,9 +3727,10 @@
         "param": {
           "x_speed": 300,
           "pick_place": 1,
+          "timeout": 180.0,
           "destination": "centrifuge"
         },
-        "footer": "机械臂转移至9320",
+        "footer": "机械臂取溶液至9320（机械臂）",
         "device_name": "gn_robotic_arm",
         "disabled": false,
         "minimized": false,
@@ -3775,7 +3740,7 @@
         "resource_name": "gn_robotic_arm"
       },
       {
-        "uuid": "24f46a57-f755-450c-a799-a918f311f3b9",
+        "uuid": "b3ed4c85-7c7a-46f9-a9e8-ea05bc1ad791",
         "parent_uuid": "",
         "name": "remove_liquid",
         "type": "ILab",
@@ -3824,7 +3789,7 @@
           "is_96_well": true,
           "none_keys": []
         },
-        "footer": "取上清液(500µl)",
+        "footer": "取上清液（500µl）（9320）",
         "device_name": "PRCXI",
         "disabled": false,
         "minimized": false,
@@ -3834,7 +3799,7 @@
         "resource_name": "liquid_handler.prcxi"
       },
       {
-        "uuid": "dffa741d-b50e-431d-828b-3c03ecb4ec4b",
+        "uuid": "c8d64fcb-dd9e-4384-8399-93c381d70f2a",
         "parent_uuid": "",
         "name": "add_liquid",
         "type": "ILab",
@@ -3891,7 +3856,7 @@
           "mix_liquid_height": 0.0,
           "none_keys": []
         },
-        "footer": "加入20mM CTAC(1000µl)",
+        "footer": "加入20mM CTAC（1000µl）（9320）",
         "device_name": "PRCXI",
         "disabled": false,
         "minimized": false,
@@ -3901,7 +3866,7 @@
         "resource_name": "liquid_handler.prcxi"
       },
       {
-        "uuid": "5cbfe42e-11a6-47f8-812f-025f8b5aa033",
+        "uuid": "5816907f-408a-473f-b229-8640e8117a7f",
         "parent_uuid": "",
         "name": "mix",
         "type": "ILab",
@@ -3945,7 +3910,7 @@
           "offsets": [],
           "none_keys": []
         },
-        "footer": "混匀",
+        "footer": "混匀（9320）",
         "device_name": "PRCXI",
         "disabled": false,
         "minimized": false,
@@ -3955,7 +3920,7 @@
         "resource_name": "liquid_handler.prcxi"
       },
       {
-        "uuid": "c50676dc-1aaf-4557-a894-d7ab44adb7ec",
+        "uuid": "29a1f683-3b6f-4a3b-bb1f-3d19a0f65ed4",
         "parent_uuid": "",
         "name": "add_liquid",
         "type": "ILab",
@@ -4012,7 +3977,7 @@
           "mix_liquid_height": 0.0,
           "none_keys": []
         },
-        "footer": "移取500µl到酶标板",
+        "footer": "移取500µl到酶标板（9320）",
         "device_name": "PRCXI",
         "disabled": false,
         "minimized": false,
@@ -4022,7 +3987,7 @@
         "resource_name": "liquid_handler.prcxi"
       },
       {
-        "uuid": "85ff38c1-f61a-4cf2-ae93-420f6187946f",
+        "uuid": "df9ffc6d-8fde-4bb2-b2d7-9f101bbed8ce",
         "parent_uuid": "",
         "name": "transfer_carrier",
         "type": "ILab",
@@ -4060,9 +4025,10 @@
         "param": {
           "x_speed": 300,
           "pick_place": 1,
+          "timeout": 180.0,
           "destination": "prcxi"
         },
-        "footer": "机械臂转移至离心机",
+        "footer": "机械臂取溶液至离心机（机械臂）",
         "device_name": "gn_robotic_arm",
         "disabled": false,
         "minimized": false,
@@ -4072,7 +4038,7 @@
         "resource_name": "gn_robotic_arm"
       },
       {
-        "uuid": "a97367d3-0fa5-4b90-b531-73bceab045fc",
+        "uuid": "29b8dbc1-118f-443e-bd7f-95f80a609b81",
         "parent_uuid": "",
         "name": "run",
         "type": "ILab",
@@ -4112,7 +4078,7 @@
           "minutes": 15,
           "plate_no": 2
         },
-        "footer": "离心",
+        "footer": "离心（离心机）",
         "device_name": "gn_centrifuge",
         "disabled": false,
         "minimized": false,
@@ -4122,7 +4088,7 @@
         "resource_name": "gn_centrifuge"
       },
       {
-        "uuid": "9a121ccd-c9e0-42e3-8daa-cc225ece2c4b",
+        "uuid": "83337602-e99d-4102-b7e1-d1b80652e6b4",
         "parent_uuid": "",
         "name": "transfer_carrier",
         "type": "ILab",
@@ -4160,9 +4126,10 @@
         "param": {
           "x_speed": 300,
           "pick_place": 1,
+          "timeout": 180.0,
           "destination": "centrifuge"
         },
-        "footer": "机械臂转移至9320",
+        "footer": "机械臂取溶液至9320（机械臂）",
         "device_name": "gn_robotic_arm",
         "disabled": false,
         "minimized": false,
@@ -4172,7 +4139,7 @@
         "resource_name": "gn_robotic_arm"
       },
       {
-        "uuid": "651e6b7a-8b4e-44f9-8543-dc679e4fab32",
+        "uuid": "c86360df-738d-4f41-998f-42bfaca285da",
         "parent_uuid": "",
         "name": "remove_liquid",
         "type": "ILab",
@@ -4221,7 +4188,7 @@
           "is_96_well": true,
           "none_keys": []
         },
-        "footer": "上清液(1000µl)",
+        "footer": "上清液（1000µl）（9320）",
         "device_name": "PRCXI",
         "disabled": false,
         "minimized": false,
@@ -4231,7 +4198,7 @@
         "resource_name": "liquid_handler.prcxi"
       },
       {
-        "uuid": "d2ec3078-d3cf-4d4b-8164-af113afc59b8",
+        "uuid": "5f21fe26-41b9-4553-aff1-ecb83f5e4727",
         "parent_uuid": "",
         "name": "add_liquid",
         "type": "ILab",
@@ -4288,7 +4255,7 @@
           "mix_liquid_height": 0.0,
           "none_keys": []
         },
-        "footer": "加100mM CTAC",
+        "footer": "加100mM CTAC（9320）",
         "device_name": "PRCXI",
         "disabled": false,
         "minimized": false,
@@ -4298,7 +4265,7 @@
         "resource_name": "liquid_handler.prcxi"
       },
       {
-        "uuid": "732e98de-6067-469c-8acf-00fd55509231",
+        "uuid": "33d8fec8-9dd6-4091-8792-44a7da3ae138",
         "parent_uuid": "",
         "name": "mix",
         "type": "ILab",
@@ -4342,7 +4309,7 @@
           "offsets": [],
           "none_keys": []
         },
-        "footer": "混匀",
+        "footer": "混匀（9320）",
         "device_name": "PRCXI",
         "disabled": false,
         "minimized": false,
@@ -4352,7 +4319,7 @@
         "resource_name": "liquid_handler.prcxi"
       },
       {
-        "uuid": "fa3ede83-fc74-4080-8bc3-b0bb642f9782",
+        "uuid": "c4525bec-84b8-4b09-a2ae-e9640b26d9bd",
         "parent_uuid": "",
         "name": "mix",
         "type": "ILab",
@@ -4396,7 +4363,7 @@
           "offsets": [],
           "none_keys": []
         },
-        "footer": "得到金四面体溶液",
+        "footer": "得到金四面体溶液（9320，禁用）",
         "device_name": "PRCXI",
         "disabled": true,
         "minimized": false,
@@ -4406,7 +4373,7 @@
         "resource_name": "liquid_handler.prcxi"
       },
       {
-        "uuid": "fdf4d604-4f07-4876-8b9a-112458a20f4b",
+        "uuid": "96240954-6f09-472c-8873-60d70412c9ef",
         "parent_uuid": "",
         "name": "transfer_carrier",
         "type": "ILab",
@@ -4444,9 +4411,10 @@
         "param": {
           "x_speed": 300,
           "pick_place": 1,
+          "timeout": 180.0,
           "destination": "stack_bottle"
         },
-        "footer": "机械臂取样品瓶至粉末加样仪",
+        "footer": "机械臂取样品瓶至粉末加样仪（机械臂）",
         "device_name": "gn_robotic_arm",
         "disabled": false,
         "minimized": false,
@@ -4456,7 +4424,7 @@
         "resource_name": "gn_robotic_arm"
       },
       {
-        "uuid": "2014923f-98b8-459c-8fb2-2850c7ab2494",
+        "uuid": "87c4eeca-52cf-4408-84a2-131d99a6d44e",
         "parent_uuid": "",
         "name": "add_liquid",
         "type": "ILab",
@@ -4513,7 +4481,7 @@
           "mix_liquid_height": 0.0,
           "none_keys": []
         },
-        "footer": "9320加样",
+        "footer": "加样（9320）",
         "device_name": "PRCXI",
         "disabled": false,
         "minimized": false,
@@ -4523,7 +4491,7 @@
         "resource_name": "liquid_handler.prcxi"
       },
       {
-        "uuid": "cab96c70-205e-49cc-b215-76c8906ea918",
+        "uuid": "3fd55047-da8b-4f07-8022-3005f93b2337",
         "parent_uuid": "",
         "name": "transfer_carrier",
         "type": "ILab",
@@ -4561,9 +4529,10 @@
         "param": {
           "x_speed": 300,
           "pick_place": 1,
+          "timeout": 180.0,
           "destination": "solid_feed"
         },
-        "footer": "机械臂转移至离心管液体处理设备",
+        "footer": "机械臂转移至离心管液体处理设备（机械臂）",
         "device_name": "gn_robotic_arm",
         "disabled": false,
         "minimized": false,
@@ -4573,9 +4542,9 @@
         "resource_name": "gn_robotic_arm"
       },
       {
-        "uuid": "1c024e76-3550-4a8a-8184-28066e5bdabc",
+        "uuid": "bcc4da21-6ae7-4ca5-9ea5-41af1d5f27dd",
         "parent_uuid": "",
-        "name": "open_bottle_lid",
+        "name": "auto-small_gripper_open_lid",
         "type": "ILab",
         "icon": "",
         "pose": {
@@ -4608,23 +4577,20 @@
           "extra": null,
           "cross_section_type": "rectangle"
         },
-        "param": {
-          "bottle_index": 1,
-          "bottle_type": "small"
-        },
-        "footer": "试剂瓶开盖",
+        "param": {},
+        "footer": "试剂瓶开盖（离心管液体处理）",
         "device_name": "gn_centrifuge_tube_liquid_handling",
         "disabled": false,
         "minimized": false,
         "lab_node_type": "Device",
         "template_uuid": "",
-        "template_name": "open_bottle_lid",
+        "template_name": "auto-small_gripper_open_lid",
         "resource_name": "gn_centrifuge_tube_liquid_handling"
       },
       {
-        "uuid": "665a9e1d-2aa6-4fa6-a59b-b1e6541a34dc",
+        "uuid": "b6457f4e-8e32-415f-a17c-5806ef44bbf2",
         "parent_uuid": "",
-        "name": "ch8_dispense",
+        "name": "auto-ch8_dispense",
         "type": "ILab",
         "icon": "",
         "pose": {
@@ -4657,25 +4623,20 @@
           "extra": null,
           "cross_section_type": "rectangle"
         },
-        "param": {
-          "p1_pos": 300,
-          "x_pos": 3093,
-          "y_pos": -3181,
-          "z1_pos": 1330
-        },
-        "footer": "加水溶解",
+        "param": {},
+        "footer": "加水溶解（离心管液体处理设备）",
         "device_name": "gn_centrifuge_tube_liquid_handling",
         "disabled": false,
         "minimized": false,
         "lab_node_type": "Device",
         "template_uuid": "",
-        "template_name": "ch8_dispense",
+        "template_name": "auto-ch8_dispense",
         "resource_name": "gn_centrifuge_tube_liquid_handling"
       },
       {
-        "uuid": "c424d7a2-a503-4135-8728-04e5237a0028",
+        "uuid": "0a4955c4-d262-4a5d-9260-7b83edf6fa27",
         "parent_uuid": "",
-        "name": "close_bottle_lid",
+        "name": "auto-small_gripper_close_lid",
         "type": "ILab",
         "icon": "",
         "pose": {
@@ -4708,21 +4669,18 @@
           "extra": null,
           "cross_section_type": "rectangle"
         },
-        "param": {
-          "bottle_index": 1,
-          "bottle_type": "small"
-        },
-        "footer": "试剂瓶关盖",
+        "param": {},
+        "footer": "试剂瓶关盖（离心管液体处理）",
         "device_name": "gn_centrifuge_tube_liquid_handling",
         "disabled": false,
         "minimized": false,
         "lab_node_type": "Device",
         "template_uuid": "",
-        "template_name": "close_bottle_lid",
+        "template_name": "auto-small_gripper_close_lid",
         "resource_name": "gn_centrifuge_tube_liquid_handling"
       },
       {
-        "uuid": "3b668e33-f238-493d-9c82-9590180cd39e",
+        "uuid": "740c16b6-3e16-4f09-80ed-e8886f266e0c",
         "parent_uuid": "",
         "name": "transfer_carrier",
         "type": "ILab",
@@ -4760,9 +4718,10 @@
         "param": {
           "x_speed": 300,
           "pick_place": 1,
+          "timeout": 180.0,
           "destination": "tube_handler"
         },
-        "footer": "机械臂取溶液至第六列第一次加液",
+        "footer": "机械臂取溶液至第六列第一次加液（机械臂）",
         "device_name": "gn_robotic_arm",
         "disabled": false,
         "minimized": false,
@@ -4772,7 +4731,7 @@
         "resource_name": "gn_robotic_arm"
       },
       {
-        "uuid": "ae056b66-40b9-45aa-9823-4d88bc71bcbe",
+        "uuid": "5c2f3f1b-75b6-42ef-9cc6-210c7a6f89cd",
         "parent_uuid": "",
         "name": "workflow_complete",
         "type": "ILab",
@@ -4822,776 +4781,776 @@
     ],
     "edges": [
       {
-        "source_node_uuid": "41b55ed8-1db9-4732-8210-9f6205261a30",
-        "target_node_uuid": "72204dcc-3ca6-4765-84e1-eb6020df3f1a",
+        "source_node_uuid": "af728c04-7f0e-463c-8703-59bb0cb33452",
+        "target_node_uuid": "32fef858-0a36-4650-b376-570cdecb39b9",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "72204dcc-3ca6-4765-84e1-eb6020df3f1a",
-        "target_node_uuid": "71071599-51b6-49be-bf81-5c637d57823b",
+        "source_node_uuid": "32fef858-0a36-4650-b376-570cdecb39b9",
+        "target_node_uuid": "4858647c-3f71-4a98-89fa-08cb5ed6bd8f",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "71071599-51b6-49be-bf81-5c637d57823b",
-        "target_node_uuid": "4c53979e-94e7-4566-adef-1abad48b0cbc",
+        "source_node_uuid": "4858647c-3f71-4a98-89fa-08cb5ed6bd8f",
+        "target_node_uuid": "99014fa3-cf67-4f13-817e-e38ebb8f590d",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "4c53979e-94e7-4566-adef-1abad48b0cbc",
-        "target_node_uuid": "cec4fb18-cf8f-4ea6-830f-0aec9c3cffdd",
+        "source_node_uuid": "99014fa3-cf67-4f13-817e-e38ebb8f590d",
+        "target_node_uuid": "7a79c77a-cf10-42fb-8624-259ca222369f",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "72204dcc-3ca6-4765-84e1-eb6020df3f1a",
-        "target_node_uuid": "4ba2ef01-cf6d-4d99-94ad-e6218246e1fe",
+        "source_node_uuid": "32fef858-0a36-4650-b376-570cdecb39b9",
+        "target_node_uuid": "f609ed63-a065-4d7f-85c5-38536be45d8e",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "4ba2ef01-cf6d-4d99-94ad-e6218246e1fe",
-        "target_node_uuid": "67b00b11-479c-4de4-8dcd-30196f4673a3",
+        "source_node_uuid": "f609ed63-a065-4d7f-85c5-38536be45d8e",
+        "target_node_uuid": "9722e331-730e-4cf2-a867-3cfbb938faee",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "67b00b11-479c-4de4-8dcd-30196f4673a3",
-        "target_node_uuid": "aab37b19-3ca7-4dc5-a7bf-31860f38f6e3",
+        "source_node_uuid": "9722e331-730e-4cf2-a867-3cfbb938faee",
+        "target_node_uuid": "9549d7e3-eaab-4eb3-b2d0-0efd5fbb0d17",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "aab37b19-3ca7-4dc5-a7bf-31860f38f6e3",
-        "target_node_uuid": "f3495a82-3196-4deb-b08d-ab2362374036",
+        "source_node_uuid": "9549d7e3-eaab-4eb3-b2d0-0efd5fbb0d17",
+        "target_node_uuid": "207f84ad-f1c5-4566-9f69-21c28e04868b",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "f3495a82-3196-4deb-b08d-ab2362374036",
-        "target_node_uuid": "7e9cc3e6-11c4-43d5-853c-2a338321ae22",
+        "source_node_uuid": "207f84ad-f1c5-4566-9f69-21c28e04868b",
+        "target_node_uuid": "ff834b44-32f7-4050-b6f0-b865c3dde7cd",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "7e9cc3e6-11c4-43d5-853c-2a338321ae22",
-        "target_node_uuid": "063ed59f-13dd-4dda-8a10-32a96a69915c",
+        "source_node_uuid": "ff834b44-32f7-4050-b6f0-b865c3dde7cd",
+        "target_node_uuid": "e2790925-0137-4742-83c4-b22f04d628ea",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "063ed59f-13dd-4dda-8a10-32a96a69915c",
-        "target_node_uuid": "99a5ab74-aa9b-4aa1-b35f-58b23d3f93f1",
+        "source_node_uuid": "e2790925-0137-4742-83c4-b22f04d628ea",
+        "target_node_uuid": "1805cf46-3a6f-4e11-8cf1-49182272ed55",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "72204dcc-3ca6-4765-84e1-eb6020df3f1a",
-        "target_node_uuid": "b286d73a-8924-479f-bd93-9ae980d5b6e2",
+        "source_node_uuid": "32fef858-0a36-4650-b376-570cdecb39b9",
+        "target_node_uuid": "85141ba4-b7aa-4421-b085-7bf1604fb692",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "b286d73a-8924-479f-bd93-9ae980d5b6e2",
-        "target_node_uuid": "8b50ab48-7172-4b8a-9336-148dc298c1e1",
+        "source_node_uuid": "85141ba4-b7aa-4421-b085-7bf1604fb692",
+        "target_node_uuid": "93d921aa-6a49-4f1e-b26e-de09a9188b27",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "8b50ab48-7172-4b8a-9336-148dc298c1e1",
-        "target_node_uuid": "bd42c62c-89e6-4135-a894-475892586967",
+        "source_node_uuid": "93d921aa-6a49-4f1e-b26e-de09a9188b27",
+        "target_node_uuid": "5eb015bb-61a3-494f-a7d3-a4757d38d881",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "bd42c62c-89e6-4135-a894-475892586967",
-        "target_node_uuid": "7fb6f35a-184a-4e63-8532-e7099bbc5e40",
+        "source_node_uuid": "5eb015bb-61a3-494f-a7d3-a4757d38d881",
+        "target_node_uuid": "ac1f3d18-f00d-433e-b506-4b12cdab44c0",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "7fb6f35a-184a-4e63-8532-e7099bbc5e40",
-        "target_node_uuid": "85018092-0721-4c01-ac86-23444c67944e",
+        "source_node_uuid": "ac1f3d18-f00d-433e-b506-4b12cdab44c0",
+        "target_node_uuid": "5ef0e6f2-2f0d-44de-b09f-fbb794ae2447",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "85018092-0721-4c01-ac86-23444c67944e",
-        "target_node_uuid": "4f40d51b-f0f5-4b44-9b4c-ee50390c98fb",
+        "source_node_uuid": "5ef0e6f2-2f0d-44de-b09f-fbb794ae2447",
+        "target_node_uuid": "37f9f417-2c30-4647-90ff-7967b767722a",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "4f40d51b-f0f5-4b44-9b4c-ee50390c98fb",
-        "target_node_uuid": "6ea5f32d-dce2-48eb-a162-5578596cfd1f",
+        "source_node_uuid": "37f9f417-2c30-4647-90ff-7967b767722a",
+        "target_node_uuid": "fe64bcf4-90bf-4681-ab2c-0f8ea1193894",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "6ea5f32d-dce2-48eb-a162-5578596cfd1f",
-        "target_node_uuid": "f975ae0d-9dbb-4ad1-acaf-c832b1c9b774",
+        "source_node_uuid": "fe64bcf4-90bf-4681-ab2c-0f8ea1193894",
+        "target_node_uuid": "273ac093-68ff-4d62-a635-962f4d1e4c00",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "f975ae0d-9dbb-4ad1-acaf-c832b1c9b774",
-        "target_node_uuid": "04b2ab83-1d3f-496e-b3d3-8bdd327fafb8",
+        "source_node_uuid": "273ac093-68ff-4d62-a635-962f4d1e4c00",
+        "target_node_uuid": "42bc37b5-b469-4824-ba7b-0ed37f8812c6",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "72204dcc-3ca6-4765-84e1-eb6020df3f1a",
-        "target_node_uuid": "2d29c14d-b3e9-494c-ad34-1594d5a02493",
+        "source_node_uuid": "32fef858-0a36-4650-b376-570cdecb39b9",
+        "target_node_uuid": "05d1fdff-8ca2-48d7-a98a-a2aa94567e82",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "2d29c14d-b3e9-494c-ad34-1594d5a02493",
-        "target_node_uuid": "68411214-e40e-429c-8f08-515c62920102",
+        "source_node_uuid": "05d1fdff-8ca2-48d7-a98a-a2aa94567e82",
+        "target_node_uuid": "8f112fc2-15ed-46b2-bb65-ac6d1677d348",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "68411214-e40e-429c-8f08-515c62920102",
-        "target_node_uuid": "5c43b367-20ae-4e25-8cc9-9660d3682291",
+        "source_node_uuid": "8f112fc2-15ed-46b2-bb65-ac6d1677d348",
+        "target_node_uuid": "4caf4e84-867a-46ff-a1e3-2f7b35ffcae3",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "5c43b367-20ae-4e25-8cc9-9660d3682291",
-        "target_node_uuid": "0742163e-01f4-4f5d-bbf6-ea035e3f4c7c",
+        "source_node_uuid": "4caf4e84-867a-46ff-a1e3-2f7b35ffcae3",
+        "target_node_uuid": "e24a8281-d370-4dcf-8a17-a65bd28c84db",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "0742163e-01f4-4f5d-bbf6-ea035e3f4c7c",
-        "target_node_uuid": "fc3e4616-af10-4730-b0cd-d5af27b57793",
+        "source_node_uuid": "e24a8281-d370-4dcf-8a17-a65bd28c84db",
+        "target_node_uuid": "2387f674-51a3-4766-a71b-f7d39c466bc0",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "fc3e4616-af10-4730-b0cd-d5af27b57793",
-        "target_node_uuid": "108d3d5c-b822-4e61-8e66-1ff252599ce0",
+        "source_node_uuid": "2387f674-51a3-4766-a71b-f7d39c466bc0",
+        "target_node_uuid": "749af9be-3f10-42e5-b25a-7a38ec6aa25b",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "108d3d5c-b822-4e61-8e66-1ff252599ce0",
-        "target_node_uuid": "a4dd8fde-74a5-4dc3-bebe-76b9c45a1abd",
+        "source_node_uuid": "749af9be-3f10-42e5-b25a-7a38ec6aa25b",
+        "target_node_uuid": "054e746d-66d8-4e82-9b27-ba51266d9bd0",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "a4dd8fde-74a5-4dc3-bebe-76b9c45a1abd",
-        "target_node_uuid": "069ce7eb-2974-4976-b9f0-3627663dd91d",
+        "source_node_uuid": "054e746d-66d8-4e82-9b27-ba51266d9bd0",
+        "target_node_uuid": "4727b5ef-b181-42c6-8613-c1389e9437da",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "72204dcc-3ca6-4765-84e1-eb6020df3f1a",
-        "target_node_uuid": "95739680-70fc-4012-8a4c-a0cf27c7610b",
+        "source_node_uuid": "32fef858-0a36-4650-b376-570cdecb39b9",
+        "target_node_uuid": "307b2d82-33b0-40de-a234-73d019deb985",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "95739680-70fc-4012-8a4c-a0cf27c7610b",
-        "target_node_uuid": "00d7e78a-9906-4a8e-9a45-8d10a0f8829d",
+        "source_node_uuid": "307b2d82-33b0-40de-a234-73d019deb985",
+        "target_node_uuid": "6bbbd4cb-facd-4371-8372-5804d73ad395",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "00d7e78a-9906-4a8e-9a45-8d10a0f8829d",
-        "target_node_uuid": "196584e1-5d7d-4796-a8bf-6688a6ec09ba",
+        "source_node_uuid": "6bbbd4cb-facd-4371-8372-5804d73ad395",
+        "target_node_uuid": "4e47351d-149b-4b0e-beeb-b533c2cd8f38",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "196584e1-5d7d-4796-a8bf-6688a6ec09ba",
-        "target_node_uuid": "2809b55d-a70d-4754-b180-71f9f5d6bf54",
+        "source_node_uuid": "4e47351d-149b-4b0e-beeb-b533c2cd8f38",
+        "target_node_uuid": "9947318f-9db7-4125-9613-86a30f114a02",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "2809b55d-a70d-4754-b180-71f9f5d6bf54",
-        "target_node_uuid": "64d45410-7a79-41d0-b491-028f91d6761f",
+        "source_node_uuid": "9947318f-9db7-4125-9613-86a30f114a02",
+        "target_node_uuid": "669df6c9-6a10-4e01-8bae-41b0cd5cbfbe",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "64d45410-7a79-41d0-b491-028f91d6761f",
-        "target_node_uuid": "ee50add4-3cb4-4559-9cb1-f8ddd6bdf3dc",
+        "source_node_uuid": "669df6c9-6a10-4e01-8bae-41b0cd5cbfbe",
+        "target_node_uuid": "699a015c-1995-43b1-9d37-4b8f5d4f8190",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "ee50add4-3cb4-4559-9cb1-f8ddd6bdf3dc",
-        "target_node_uuid": "5e97e8d9-a74f-4de3-b0fc-6b67af43b4ea",
+        "source_node_uuid": "699a015c-1995-43b1-9d37-4b8f5d4f8190",
+        "target_node_uuid": "57fda5ef-b353-45ea-85bb-cc4e0cd96f4f",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "5e97e8d9-a74f-4de3-b0fc-6b67af43b4ea",
-        "target_node_uuid": "3ef1aff7-2d6d-460b-b684-af853577c646",
+        "source_node_uuid": "57fda5ef-b353-45ea-85bb-cc4e0cd96f4f",
+        "target_node_uuid": "2f69de55-f25f-474b-b28e-fc530b86ec17",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "3ef1aff7-2d6d-460b-b684-af853577c646",
-        "target_node_uuid": "e979d026-6847-4ece-9789-291655e609fc",
+        "source_node_uuid": "2f69de55-f25f-474b-b28e-fc530b86ec17",
+        "target_node_uuid": "158a6da3-bd06-4c11-a2d1-8b1f331ada9d",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "e979d026-6847-4ece-9789-291655e609fc",
-        "target_node_uuid": "90a6fb01-f739-464a-b1c4-08c4921dd1ed",
+        "source_node_uuid": "158a6da3-bd06-4c11-a2d1-8b1f331ada9d",
+        "target_node_uuid": "ba709f72-743b-4271-9038-74d6e2aa932c",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "90a6fb01-f739-464a-b1c4-08c4921dd1ed",
-        "target_node_uuid": "fb0a3996-9f43-4d66-a2fb-b6c94d8a8e82",
+        "source_node_uuid": "ba709f72-743b-4271-9038-74d6e2aa932c",
+        "target_node_uuid": "47801238-664e-49dd-a809-2e25b3155eed",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "fb0a3996-9f43-4d66-a2fb-b6c94d8a8e82",
-        "target_node_uuid": "3858a34d-a8e1-4421-a4ad-eecaa44ff208",
+        "source_node_uuid": "47801238-664e-49dd-a809-2e25b3155eed",
+        "target_node_uuid": "22d06175-7b59-46c8-8db0-b38f849bbc9a",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "3858a34d-a8e1-4421-a4ad-eecaa44ff208",
-        "target_node_uuid": "cb55d280-c0b7-429a-b68b-fab088f2e84d",
+        "source_node_uuid": "22d06175-7b59-46c8-8db0-b38f849bbc9a",
+        "target_node_uuid": "259ff575-16ae-4e8e-8a3d-5eeb07985a21",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "cb55d280-c0b7-429a-b68b-fab088f2e84d",
-        "target_node_uuid": "96c35bf3-c314-47cc-8e93-5203119814dd",
+        "source_node_uuid": "259ff575-16ae-4e8e-8a3d-5eeb07985a21",
+        "target_node_uuid": "b53430ea-8aab-47e4-a1ad-42b9516d00f7",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "96c35bf3-c314-47cc-8e93-5203119814dd",
-        "target_node_uuid": "852bab53-65ca-4e25-8884-4c3114364983",
+        "source_node_uuid": "b53430ea-8aab-47e4-a1ad-42b9516d00f7",
+        "target_node_uuid": "3953d451-4c77-4b9e-8650-3b0bec4b3185",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "852bab53-65ca-4e25-8884-4c3114364983",
-        "target_node_uuid": "06fc609b-8425-4b1b-a742-b21c46f7d935",
+        "source_node_uuid": "3953d451-4c77-4b9e-8650-3b0bec4b3185",
+        "target_node_uuid": "5774e343-28f7-4d7a-bfb6-fb050e7b0f70",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "06fc609b-8425-4b1b-a742-b21c46f7d935",
-        "target_node_uuid": "364ef2c6-b73b-4a3a-8e4b-48b6ffcc38cc",
+        "source_node_uuid": "5774e343-28f7-4d7a-bfb6-fb050e7b0f70",
+        "target_node_uuid": "1d3467f3-a557-4a99-804a-c773d051b745",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "364ef2c6-b73b-4a3a-8e4b-48b6ffcc38cc",
-        "target_node_uuid": "9de84911-4fcb-45a8-8eb6-724cec3f1549",
+        "source_node_uuid": "1d3467f3-a557-4a99-804a-c773d051b745",
+        "target_node_uuid": "e1172731-ea89-4422-811f-dc5a456f8716",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "9de84911-4fcb-45a8-8eb6-724cec3f1549",
-        "target_node_uuid": "acda5586-8a62-4b27-af70-6d0485e21cbc",
+        "source_node_uuid": "e1172731-ea89-4422-811f-dc5a456f8716",
+        "target_node_uuid": "934dcc2a-2e09-4f28-aff3-3c566136c2a7",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "acda5586-8a62-4b27-af70-6d0485e21cbc",
-        "target_node_uuid": "e154e0da-bb49-406b-94f8-1e60b5ffb2b9",
+        "source_node_uuid": "934dcc2a-2e09-4f28-aff3-3c566136c2a7",
+        "target_node_uuid": "865cea5c-bc63-48ab-993d-8d6b1af559c7",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "e154e0da-bb49-406b-94f8-1e60b5ffb2b9",
-        "target_node_uuid": "396dfca2-3359-430c-b8f2-bdab73b7d08e",
+        "source_node_uuid": "865cea5c-bc63-48ab-993d-8d6b1af559c7",
+        "target_node_uuid": "b6d36a18-07e5-4799-b0e5-8f623e40cd69",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "396dfca2-3359-430c-b8f2-bdab73b7d08e",
-        "target_node_uuid": "dead1c1a-5932-4d25-bb42-858881769b0e",
+        "source_node_uuid": "b6d36a18-07e5-4799-b0e5-8f623e40cd69",
+        "target_node_uuid": "6f5a58e5-c3bc-4c9e-bca3-3b4e65ece679",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "dead1c1a-5932-4d25-bb42-858881769b0e",
-        "target_node_uuid": "2b66807c-f954-4f00-886e-0c7e2d4ec1d1",
+        "source_node_uuid": "6f5a58e5-c3bc-4c9e-bca3-3b4e65ece679",
+        "target_node_uuid": "96db8f7a-335b-498f-aa16-377a949be453",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "72204dcc-3ca6-4765-84e1-eb6020df3f1a",
-        "target_node_uuid": "5671556e-abaf-4e9f-aedc-a229f0db2a66",
+        "source_node_uuid": "32fef858-0a36-4650-b376-570cdecb39b9",
+        "target_node_uuid": "219ad05a-62b9-4f4c-94db-a3a600a59365",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "5671556e-abaf-4e9f-aedc-a229f0db2a66",
-        "target_node_uuid": "5a1bed89-095f-4229-a573-0ab19afd2070",
+        "source_node_uuid": "219ad05a-62b9-4f4c-94db-a3a600a59365",
+        "target_node_uuid": "9667cb4d-1dfe-42ab-9714-92812d6d9874",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "5a1bed89-095f-4229-a573-0ab19afd2070",
-        "target_node_uuid": "81ef9528-149d-4ced-bc99-6ee3ff64b9a2",
+        "source_node_uuid": "9667cb4d-1dfe-42ab-9714-92812d6d9874",
+        "target_node_uuid": "703b6546-a3d7-4b05-9357-8e6d9f1a9466",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "81ef9528-149d-4ced-bc99-6ee3ff64b9a2",
-        "target_node_uuid": "9aac9d41-a323-4b61-b364-d791284af12c",
+        "source_node_uuid": "703b6546-a3d7-4b05-9357-8e6d9f1a9466",
+        "target_node_uuid": "260896dd-1a06-4688-8eab-c699cfba4786",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "72204dcc-3ca6-4765-84e1-eb6020df3f1a",
-        "target_node_uuid": "0d2d413e-0abd-42a6-aeb6-ed9ee7d1204c",
+        "source_node_uuid": "32fef858-0a36-4650-b376-570cdecb39b9",
+        "target_node_uuid": "ce481544-45b8-402f-8f92-41190a0aa31b",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "0d2d413e-0abd-42a6-aeb6-ed9ee7d1204c",
-        "target_node_uuid": "2faae702-c747-4b73-b214-60878cf373eb",
+        "source_node_uuid": "ce481544-45b8-402f-8f92-41190a0aa31b",
+        "target_node_uuid": "63233d90-a896-400a-bbd3-c088898a3a50",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "2faae702-c747-4b73-b214-60878cf373eb",
-        "target_node_uuid": "972937ef-edcc-49a3-8ce7-077b1ca38b84",
+        "source_node_uuid": "63233d90-a896-400a-bbd3-c088898a3a50",
+        "target_node_uuid": "0cd07d3f-ef86-4755-b36b-5f6687d7b12a",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "972937ef-edcc-49a3-8ce7-077b1ca38b84",
-        "target_node_uuid": "9cfde03c-3b90-49d0-b0d6-59f39d1039df",
+        "source_node_uuid": "0cd07d3f-ef86-4755-b36b-5f6687d7b12a",
+        "target_node_uuid": "f99cd2d1-1728-4e04-b661-ba5b987d8a5e",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "9cfde03c-3b90-49d0-b0d6-59f39d1039df",
-        "target_node_uuid": "c0cfdb6f-11c9-43e5-a8d9-8042f04be694",
+        "source_node_uuid": "f99cd2d1-1728-4e04-b661-ba5b987d8a5e",
+        "target_node_uuid": "c60baca7-71c4-4681-b270-b803f8a33fa6",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "c0cfdb6f-11c9-43e5-a8d9-8042f04be694",
-        "target_node_uuid": "89d9ea80-9468-483f-89a8-1721bf23a6bb",
+        "source_node_uuid": "c60baca7-71c4-4681-b270-b803f8a33fa6",
+        "target_node_uuid": "b77464d6-4071-412c-b4bb-0ea8f0a10987",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "89d9ea80-9468-483f-89a8-1721bf23a6bb",
-        "target_node_uuid": "a14393dd-02ec-472c-ac06-fff020496cb7",
+        "source_node_uuid": "b77464d6-4071-412c-b4bb-0ea8f0a10987",
+        "target_node_uuid": "9556ad06-30f6-4fe3-ab9f-8d85a7697eed",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "a14393dd-02ec-472c-ac06-fff020496cb7",
-        "target_node_uuid": "baf7fba1-4539-4e48-a581-b769780afe27",
+        "source_node_uuid": "9556ad06-30f6-4fe3-ab9f-8d85a7697eed",
+        "target_node_uuid": "f640a11f-0a0b-4758-a062-ca00f28fa094",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "baf7fba1-4539-4e48-a581-b769780afe27",
-        "target_node_uuid": "350e1528-26b8-4604-aebc-e4beedfefe24",
+        "source_node_uuid": "f640a11f-0a0b-4758-a062-ca00f28fa094",
+        "target_node_uuid": "873c3c88-717c-4a2e-9f5f-13daff5b7ff3",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "350e1528-26b8-4604-aebc-e4beedfefe24",
-        "target_node_uuid": "8680690e-90b2-468f-9344-c538894a49d0",
+        "source_node_uuid": "873c3c88-717c-4a2e-9f5f-13daff5b7ff3",
+        "target_node_uuid": "45f40668-da01-4439-aa9b-2b507984c37c",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "8680690e-90b2-468f-9344-c538894a49d0",
-        "target_node_uuid": "fe938172-901f-4520-a8ca-0eba67803952",
+        "source_node_uuid": "45f40668-da01-4439-aa9b-2b507984c37c",
+        "target_node_uuid": "a3cedffa-9ada-45cf-beb7-ab100950bc0b",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "fe938172-901f-4520-a8ca-0eba67803952",
-        "target_node_uuid": "c7bc2d5b-c8f5-4325-945a-9e955c306b73",
+        "source_node_uuid": "a3cedffa-9ada-45cf-beb7-ab100950bc0b",
+        "target_node_uuid": "48eeea2e-b412-4b4a-857d-59bc3c902bfa",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "c7bc2d5b-c8f5-4325-945a-9e955c306b73",
-        "target_node_uuid": "152e18ec-e6ba-4609-b8b8-47a2decd0cb6",
+        "source_node_uuid": "48eeea2e-b412-4b4a-857d-59bc3c902bfa",
+        "target_node_uuid": "499e910a-5d2f-41be-9119-09ec3fb69525",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "152e18ec-e6ba-4609-b8b8-47a2decd0cb6",
-        "target_node_uuid": "213faf92-a5d7-444a-8446-cf0c63f9ef4f",
+        "source_node_uuid": "499e910a-5d2f-41be-9119-09ec3fb69525",
+        "target_node_uuid": "dee4a46d-f281-4f8b-b553-dd3b7e9ec301",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "213faf92-a5d7-444a-8446-cf0c63f9ef4f",
-        "target_node_uuid": "44866eb7-9bef-49bb-87d8-b9bde5a973fa",
+        "source_node_uuid": "dee4a46d-f281-4f8b-b553-dd3b7e9ec301",
+        "target_node_uuid": "4f012e59-d1cf-4df5-9eab-31884b09a036",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "44866eb7-9bef-49bb-87d8-b9bde5a973fa",
-        "target_node_uuid": "cd3214dc-4ffe-49b8-8c8a-a2c6aecaac84",
+        "source_node_uuid": "4f012e59-d1cf-4df5-9eab-31884b09a036",
+        "target_node_uuid": "d554de53-a9c3-4db4-9436-a6e35597bdd0",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "cd3214dc-4ffe-49b8-8c8a-a2c6aecaac84",
-        "target_node_uuid": "24f46a57-f755-450c-a799-a918f311f3b9",
+        "source_node_uuid": "d554de53-a9c3-4db4-9436-a6e35597bdd0",
+        "target_node_uuid": "b3ed4c85-7c7a-46f9-a9e8-ea05bc1ad791",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "24f46a57-f755-450c-a799-a918f311f3b9",
-        "target_node_uuid": "dffa741d-b50e-431d-828b-3c03ecb4ec4b",
+        "source_node_uuid": "b3ed4c85-7c7a-46f9-a9e8-ea05bc1ad791",
+        "target_node_uuid": "c8d64fcb-dd9e-4384-8399-93c381d70f2a",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "dffa741d-b50e-431d-828b-3c03ecb4ec4b",
-        "target_node_uuid": "5cbfe42e-11a6-47f8-812f-025f8b5aa033",
+        "source_node_uuid": "c8d64fcb-dd9e-4384-8399-93c381d70f2a",
+        "target_node_uuid": "5816907f-408a-473f-b229-8640e8117a7f",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "5cbfe42e-11a6-47f8-812f-025f8b5aa033",
-        "target_node_uuid": "c50676dc-1aaf-4557-a894-d7ab44adb7ec",
+        "source_node_uuid": "5816907f-408a-473f-b229-8640e8117a7f",
+        "target_node_uuid": "29a1f683-3b6f-4a3b-bb1f-3d19a0f65ed4",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "c50676dc-1aaf-4557-a894-d7ab44adb7ec",
-        "target_node_uuid": "85ff38c1-f61a-4cf2-ae93-420f6187946f",
+        "source_node_uuid": "29a1f683-3b6f-4a3b-bb1f-3d19a0f65ed4",
+        "target_node_uuid": "df9ffc6d-8fde-4bb2-b2d7-9f101bbed8ce",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "85ff38c1-f61a-4cf2-ae93-420f6187946f",
-        "target_node_uuid": "a97367d3-0fa5-4b90-b531-73bceab045fc",
+        "source_node_uuid": "df9ffc6d-8fde-4bb2-b2d7-9f101bbed8ce",
+        "target_node_uuid": "29b8dbc1-118f-443e-bd7f-95f80a609b81",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "a97367d3-0fa5-4b90-b531-73bceab045fc",
-        "target_node_uuid": "9a121ccd-c9e0-42e3-8daa-cc225ece2c4b",
+        "source_node_uuid": "29b8dbc1-118f-443e-bd7f-95f80a609b81",
+        "target_node_uuid": "83337602-e99d-4102-b7e1-d1b80652e6b4",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "9a121ccd-c9e0-42e3-8daa-cc225ece2c4b",
-        "target_node_uuid": "651e6b7a-8b4e-44f9-8543-dc679e4fab32",
+        "source_node_uuid": "83337602-e99d-4102-b7e1-d1b80652e6b4",
+        "target_node_uuid": "c86360df-738d-4f41-998f-42bfaca285da",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "651e6b7a-8b4e-44f9-8543-dc679e4fab32",
-        "target_node_uuid": "d2ec3078-d3cf-4d4b-8164-af113afc59b8",
+        "source_node_uuid": "c86360df-738d-4f41-998f-42bfaca285da",
+        "target_node_uuid": "5f21fe26-41b9-4553-aff1-ecb83f5e4727",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "d2ec3078-d3cf-4d4b-8164-af113afc59b8",
-        "target_node_uuid": "732e98de-6067-469c-8acf-00fd55509231",
+        "source_node_uuid": "5f21fe26-41b9-4553-aff1-ecb83f5e4727",
+        "target_node_uuid": "33d8fec8-9dd6-4091-8792-44a7da3ae138",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "732e98de-6067-469c-8acf-00fd55509231",
-        "target_node_uuid": "fa3ede83-fc74-4080-8bc3-b0bb642f9782",
+        "source_node_uuid": "33d8fec8-9dd6-4091-8792-44a7da3ae138",
+        "target_node_uuid": "c4525bec-84b8-4b09-a2ae-e9640b26d9bd",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "72204dcc-3ca6-4765-84e1-eb6020df3f1a",
-        "target_node_uuid": "fdf4d604-4f07-4876-8b9a-112458a20f4b",
+        "source_node_uuid": "32fef858-0a36-4650-b376-570cdecb39b9",
+        "target_node_uuid": "96240954-6f09-472c-8873-60d70412c9ef",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "fdf4d604-4f07-4876-8b9a-112458a20f4b",
-        "target_node_uuid": "2014923f-98b8-459c-8fb2-2850c7ab2494",
+        "source_node_uuid": "96240954-6f09-472c-8873-60d70412c9ef",
+        "target_node_uuid": "87c4eeca-52cf-4408-84a2-131d99a6d44e",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "2014923f-98b8-459c-8fb2-2850c7ab2494",
-        "target_node_uuid": "cab96c70-205e-49cc-b215-76c8906ea918",
+        "source_node_uuid": "87c4eeca-52cf-4408-84a2-131d99a6d44e",
+        "target_node_uuid": "3fd55047-da8b-4f07-8022-3005f93b2337",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "cab96c70-205e-49cc-b215-76c8906ea918",
-        "target_node_uuid": "1c024e76-3550-4a8a-8184-28066e5bdabc",
+        "source_node_uuid": "3fd55047-da8b-4f07-8022-3005f93b2337",
+        "target_node_uuid": "bcc4da21-6ae7-4ca5-9ea5-41af1d5f27dd",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "1c024e76-3550-4a8a-8184-28066e5bdabc",
-        "target_node_uuid": "665a9e1d-2aa6-4fa6-a59b-b1e6541a34dc",
+        "source_node_uuid": "bcc4da21-6ae7-4ca5-9ea5-41af1d5f27dd",
+        "target_node_uuid": "b6457f4e-8e32-415f-a17c-5806ef44bbf2",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "665a9e1d-2aa6-4fa6-a59b-b1e6541a34dc",
-        "target_node_uuid": "c424d7a2-a503-4135-8728-04e5237a0028",
+        "source_node_uuid": "b6457f4e-8e32-415f-a17c-5806ef44bbf2",
+        "target_node_uuid": "0a4955c4-d262-4a5d-9260-7b83edf6fa27",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "c424d7a2-a503-4135-8728-04e5237a0028",
-        "target_node_uuid": "3b668e33-f238-493d-9c82-9590180cd39e",
+        "source_node_uuid": "0a4955c4-d262-4a5d-9260-7b83edf6fa27",
+        "target_node_uuid": "740c16b6-3e16-4f09-80ed-e8886f266e0c",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "cec4fb18-cf8f-4ea6-830f-0aec9c3cffdd",
-        "target_node_uuid": "67b00b11-479c-4de4-8dcd-30196f4673a3",
+        "source_node_uuid": "7a79c77a-cf10-42fb-8624-259ca222369f",
+        "target_node_uuid": "9722e331-730e-4cf2-a867-3cfbb938faee",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "6ea5f32d-dce2-48eb-a162-5578596cfd1f",
-        "target_node_uuid": "67b00b11-479c-4de4-8dcd-30196f4673a3",
+        "source_node_uuid": "fe64bcf4-90bf-4681-ab2c-0f8ea1193894",
+        "target_node_uuid": "9722e331-730e-4cf2-a867-3cfbb938faee",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "a4dd8fde-74a5-4dc3-bebe-76b9c45a1abd",
-        "target_node_uuid": "00d7e78a-9906-4a8e-9a45-8d10a0f8829d",
+        "source_node_uuid": "054e746d-66d8-4e82-9b27-ba51266d9bd0",
+        "target_node_uuid": "6bbbd4cb-facd-4371-8372-5804d73ad395",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "99a5ab74-aa9b-4aa1-b35f-58b23d3f93f1",
-        "target_node_uuid": "5e97e8d9-a74f-4de3-b0fc-6b67af43b4ea",
+        "source_node_uuid": "1805cf46-3a6f-4e11-8cf1-49182272ed55",
+        "target_node_uuid": "57fda5ef-b353-45ea-85bb-cc4e0cd96f4f",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "81ef9528-149d-4ced-bc99-6ee3ff64b9a2",
-        "target_node_uuid": "89d9ea80-9468-483f-89a8-1721bf23a6bb",
+        "source_node_uuid": "703b6546-a3d7-4b05-9357-8e6d9f1a9466",
+        "target_node_uuid": "b77464d6-4071-412c-b4bb-0ea8f0a10987",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "2b66807c-f954-4f00-886e-0c7e2d4ec1d1",
-        "target_node_uuid": "c0cfdb6f-11c9-43e5-a8d9-8042f04be694",
+        "source_node_uuid": "96db8f7a-335b-498f-aa16-377a949be453",
+        "target_node_uuid": "c60baca7-71c4-4681-b270-b803f8a33fa6",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "3b668e33-f238-493d-9c82-9590180cd39e",
-        "target_node_uuid": "2faae702-c747-4b73-b214-60878cf373eb",
+        "source_node_uuid": "740c16b6-3e16-4f09-80ed-e8886f266e0c",
+        "target_node_uuid": "63233d90-a896-400a-bbd3-c088898a3a50",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
         "target_handle_io": "target"
       },
       {
-        "source_node_uuid": "fa3ede83-fc74-4080-8bc3-b0bb642f9782",
-        "target_node_uuid": "ae056b66-40b9-45aa-9823-4d88bc71bcbe",
+        "source_node_uuid": "c4525bec-84b8-4b09-a2ae-e9640b26d9bd",
+        "target_node_uuid": "5c2f3f1b-75b6-42ef-9cc6-210c7a6f89cd",
         "source_handle_key": "ready",
         "source_handle_io": "source",
         "target_handle_key": "ready",
