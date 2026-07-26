@@ -291,8 +291,10 @@ class RoboticArmDevice(GNStationClient):
             if self.wait_false("Robot_FinishFB", timeout=busy_timeout, description=f"{description} 开始执行"):
                 done = self.wait_true("Robot_FinishFB", timeout=timeout, description=f"{description} 完成")
             else:
-                logger.warning(f"[{description}] 未观察到 FinishFB 变忙（可能瞬时完成或指令未被接受）")
-                done = bool(self.get_node_value("Robot_FinishFB", force_read=True))
+                # 必须完整观察到 FinishFB 1→0→1 才能判定动作完成。
+                # 若未进入忙状态，当前的 1 仍是触发前空闲态，不能当作完成反馈。
+                logger.error(f"[{description}] 未观察到 FinishFB 变忙，PLC 未接受或未执行指令")
+                done = False
 
         self.set_node_value("Robot_CmdTrig", 0)
         if not done:
