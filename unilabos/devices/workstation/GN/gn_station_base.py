@@ -20,7 +20,7 @@ from typing import Callable, Optional, Sequence, Tuple
 
 from unilabos.utils.log import logger
 from unilabos.registry.decorators import not_action
-from unilabos.devices.workstation.AI4C.base_opcua_client import OpcUaClientWithSubscription
+from unilabos.devices.workstation.GN.base_opcua_client import OpcUaClientWithSubscription
 
 # (反馈节点名, 目标值, 容差)
 ReachCheck = Tuple[str, float, float]

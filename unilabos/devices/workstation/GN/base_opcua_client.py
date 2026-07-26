@@ -421,12 +421,16 @@ class OpcUaClientWithSubscription(BaseOpcUaClient):
     - 订阅机制
     - 缓存机制
     - 连接监控
+    - 连接池：同一 URL 共享单一会话
     """
-    
+
+    # 类级别连接池：同一 URL 只建立一个 OPC UA 会话，所有设备实例共享
+    _connection_pool: Dict[str, dict] = {}
+
     def __init__(
-        self, 
+        self,
         url: str,
-        username: str = None, 
+        username: str = None,
         password: str = None,
         use_subscription: bool = True,
         cache_timeout: float = 5.0,
@@ -437,16 +441,39 @@ class OpcUaClientWithSubscription(BaseOpcUaClient):
         # 降低OPCUA库的日志级别
         import logging
         logging.getLogger("opcua").setLevel(logging.WARNING)
-        
+
+        # 检查连接池：同一 URL 复用已有连接
+        if url in OpcUaClientWithSubscription._connection_pool:
+            pool = OpcUaClientWithSubscription._connection_pool[url]
+            super().__init__()
+            self.client = pool["client"]
+            self._client_lock = pool["client_lock"]
+            self._node_registry = pool["node_registry"]
+            self._found_node_objects = pool["found_node_objects"]
+            self._variables_to_find = pool["variables_to_find"]
+            self._name_mapping = pool["name_mapping"]
+            self._reverse_mapping = pool["reverse_mapping"]
+            self._node_values = pool["node_values"]
+            self._use_subscription = pool["use_subscription"]
+            self._subscription = pool["subscription"]
+            self._subscription_handles = pool["subscription_handles"]
+            self._subscription_interval = pool["subscription_interval"]
+            self._cache_timeout = cache_timeout
+            self._reconnect_min_interval = 3.0
+            self._reconnect_ts = pool["reconnect_ts"]
+            logger.info(f"✓ 复用已有 OPC UA 连接: {url}")
+            return
+
+        # 首次连接此 URL — 正常流程
         super().__init__()
-        
+
         # OPC UA 客户端初始化
         client = Client(url)
-        
+
         if username and password:
             client.set_user(username)
             client.set_password(password)
-            
+
         self._set_client(client)
 
         # 订阅相关属性
@@ -454,17 +481,34 @@ class OpcUaClientWithSubscription(BaseOpcUaClient):
         self._subscription = None
         self._subscription_handles = {}
         self._subscription_interval = subscription_interval
-        
+
         # 缓存相关属性
         self._node_values = {}
         self._cache_timeout = cache_timeout
 
         # 断线按需重连（无后台线程）：仅当读/写实际失败时才重连并重试一次；限流避免重连风暴
         self._reconnect_min_interval = 3.0
-        self._last_reconnect_ts = 0.0
+        self._reconnect_ts = [0.0]  # 可变容器，跨实例共享重连时间戳
 
         # 连接到服务器
         self._connect()
+
+        # 注册到连接池
+        OpcUaClientWithSubscription._connection_pool[url] = {
+            "client": self.client,
+            "client_lock": self._client_lock,
+            "node_registry": self._node_registry,
+            "found_node_objects": self._found_node_objects,
+            "variables_to_find": self._variables_to_find,
+            "name_mapping": self._name_mapping,
+            "reverse_mapping": self._reverse_mapping,
+            "node_values": self._node_values,
+            "use_subscription": self._use_subscription,
+            "subscription": self._subscription,
+            "subscription_handles": self._subscription_handles,
+            "subscription_interval": self._subscription_interval,
+            "reconnect_ts": self._reconnect_ts,
+        }
 
 
     def _connect(self) -> None:
@@ -637,9 +681,9 @@ class OpcUaClientWithSubscription(BaseOpcUaClient):
         限流：距上次重连不足 _reconnect_min_interval 秒则跳过，避免读写连续失败时重连风暴。"""
         with self._client_lock:
             now = time.time()
-            if now - self._last_reconnect_ts < self._reconnect_min_interval:
+            if now - self._reconnect_ts[0] < self._reconnect_min_interval:
                 return False
-            self._last_reconnect_ts = now
+            self._reconnect_ts[0] = now
             if not self.client:
                 return False
             try:
