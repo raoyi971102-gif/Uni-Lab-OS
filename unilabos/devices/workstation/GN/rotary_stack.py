@@ -1,13 +1,17 @@
 """
-堆栈（旋转堆栈）设备驱动
+旋转堆栈 设备驱动 + 旋转驱动函数
 
-协议：OPC_UA协议1.3.4(1).xlsx「堆栈」；节点：opcua_gn1.3.3.csv（前缀 Stack_）。
+协议：OPC UA「堆栈」，前缀 Stack_。握手由 GNStationClient.run_command 承担。
 
-对外仅暴露 execute_command（Stack_CmdType + 写参）；测试流程预设供本地调试。
+- 模块级驱动函数（reset / rotate_to_column / current_column / at_column）：
+  直接操作任一已加载 Stack_ 节点的 GNStationClient，供机械手在抓取前调用。
+- RotaryStackDevice：独立设备（相机检测、旋转到列、调试入口）。
+
+R 轴绝对定位：复位后第 1 列 R=0，之后每列 +300（30°/列），共 12 列，一圈 3600(360°)。
+使用前须先 reset() 建立 R0 基准。PLC 可精确到位，故按 Stack_RPosFB == 目标 R 精确判定。
 
 指令类型 (Stack_CmdType)：
-    1=堆栈左旋转 2=堆栈右旋转 3=相机Z向上 4=相机Z向下
-    5=堆栈旋转至目标位置 6=相机移动至目标位置并检测有无 7=复位
+    1=左旋转 2=右旋转 3=相机Z向上 4=相机Z向下 5=旋转至目标位置 6=相机检测有无 7=复位
 """
 
 import os
@@ -18,20 +22,32 @@ from typing import Optional
 
 from unilabos.utils.log import logger
 from unilabos.registry.decorators import action, device, not_action
-from unilabos.devices.workstation.GN.gn_opcua_device import GnOpcUaDevice
+from unilabos.devices.workstation.GN.gn_station_base import GNStationClient
 
-DEFAULT_CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "opcua_gn1.3.3.csv")
+DEFAULT_CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "opcua_gn1.3.6.csv")
 
-# OPC UA 1.3.4 Stack_CmdType
-STACK_CMD_LABELS = {
-    1: "堆栈左旋转",
-    2: "堆栈右旋转",
-    3: "相机Z向上",
-    4: "相机Z向下",
-    5: "堆栈旋转至目标位置",
-    6: "相机移动至目标位置并检测有无",
-    7: "复位",
+STACK_ROTATE_SPEED = 300
+STACK_R_STEP = 300         # 每列间隔（30°/列）
+STACK_COLUMN_COUNT = 12    # 共 12 列，一圈 3600(360°)
+
+# 抓取数字（机械臂写入 PLC 的 Robot_Stack=Modbus 309 工位号）→ 所在列号。
+# 来源：《PLC和机器人协议modbustcp1.2》309 映射，各列层数不一（50~55、84+ 为空号）。
+COLUMN_NUMBERS = {
+    1:  range(1, 9),     # 第一列   1~8
+    2:  range(9, 17),    # 第二列   9~16
+    3:  range(17, 25),   # 第三列   17~24
+    4:  range(25, 31),   # 第四列   25~30
+    5:  range(31, 41),   # 第五列   31~40
+    6:  range(41, 50),   # 第六列   41~49（41~45 大瓶/板，46~49 小瓶子）
+    7:  range(56, 60),   # 第七列   56~59（大瓶）
+    8:  range(60, 64),   # 第八列   60~63（枪头盒）
+    9:  range(64, 69),   # 第九列   64~68（枪头盒）
+    10: range(69, 74),   # 第十列   69~73（大瓶）
+    11: range(74, 79),   # 第十一列 74~78（枪头盒）
+    12: range(79, 84),   # 第十二列 79~83（枪头盒）
 }
+# 抓取数字 → 列号（反查表）+
+NUMBER_TO_COLUMN = {n: col for col, nums in COLUMN_NUMBERS.items() for n in nums}
 
 
 class StackCommand(int, Enum):
@@ -46,312 +62,221 @@ class StackCommand(int, Enum):
     RESET = 7
 
 
-# 旋转堆栈测试流程预设（本地 run_test_flow，非注册动作）
-TEST_FLOW_PRESETS: list = []
+STACK_CMD_LABELS = {
+    1: "左旋转", 2: "右旋转", 3: "相机Z向上", 4: "相机Z向下",
+    5: "旋转至目标位置", 6: "相机检测有无", 7: "复位",
+}
 
 
-_EXECUTE_CMD_DOC = (
-    "按 Stack_CmdType 执行 OPC UA 1.3.4 指令。"
-    "1=堆栈左旋转 2=堆栈右旋转 3=相机Z向上 4=相机Z向下 "
-    "5=堆栈旋转至目标位置 6=相机移动至目标位置并检测有无 7=复位。"
-    "R轴命令(1/2/5)必须同时写 r_pos+r_speed；"
-    "Z轴命令(3/4/6)必须同时写 z_pos+z_speed；"
-    "cmd_type=6 时响应含 detect_result。"
-)
+# ==================== 旋转驱动函数（供机械手调用） ====================
+# 均显式指定 Stack_ 节点，故 client 可以是旋转堆栈本身，也可以是机械手（Robot_ 前缀）。
+
+def column_to_r(column: int) -> int:
+    """列号 → R 轴目标位置。列N = (N-1)*300。"""
+    if not 1 <= column <= STACK_COLUMN_COUNT:
+        raise ValueError(f"列号须在 1~{STACK_COLUMN_COUNT}，收到 {column}")
+    return (column - 1) * STACK_R_STEP
+
+
+def reset(client: GNStationClient, timeout: float = 120.0) -> None:
+    """复位建立 R0 基准（Stack_CmdType=7），复位后第 1 列 R=0。"""
+    client.run_command(
+        int(StackCommand.RESET),
+        trig_node="Stack_CmdTrig",
+        cmd_type_node="Stack_CmdType",
+        done_node="Stack_CompleteFB",
+        clear_done=False,
+        description="旋转堆栈复位",
+        timeout=timeout,
+    )
+
+
+def rotate_to_column(client: GNStationClient, column: int,
+                     r_speed: int = STACK_ROTATE_SPEED, timeout: float = 120.0) -> int:
+    """旋转到指定列（Stack_CmdType=5），按 Stack_RPosFB 精确到位。返回目标 R。"""
+    r = column_to_r(column)
+    client.run_command(
+        int(StackCommand.ROTATE_TO_TARGET),
+        {"Stack_RPosSet": r, "Stack_RSpeed": r_speed},
+        trig_node="Stack_CmdTrig",
+        cmd_type_node="Stack_CmdType",
+        done_node="Stack_CompleteFB",
+        reach_checks=[("Stack_RPosFB", r, 0)],  # PLC 精确到位，要求 Stack_RPosFB == 目标 R
+        clear_done=False,
+        description=f"旋转堆栈至第{column}列(R={r})",
+        timeout=timeout,
+    )
+    return r
+
+
+def column_of_number(number: int) -> int:
+    """抓取数字 → 所在列号。"""
+    col = NUMBER_TO_COLUMN.get(number)
+    if col is None:
+        raise ValueError(f"抓取数字 {number} 未对应任何列（有效号见 COLUMN_NUMBERS）")
+    return col
+
+
+def rotate_for_number(client: GNStationClient, number: int, reset_first: bool = False,
+                      r_speed: int = STACK_ROTATE_SPEED, timeout: float = 120.0) -> int:
+    """按机械臂传入的抓取数字旋转到其所在列：可选先复位建立 R0，再旋转并校验到位。返回列号。
+
+    机械手抓取前调用；本函数返回即代表“旋转到位”（未到位会在 rotate_to_column 内报错）。
+    """
+    column = column_of_number(number)
+    if reset_first:
+        reset(client, timeout=timeout)
+    rotate_to_column(client, column, r_speed=r_speed, timeout=timeout)
+    return column
+
+
+def current_column(client: GNStationClient) -> Optional[int]:
+    """按 Stack_RPosFB 反推当前列号；非整列位置返回 None。"""
+    r = client.get_node_value("Stack_RPosFB", force_read=True)
+    if r is None:
+        return None
+    col, rem = divmod(int(r), STACK_R_STEP)
+    return col + 1 if rem == 0 and 0 <= col < STACK_COLUMN_COUNT else None
+
+
+def at_column(client: GNStationClient, column: int) -> bool:
+    """当前 Stack_RPosFB 是否精确处于目标列。"""
+    r = client.get_node_value("Stack_RPosFB", force_read=True)
+    return r is not None and int(r) == column_to_r(column)
 
 
 @device(
     id="gn_rotary_stack",
     display_name="旋转堆栈",
     category=["workstation"],
-    description="GN 旋转堆栈：OPC UA 1.3.4，按完成反馈边沿执行命令",
+    description="GN 旋转堆栈：OPC UA，绝对列定位（复位后列N=(N-1)*300）",
     icon="",
-    version="2.0.0",
+    version="3.1.0",
 )
-class RotaryStackDevice(GnOpcUaDevice):
+class RotaryStackDevice(GNStationClient):
     """旋转堆栈设备类（OPC 前缀 Stack_）"""
 
+    PREFIX = "Stack_"
     CMD_TYPE_NODE = "Stack_CmdType"
     CMD_TRIG_NODE = "Stack_CmdTrig"
     COMPLETE_NODE = "Stack_CompleteFB"
     DETECT_RESULT_NODE = "Stack_DetectResult"
-    R_POS_FB_NODE = "Stack_RPosFB"
-    Z_POS_FB_NODE = "Stack_ZPosFB"
-    R_POS_SET_NODE = "Stack_RPosSet"
-    Z_POS_SET_NODE = "Stack_ZPosSet"
-    R_SPEED_NODE = "Stack_RSpeed"
-    Z_SPEED_NODE = "Stack_ZSpeed"
 
     def __init__(
         self,
-        url: Optional[str] = None,
-        plc_device_id: Optional[str] = None,
+        url: str,
         csv_path: str = DEFAULT_CSV_PATH,
         username: str = None,
         password: str = None,
-        use_subscription: bool = False,
+        use_subscription: bool = True,
         cache_timeout: float = 5.0,
         subscription_interval: int = 500,
+        enable_connection_monitor: bool = False,
         *args,
         **kwargs,
     ):
         super().__init__(
             url=url,
-            plc_device_id=plc_device_id,
             csv_path=csv_path,
             username=username,
             password=password,
             use_subscription=use_subscription,
             cache_timeout=cache_timeout,
             subscription_interval=subscription_interval,
+            enable_connection_monitor=enable_connection_monitor,
             *args,
             **kwargs,
         )
 
-    @action(auto_prefix=True, description=_EXECUTE_CMD_DOC)
-    def execute_command(
-        self,
-        cmd_type: int,
-        r_pos: Optional[int] = None,
-        z_pos: Optional[int] = None,
-        r_speed: Optional[int] = None,
-        z_speed: Optional[int] = None,
-        timeout: float = 120.0,
-    ) -> dict:
-        """按 1.3.4 协议执行堆栈命令，并等待 CompleteFB 完成边沿。"""
-        cmd = int(cmd_type)
-        if cmd not in STACK_CMD_LABELS:
-            raise ValueError(f"不支持的 Stack_CmdType={cmd}，支持: {sorted(STACK_CMD_LABELS)}")
-        self._validate_parameters(cmd, r_pos, z_pos, r_speed, z_speed, timeout)
-        setpoints = self._build_setpoints(r_pos, z_pos, r_speed, z_speed)
-        label = STACK_CMD_LABELS.get(cmd, f"CmdType={cmd}")
-        result = self._execute(cmd, label, setpoints, timeout=timeout)
-        if cmd == int(StackCommand.CAMERA_DETECT):
-            detect_result = self.get_node_value(self.DETECT_RESULT_NODE, force_read=True)
-            result["detect_result"] = detect_result
-            result["message"] = f"检测完成，结果={detect_result}"
-        return result
+    @action(description="复位建立 R0 基准（旋转/抓取前应先复位）")
+    def do_reset(self, timeout: float = 120.0) -> dict:
+        reset(self, timeout=timeout)
+        return {"success": True, "message": "复位完成，当前为第1列(R0)"}
 
-    @not_action
-    def _validate_parameters(
-        self,
-        cmd: int,
-        r_pos: Optional[int],
-        z_pos: Optional[int],
-        r_speed: Optional[int],
-        z_speed: Optional[int],
-        timeout: float,
-    ) -> None:
-        if timeout <= 0:
-            raise ValueError("timeout 必须大于 0")
-        if cmd in (
-            int(StackCommand.ROTATE_LEFT),
-            int(StackCommand.ROTATE_RIGHT),
-            int(StackCommand.ROTATE_TO_TARGET),
-        ) and (r_pos is None or r_speed is None):
-            raise ValueError(
-                f"CmdType={cmd} 必须同时设置 r_pos（Stack_RPosSet）"
-                "和 r_speed（Stack_RSpeed）"
-            )
-        if cmd in (
-            int(StackCommand.CAMERA_Z_UP),
-            int(StackCommand.CAMERA_Z_DOWN),
+    @action(description="旋转至指定列，并按 Stack_RPosFB 精确校验到位（未到位报错）")
+    def rotate_to(self, column: int, r_speed: int = STACK_ROTATE_SPEED, timeout: float = 120.0) -> dict:
+        r = rotate_to_column(self, column, r_speed=r_speed, timeout=timeout)
+        return {"success": True, "message": f"已到第{column}列", "column": column, "r_pos": r}
+
+    @action(description="相机检测目标位置有无 (CmdType=6)，返回 detect_result")
+    def detect(self, z_pos: Optional[int] = None, z_speed: Optional[int] = None, timeout: float = 120.0) -> dict:
+        self.run_command(
             int(StackCommand.CAMERA_DETECT),
-        ) and (z_pos is None or z_speed is None):
-            raise ValueError(
-                f"CmdType={cmd} 必须同时设置 z_pos（Stack_ZPosSet）"
-                "和 z_speed（Stack_ZSpeed）"
-            )
-        for name, value in (("r_pos", r_pos), ("z_pos", z_pos)):
-            if value is not None and not -32768 <= int(value) <= 32767:
-                raise ValueError(f"{name}={value} 超出 Int16 范围")
-        for name, value in (("r_speed", r_speed), ("z_speed", z_speed)):
-            if value is not None and not 0 <= int(value) <= 32767:
-                raise ValueError(f"{name}={value} 必须在 0..32767 范围")
-
-    @not_action
-    def _build_setpoints(
-        self,
-        r_pos: Optional[int],
-        z_pos: Optional[int],
-        r_speed: Optional[int],
-        z_speed: Optional[int],
-    ) -> dict[str, int]:
-        mapping = {
-            self.R_POS_SET_NODE: r_pos,
-            self.Z_POS_SET_NODE: z_pos,
-            self.R_SPEED_NODE: r_speed,
-            self.Z_SPEED_NODE: z_speed,
-        }
-        return {node: int(value) for node, value in mapping.items() if value is not None}
-
-    @not_action
-    def _write_required(self, node_name: str, value: int, verify: bool = True) -> None:
-        if not self.set_node_value(node_name, int(value)):
-            raise ValueError(f"写入 {node_name}={value} 失败")
-        if not verify:
-            return
-        actual = self.get_node_value(node_name, force_read=True)
-        if actual != int(value):
-            raise ValueError(f"{node_name} 写入后回读不一致：期望 {value}，实际 {actual}")
-
-    @not_action
-    def _execute(
-        self,
-        cmd_type: int,
-        description: str,
-        setpoints: dict[str, int],
-        timeout: float = 120.0,
-    ) -> dict:
-        logger.info(f"旋转堆栈：{description} (CmdType={cmd_type})")
-
-        # CompleteFB 空闲时保持为 1。新命令必须先拉低触发，再等待
-        # CompleteFB 出现 1→0（开始）和 0→1（完成）两个边沿。
-        self._write_required(self.CMD_TRIG_NODE, 0)
-        for node_name, value in setpoints.items():
-            self._write_required(node_name, value)
-        self._write_required(self.CMD_TYPE_NODE, cmd_type)
-
-        started_at = time.monotonic()
-        try:
-            # CmdTrig 是瞬时触发量，PLC 扫描到 1 后可能立即自动清零；
-            # 因此这里只校验 OPC UA 写入成功，不能要求回读仍为 1。
-            self._write_required(self.CMD_TRIG_NODE, 1, verify=False)
-            if not self._wait_complete_value(
-                expected=0,
-                timeout=min(10.0, timeout),
-                description=f"{description}启动",
-            ):
-                raise ValueError(f"{description} 未启动：Stack_CompleteFB 未变为 0")
-
-            elapsed = time.monotonic() - started_at
-            remaining = max(0.1, timeout - elapsed)
-            if not self._wait_complete_value(
-                expected=1,
-                timeout=remaining,
-                description=f"{description}完成",
-            ):
-                raise ValueError(f"{description} 超时：Stack_CompleteFB 未恢复为 1")
-        finally:
-            # 无论成功、异常还是 Ctrl+C，都撤销触发并清空命令，避免重复执行。
-            trigger_cleared = self.set_node_value(self.CMD_TRIG_NODE, 0)
-            command_cleared = self.set_node_value(self.CMD_TYPE_NODE, 0)
-            trigger_value = self.get_node_value(self.CMD_TRIG_NODE, force_read=True)
-            command_value = self.get_node_value(self.CMD_TYPE_NODE, force_read=True)
-            logger.info(
-                f"旋转堆栈命令清理：CmdTrig={trigger_value!r}，CmdType={command_value!r}"
-            )
-
-        if (
-            not trigger_cleared
-            or not command_cleared
-            or trigger_value != 0
-            or command_value != 0
-        ):
-            raise ValueError(
-                "动作已完成，但命令清零失败："
-                f"Stack_CmdTrig={trigger_value!r}, Stack_CmdType={command_value!r}"
-            )
-
-        status = self.get_status()
-        logger.info(f"旋转堆栈：{description}完成，状态={status}")
-        return {
-            "success": True,
-            "message": f"{description}完成",
-            "cmd_type": int(cmd_type),
-            "data": status,
-        }
-
-    @not_action
-    def _wait_complete_value(
-        self,
-        expected: int,
-        timeout: float,
-        interval: float = 0.05,
-        description: str = "",
-    ) -> bool:
-        start = time.monotonic()
-        while time.monotonic() - start < timeout:
-            value = self.get_node_value(self.COMPLETE_NODE, force_read=True)
-            if value == expected:
-                logger.info(f"✓ {description}（{self.COMPLETE_NODE}={value}）")
-                return True
-            time.sleep(interval)
-        value = self.get_node_value(self.COMPLETE_NODE, force_read=True)
-        logger.error(
-            f"✗ {description}超时（等待 {self.COMPLETE_NODE}={expected}，当前={value!r}）"
+            {"Stack_ZPosSet": z_pos, "Stack_ZSpeed": z_speed},
+            clear_done=False,
+            description="旋转堆栈相机检测",
+            timeout=timeout,
         )
-        return False
+        result = self.get_node_value(self.DETECT_RESULT_NODE, force_read=True)
+        return {"success": True, "message": f"检测完成，结果={result}", "detect_result": result}
 
-    @not_action
-    def run_test_flow(self) -> dict:
-        """按旋转堆栈测试预设依次 execute_command（本地调试用）"""
-        logger.info("旋转堆栈：开始整体测试流程...")
-        for step_name, cmd_type, preset in TEST_FLOW_PRESETS:
-            logger.info(f"--- {step_name} (CmdType={int(cmd_type)}) ---")
-            self.execute_command(cmd_type=int(cmd_type), **preset)
-        logger.info("旋转堆栈：整体测试流程完成")
-        return {"success": True, "message": "旋转堆栈测试流程完成"}
+    @action(auto_prefix=True, description=(
+        "调试入口，按 Stack_CmdType 执行：1=左旋 2=右旋 3=相机Z上 4=相机Z下 "
+        "5=旋转至目标(需 r_pos) 6=相机检测 7=复位。"))
+    def execute_command(self, cmd_type: int, r_pos: Optional[int] = None, z_pos: Optional[int] = None,
+                        r_speed: Optional[int] = None, z_speed: Optional[int] = None, timeout: float = 120.0) -> dict:
+        cmd = int(cmd_type)
+        result = self.run_command(
+            cmd,
+            {"Stack_RPosSet": r_pos, "Stack_ZPosSet": z_pos, "Stack_RSpeed": r_speed, "Stack_ZSpeed": z_speed},
+            clear_done=False,
+            description=f"旋转堆栈:{STACK_CMD_LABELS.get(cmd, cmd)}",
+            timeout=timeout,
+        )
+        if cmd == int(StackCommand.CAMERA_DETECT):
+            result["detect_result"] = self.get_node_value(self.DETECT_RESULT_NODE, force_read=True)
+        return result
 
     @not_action
     def get_status(self) -> dict:
         return {
+            "column": current_column(self),
+            "R": self.get_node_value("Stack_RPosFB", force_read=True),
+            "Z": self.get_node_value("Stack_ZPosFB", force_read=True),
             "complete": self.get_node_value(self.COMPLETE_NODE, force_read=True),
             "detect_result": self.get_node_value(self.DETECT_RESULT_NODE, force_read=True),
-            "cmd_type": self.get_node_value(self.CMD_TYPE_NODE, force_read=True),
-            "cmd_trig": self.get_node_value(self.CMD_TRIG_NODE, force_read=True),
-            "r_pos_fb": self.get_node_value(self.R_POS_FB_NODE, force_read=True),
-            "z_pos_fb": self.get_node_value(self.Z_POS_FB_NODE, force_read=True),
         }
-
-    @not_action
-    def get_positions(self) -> dict:
-        return {
-            "R": self.get_node_value(self.R_POS_FB_NODE, force_read=True),
-            "Z": self.get_node_value(self.Z_POS_FB_NODE, force_read=True),
-        }
-
-    @not_action
-    def get_detect_result(self) -> int:
-        return self.get_node_value(self.DETECT_RESULT_NODE, force_read=True)
 
 
 if __name__ == "__main__":
     logging.getLogger("unilabos").setLevel(logging.INFO)
-
-    STACK_URL = "opc.tcp://192.168.6.6:4840"
-
-    dev = RotaryStackDevice(url=STACK_URL, csv_path=DEFAULT_CSV_PATH)
+    dev = RotaryStackDevice(url="opc.tcp://192.168.6.6:4840", csv_path=DEFAULT_CSV_PATH, use_subscription=False)
     time.sleep(2)
 
     while True:
-        print("请选择操作：")
-        for cmd, label in STACK_CMD_LABELS.items():
-            print(f"{cmd} {label} (CmdType={cmd})")
-        if TEST_FLOW_PRESETS:
-            print("98 整体测试流程")
+        print("\n请选择操作：")
+        print("1 复位(建立R0)")
+        print("2 输入抓取数字 → 旋转到对应列(联调用)")
+        print("3 直接旋转到指定列(1~12)")
+        print("4 相机检测")
+        print("5 查看状态")
+        print("6 单指令调试(execute_command)")
         print("99 退出")
-        choice = input("请输入 CmdType 序号：").strip()
+        choice = input("请输入序号：").strip()
         if choice == "99":
             break
-        if choice == "98" and TEST_FLOW_PRESETS:
-            dev.run_test_flow()
-        elif choice.isdigit() and int(choice) in STACK_CMD_LABELS:
-            cmd = int(choice)
-            r_pos = z_pos = r_speed = z_speed = None
-            if cmd in (1, 2, 5):
-                r_pos = int(input("r_pos [0]: ").strip() or "0")
-            if cmd in (3, 4, 6):
-                z_pos = int(input("z_pos [0]: ").strip() or "0")
-            if cmd in (1, 2, 5):
-                r_speed = int(input("r_speed [300]: ").strip() or "300")
-            if cmd in (3, 4, 6):
-                z_speed = int(input("z_speed [300]: ").strip() or "300")
-            dev.execute_command(
-                cmd_type=cmd, r_pos=r_pos, z_pos=z_pos, r_speed=r_speed, z_speed=z_speed,
-            )
-        else:
-            print("无效的操作序号，请重新输入。")
+        # 单条命令失败（如连接瞬断）只提示并回到菜单，不退出脚本（避免重启再堆会话）
+        try:
+            if choice == "1":
+                print(dev.do_reset())
+            elif choice == "2":
+                number = int(input("抓取数字(工位号): ").strip() or "1")
+                column = rotate_for_number(dev, number)
+                print({"success": True, "number": number, "column": column, "r_pos": column_to_r(column)})
+            elif choice == "3":
+                print(dev.rotate_to(column=int(input("列号(1~12): ").strip() or "1")))
+            elif choice == "4":
+                print(dev.detect())
+            elif choice == "5":
+                print(dev.get_status())
+            elif choice == "6":
+                cmd_type = int(input("CmdType(1左旋 2右旋 3相机Z上 4相机Z下 5旋转至目标 6相机检测 7复位): ").strip() or "7")
+                r_pos = input("r_pos(旋转至目标时填, 可空): ").strip()
+                print(dev.execute_command(cmd_type=cmd_type, r_pos=int(r_pos) if r_pos else None))
+            else:
+                print("无效序号")
+        except Exception as e:
+            print(f"操作失败: {e!r}")
 
     dev.disconnect()
     print("退出程序。")

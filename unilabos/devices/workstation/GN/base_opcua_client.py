@@ -431,9 +431,6 @@ class OpcUaClientWithSubscription(BaseOpcUaClient):
         use_subscription: bool = True,
         cache_timeout: float = 5.0,
         subscription_interval: int = 500,
-        enable_connection_monitor: bool = True,
-        session_timeout_ms: int = 360_000,
-        reconnect_min_interval: float = 3.0,
         *args,
         **kwargs,
     ):
@@ -445,11 +442,8 @@ class OpcUaClientWithSubscription(BaseOpcUaClient):
         
         # OPC UA 客户端初始化
         client = Client(url)
-        # 会话超时（毫秒）：过短会因空闲被服务端回收；过长会占资源。默认 6 分钟。
-        try:
-            client.session_timeout = int(session_timeout_ms)
-        except Exception:
-            pass
+        # PLC 允许多设备独立 Session；缩短异常退出后的服务端占位回收时间。
+        client.session_timeout = 360_000
         
         if username and password:
             client.set_user(username)
@@ -466,26 +460,14 @@ class OpcUaClientWithSubscription(BaseOpcUaClient):
         # 缓存相关属性
         self._node_values = {}
         self._cache_timeout = cache_timeout
-        
-        # 连接状态监控（可关闭：保持 Session 稳定，避免后台线程主动重建会话）
-        self._enable_connection_monitor = enable_connection_monitor
-        self._connection_check_interval = 30.0
-        self._connection_monitor_running = False
-        self._connection_monitor_thread = None
 
-        # 幂等重连节流：限制两次真正 disconnect+connect 之间的最小间隔，避免重连风暴
-        self._reconnect_min_interval = float(reconnect_min_interval)
+        # 断线按需重连（无后台线程）：仅当读/写实际失败时才重连并重试一次；限流避免重连风暴
+        self._reconnect_min_interval = 3.0
         self._last_reconnect_ts = 0.0
-        
+
         # 连接到服务器
         self._connect()
-        
-        # 按需启动连接监控（默认启动；GN 等对 Session 稳定敏感的驱动可传 False 关闭）
-        if self._enable_connection_monitor:
-            self._start_connection_monitor()
-        else:
-            logger.info("连接监控已禁用（enable_connection_monitor=False）：Session 只在真正失效时才被动重连")
-        
+
 
     def _connect(self) -> None:
         """连接到OPC UA服务器"""
@@ -525,68 +507,13 @@ class OpcUaClientWithSubscription(BaseOpcUaClient):
         def event_notification(self, event):
             pass
 
-    def _session_alive(self) -> bool:
-        """轻量探活：读 Server_ServerStatus_State (i=2259)。
-        任何异常均视为 Session 已死。**调用方需自行加 _client_lock**。"""
-        if not self.client:
-            return False
-        try:
-            self.client.get_node("i=2259").get_value()
-            return True
-        except Exception:
-            return False
-
-    def _reconnect(self) -> bool:
-        """幂等重连：
-        - 先探活；活着则直接返回 True，不 disconnect（保持 Session 稳定）。
-        - 只有 Session 真的失效才 disconnect+connect；用节流避免风暴。
-        并发调用被 _client_lock 串行化。"""
-        with self._client_lock:
-            if not self.client:
-                return False
-            # 探活活着 —— 不重建 Session
-            if self._session_alive():
-                return True
-            # 节流：短时间内已经重连过就跳过（防重连风暴）
-            now = time.time()
-            if now - self._last_reconnect_ts < self._reconnect_min_interval:
-                logger.debug("跳过重连：距上次重连不足节流窗口")
-                return False
-            self._last_reconnect_ts = now
-            try:
-                try:
-                    self.client.disconnect()
-                except Exception:
-                    pass
-                self.client.connect()
-                logger.info("✓ OPC UA 断线重连成功（幂等 _reconnect）")
-                if self._use_subscription:
-                    try:
-                        self._setup_subscriptions()
-                    except Exception as e:
-                        logger.warning(f"重连后重建订阅失败（不影响按需读写）: {e}")
-                return True
-            except Exception as e:
-                logger.error(f"OPC UA 断线重连失败: {e}")
-                return False
-
     def _setup_subscriptions(self):
-        """设置 OPC UA 订阅（重建前先删除旧订阅，避免僵尸订阅句柄累积）"""
+        """设置 OPC UA 订阅"""
         if not self.client or not self._use_subscription:
             return
             
         with self._client_lock:
             try:
-                # 重建前先清理旧订阅（防止累计僵尸 subscription）
-                if self._subscription is not None:
-                    try:
-                        self._subscription.delete()
-                        logger.info("已删除旧订阅，准备重建")
-                    except Exception as e:
-                        logger.warning(f"删除旧订阅失败（忽略）: {e}")
-                    self._subscription = None
-                    self._subscription_handles = {}
-                
                 logger.info(f"开始设置订阅 (发布间隔: {self._subscription_interval}ms)...")
                 
                 # 创建订阅
@@ -651,16 +578,16 @@ class OpcUaClientWithSubscription(BaseOpcUaClient):
         else:
             raise ValueError(f"未找到名称为 '{name}' 的节点")
         
-        # 如果强制读取，直接从服务器读取
+        # 如果强制读取，直接从服务器读取（失败时自动重连重试）
         if force_read:
-            with self._client_lock:
-                value, _ = self.use_node(chinese_name).read()
+            value, error = self._read_raw(chinese_name)
+            if not error:
                 self._node_values[chinese_name] = {
                     'value': value,
                     'timestamp': time.time(),
                     'source': 'forced_read'
                 }
-                return value
+            return value
         
         # 检查缓存
         if use_cache and chinese_name in self._node_values:
@@ -671,23 +598,18 @@ class OpcUaClientWithSubscription(BaseOpcUaClient):
                 logger.trace(f"从缓存读取: {chinese_name} = {cache_entry['value']} (age: {cache_age:.2f}s, source: {cache_entry.get('source', 'unknown')})")
                 return cache_entry['value']
         
-        # 缓存过期或不存在，从服务器读取
-        with self._client_lock:
-            try:
-                value, error = self.use_node(chinese_name).read()
-                if not error:
-                    self._node_values[chinese_name] = {
-                        'value': value,
-                        'timestamp': time.time(),
-                        'source': 'on_demand_read'
-                    }
-                    return value
-                else:
-                    logger.warning(f"读取节点 {chinese_name} 失败")
-                    return None
-            except Exception as e:
-                logger.error(f"读取节点 {chinese_name} 出错: {e}")
-                return None
+        # 缓存过期或不存在，从服务器读取（失败时自动重连重试）
+        value, error = self._read_raw(chinese_name)
+        if not error:
+            self._node_values[chinese_name] = {
+                'value': value,
+                'timestamp': time.time(),
+                'source': 'on_demand_read'
+            }
+            return value
+        else:
+            logger.warning(f"读取节点 {chinese_name} 失败")
+            return None
     
     def set_node_value(self, name, value):
         """设置节点值"""
@@ -699,92 +621,79 @@ class OpcUaClientWithSubscription(BaseOpcUaClient):
         else:
             raise ValueError(f"未找到名称为 '{name}' 的节点")
         
+        error = self._write_raw(chinese_name, value)
+        if not error:
+            self._node_values[chinese_name] = {
+                'value': value,
+                'timestamp': time.time(),
+                'source': 'write'
+            }
+            logger.debug(f"写入成功: {chinese_name} = {value}")
+            return True
+        else:
+            logger.warning(f"写入节点 {chinese_name} 失败")
+            return False
+    
+    def _reconnect(self) -> bool:
+        """断线按需重连（无后台线程）：复用同一 client 重建会话，成功后重建订阅。
+        限流：距上次重连不足 _reconnect_min_interval 秒则跳过，避免读写连续失败时重连风暴。"""
+        with self._client_lock:
+            now = time.time()
+            if now - self._last_reconnect_ts < self._reconnect_min_interval:
+                return False
+            self._last_reconnect_ts = now
+            if not self.client:
+                return False
+            try:
+                try:
+                    self.client.disconnect()
+                except Exception:
+                    pass
+                self.client.connect()
+                logger.info("✓ OPC UA 断线重连成功")
+                if self._use_subscription:
+                    try:
+                        self._setup_subscriptions()
+                    except Exception as e:
+                        logger.warning(f"重连后重建订阅失败（不影响按需读写）: {e}")
+                return True
+            except Exception as e:
+                logger.error(f"OPC UA 断线重连失败: {e}")
+                return False
+
+    def _read_raw(self, chinese_name):
+        """读取一次；失败(含 Broken pipe)则重连后重试一次。返回 (value, error)。"""
         with self._client_lock:
             try:
-                node = self.use_node(chinese_name)
-                error = node.write(value)
-                
-                if not error:
-                    self._node_values[chinese_name] = {
-                        'value': value,
-                        'timestamp': time.time(),
-                        'source': 'write'
-                    }
-                    logger.debug(f"写入成功: {chinese_name} = {value}")
-                    return True
-                else:
-                    logger.warning(f"写入节点 {chinese_name} 失败")
-                    return False
+                value, error = self.use_node(chinese_name).read()
+            except Exception as e:
+                logger.error(f"读取节点 {chinese_name} 出错: {e}")
+                value, error = None, True
+            if error and self._reconnect():
+                try:
+                    value, error = self.use_node(chinese_name).read()
+                except Exception as e:
+                    logger.error(f"重连后读取 {chinese_name} 仍出错: {e}")
+                    value, error = None, True
+            return value, error
+
+    def _write_raw(self, chinese_name, value) -> bool:
+        """写入一次；失败(含 Broken pipe)则重连后重试一次。返回 error(True=失败)。"""
+        with self._client_lock:
+            try:
+                error = self.use_node(chinese_name).write(value)
             except Exception as e:
                 logger.error(f"写入节点 {chinese_name} 出错: {e}")
-                return False
-    
-    def _check_connection(self) -> bool:
-        """检查连接状态"""
-        try:
-            with self._client_lock:
-                if self.client:
-                    self.client.get_namespace_array()
-                    return True
-        except Exception as e:
-            logger.warning(f"连接检查失败: {e}")
-            return False
-        return False
-    
-    def _connection_monitor_worker(self):
-        """连接监控线程工作函数（改造：交给幂等 _reconnect() 处理，绝不无脑重建 Session）"""
-        self._connection_monitor_running = True
-        logger.info(f"连接监控线程已启动 (检查间隔: {self._connection_check_interval}秒)")
-        
-        reconnect_attempts = 0
-        max_reconnect_attempts = 5
-        
-        while self._connection_monitor_running:
-            try:
-                if not self._check_connection():
-                    logger.warning("检测到连接断开，尝试幂等重连...")
-                    reconnect_attempts += 1
-                    
-                    if reconnect_attempts <= max_reconnect_attempts:
-                        # _reconnect() 内部先探活；活着直接返回 True 不动 Session
-                        if self._reconnect():
-                            logger.info("✓ 幂等重连成功（或 Session 仍活着）")
-                            reconnect_attempts = 0
-                        else:
-                            logger.error(f"幂等重连失败 (尝试 {reconnect_attempts}/{max_reconnect_attempts})")
-                            time.sleep(5)
-                    else:
-                        logger.error(f"达到最大重连次数 ({max_reconnect_attempts})，停止重连")
-                        self._connection_monitor_running = False
-                else:
-                    reconnect_attempts = 0
-                
-            except Exception as e:
-                logger.error(f"连接监控出错: {e}")
-            
-            time.sleep(self._connection_check_interval)
-    
-    def _start_connection_monitor(self):
-        """启动连接监控线程"""
-        if self._connection_monitor_thread is not None and self._connection_monitor_thread.is_alive():
-            logger.warning("连接监控线程已在运行")
-            return
-            
-        import threading
-        self._connection_monitor_thread = threading.Thread(
-            target=self._connection_monitor_worker, 
-            daemon=True,
-            name="OpcUaConnectionMonitor"
-        )
-        self._connection_monitor_thread.start()
-    
-    def _stop_connection_monitor(self):
-        """停止连接监控线程"""
-        self._connection_monitor_running = False
-        if self._connection_monitor_thread and self._connection_monitor_thread.is_alive():
-            self._connection_monitor_thread.join(timeout=2.0)
-            logger.info("连接监控线程已停止")
-    
+                error = True
+            if error and self._reconnect():
+                try:
+                    error = self.use_node(chinese_name).write(value)
+                except Exception as e:
+                    logger.error(f"重连后写入 {chinese_name} 仍出错: {e}")
+                    error = True
+            return error
+
+
     def read_node(self, node_name: str) -> str:
         """读取节点值的便捷方法（使用缓存）"""
         try:
@@ -904,10 +813,7 @@ class OpcUaClientWithSubscription(BaseOpcUaClient):
     def disconnect(self):
         """断开连接并清理资源"""
         logger.info("正在断开连接...")
-        
-        # 停止连接监控
-        self._stop_connection_monitor()
-        
+
         # 删除订阅
         if self._subscription:
             try:

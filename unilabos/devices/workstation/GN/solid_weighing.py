@@ -1,7 +1,7 @@
 """
 固体加样 设备驱动
 
-协议：OPC_UA协议1.3.4(1).xlsx「固体加样」；节点：opcua_gn1.3.3.csv（前缀 Solid_）。
+协议：OPC_UA协议1.3.3(2).xlsx「固体加样」；节点：opcua_gn1.3.3.csv（前缀 Solid_）。
 
 对外仅暴露 execute_command（Solid_CmdType + 写参）；测试流程 yaml 预设供本地调试。
 """
@@ -15,11 +15,11 @@ from typing import Optional
 
 from unilabos.utils.log import logger
 from unilabos.registry.decorators import action, device, not_action
-from unilabos.devices.workstation.GN.gn_opcua_device import GnOpcUaDevice
+from unilabos.devices.workstation.AI4C.base_opcua_client import OpcUaClientWithSubscription
 
 DEFAULT_CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "opcua_gn1.3.3.csv")
 
-# OPC UA 1.3.4 Solid_CmdType
+# OPC 1.3.3 Solid_CmdType（与 Excel 表头一致）
 SOLID_CMD_LABELS = {
     1: "X向左",
     2: "X向右",
@@ -122,7 +122,7 @@ TEST_FLOW_PRESETS = [
 
 
 _EXECUTE_CMD_DOC = (
-    "按 Solid_CmdType 执行 OPC UA 1.3.4 指令。"
+    "按 Solid_CmdType 执行 OPC 1.3.3 指令。"
     "1=X左 2=X右 3=Y向里 4=Y向外 5=夹爪Z上 6=夹爪Z下 7=D开门 8=D关门 "
     "9=取料筒Y向里 10=取料筒Y向外 11=加料 12=夹爪夹料 13=夹爪放料 "
     "14=天枰去皮 15=天枰称重 16=料筒Z上 17=料筒Z下 18=放料筒Y向里 19=放料筒Y向外 "
@@ -135,49 +135,43 @@ _EXECUTE_CMD_DOC = (
     id="gn_solid_weighing",
     display_name="固体加样",
     category=["workstation"],
-    description="GN 固体加样：OPC UA 1.3.4，按完成反馈边沿执行命令",
+    description="GN 固体加样：OPC UA 1.3.3，仅 execute_command 通用入口",
     icon="",
     version="2.0.0",
 )
-class SolidWeighingDevice(GnOpcUaDevice):
+class SolidWeighingDevice(OpcUaClientWithSubscription):
     """固体加样设备类（OPC 前缀 Solid_）"""
 
     CMD_TYPE_NODE = "Solid_CmdType"
     CMD_TRIG_NODE = "Solid_CmdTrig"
     COMPLETE_NODE = "Solid_CompleteFB"
-    RESET_POSITION_NODES = {
-        "Solid_XPosSet": "Solid_XPosFB",
-        "Solid_YPosSet": "Solid_YPosFB",
-        "Solid_MaterialZPosSet": "Solid_MaterialZPosFB",
-        "Solid_GripperZPosSet": "Solid_GripperZPosFB",
-        "Solid_DoorPosSet": "Solid_DoorPosFB",
-    }
 
     def __init__(
         self,
-        url: Optional[str] = None,
-        plc_device_id: Optional[str] = None,
+        url: str,
         csv_path: str = DEFAULT_CSV_PATH,
         username: str = None,
         password: str = None,
-        use_subscription: bool = False,
+        use_subscription: bool = True,
         cache_timeout: float = 5.0,
         subscription_interval: int = 500,
+        enable_connection_monitor: bool = False,
         *args,
         **kwargs,
     ):
         super().__init__(
             url=url,
-            plc_device_id=plc_device_id,
-            csv_path=csv_path,
             username=username,
             password=password,
             use_subscription=use_subscription,
             cache_timeout=cache_timeout,
             subscription_interval=subscription_interval,
+            enable_connection_monitor=enable_connection_monitor,
             *args,
             **kwargs,
         )
+        if csv_path:
+            self.load_nodes_from_csv(csv_path)
 
     @action(auto_prefix=True, description=_EXECUTE_CMD_DOC)
     def execute_command(
@@ -275,19 +269,10 @@ class SolidWeighingDevice(GnOpcUaDevice):
         timeout: float = 180.0,
     ) -> dict:
         logger.info(f"固体加样：{description} (CmdType={cmd_type})")
-        # 先拉低上一条触发，再写本次参数，避免 PLC 使用残留参数重复执行。
-        if not self.set_node_value(self.CMD_TRIG_NODE, 0):
-            raise ValueError("Solid_CmdTrig=0 写入失败，已停止下发命令")
         if setpoints:
             for node, value in setpoints.items():
-                if not self.set_node_value(node, value):
-                    raise ValueError(f"写入 {node}={value} 失败")
-        result = self._trigger_and_wait(
-            cmd_type,
-            description,
-            setpoints=setpoints,
-            timeout=timeout,
-        )
+                self.set_node_value(node, value)
+        result = self._trigger_and_wait(cmd_type, description, timeout=timeout)
         if cmd_type == int(SolidCommand.BALANCE_WEIGH):
             weight = self.get_node_value("Solid_WeightFB", force_read=True)
             result["weight"] = weight
@@ -295,134 +280,63 @@ class SolidWeighingDevice(GnOpcUaDevice):
         return result
 
     @not_action
-    def _trigger_and_wait(
+    def _trigger_and_wait(self, cmd_type, description: str, timeout: float = 180.0) -> dict:
+        self.set_node_value(self.CMD_TYPE_NODE, int(cmd_type))
+        self.set_node_value(self.CMD_TRIG_NODE, 1)
+        if self._wait_until_true(self.COMPLETE_NODE, timeout=timeout, description=f"{description}完成"):
+            self.set_node_value(self.CMD_TRIG_NODE, 0)
+            if self._wait_until_false(self.COMPLETE_NODE, description=f"{description}完成复位"):
+                logger.info(f"{description}完成")
+                self._log_status(f"{description}后")
+                return {
+                    "success": True,
+                    "message": f"{description}完成",
+                    "cmd_type": int(cmd_type),
+                }
+            raise ValueError(f"{description}失败，完成复位超时")
+        raise ValueError(f"{description}失败，动作未完成")
+
+    @not_action
+    def _wait_until_true(
         self,
-        cmd_type: int,
-        description: str,
-        setpoints: Optional[dict] = None,
+        node_name: str,
         timeout: float = 180.0,
-    ) -> dict:
-        if timeout <= 0:
-            raise ValueError("timeout 必须大于 0")
-        if not self.set_node_value(self.CMD_TYPE_NODE, int(cmd_type)):
-            raise ValueError(f"Solid_CmdType={cmd_type} 写入失败")
-
-        started_at = time.monotonic()
-        try:
-            # CmdTrig 可能被 PLC 扫描后立即自动清零，只校验写操作是否成功。
-            if not self.set_node_value(self.CMD_TRIG_NODE, 1):
-                raise ValueError("Solid_CmdTrig=1 写入失败")
-
-            # 普通动作完成时 CompleteFB=1、运行时为 0；
-            # CmdType=20 是例外，复位后 CompleteFB 保持 0，需按位置反馈判断。
-            if not self._wait_complete_value(
-                expected=0,
-                timeout=min(10.0, timeout),
-                description=f"{description}启动",
-            ):
-                raise ValueError(f"{description}未启动，Solid_CompleteFB 未变为 0")
-
-            elapsed = time.monotonic() - started_at
-            remaining = max(0.1, timeout - elapsed)
-            if cmd_type == int(SolidCommand.RESET):
-                # 实机 CmdType=20 回原点后 CompleteFB 保持 0，不会恢复为 1；
-                # 复位完成必须按五个轴的位置反馈判断。
-                if not self._wait_reset_positions(setpoints or {}, timeout=remaining):
-                    raise ValueError(f"{description}执行超时，固体加样各轴未回到原点")
-            elif not self._wait_complete_value(
-                expected=1,
-                timeout=remaining,
-                description=f"{description}完成",
-            ):
-                raise ValueError(f"{description}执行超时，Solid_CompleteFB 未恢复为 1")
-        finally:
-            # CompleteFB=1 是完成/空闲状态，不再等待它清零。
-            trigger_cleared = self.set_node_value(self.CMD_TRIG_NODE, 0)
-            command_cleared = self.set_node_value(self.CMD_TYPE_NODE, 0)
-            trigger_value = self.get_node_value(self.CMD_TRIG_NODE, force_read=True)
-            command_value = self.get_node_value(self.CMD_TYPE_NODE, force_read=True)
-            logger.info(
-                f"固体加样命令清理：CmdTrig={trigger_value!r}，CmdType={command_value!r}"
-            )
-
-        if (
-            not trigger_cleared
-            or not command_cleared
-            or trigger_value != 0
-            or command_value != 0
-        ):
-            raise ValueError(
-                "动作已完成，但命令清零失败："
-                f"Solid_CmdTrig={trigger_value!r}, Solid_CmdType={command_value!r}"
-            )
-
-        logger.info(f"{description}完成")
-        self._log_status(f"{description}后")
-        return {
-            "success": True,
-            "message": f"{description}完成",
-            "cmd_type": int(cmd_type),
-        }
+        interval: float = 0.2,
+        description: str = None,
+    ) -> bool:
+        desc = description or node_name
+        logger.info(f"等待 {desc}（节点: {node_name}）...")
+        start = time.time()
+        while True:
+            value = self.get_node_value(node_name, force_read=True)
+            if value:
+                logger.info(f"✓ {desc}（[{node_name}]={value}）")
+                return True
+            if time.time() - start >= timeout:
+                logger.error(f"✗ 等待 {desc} 超时（{timeout}s，[{node_name}]={value!r}）")
+                return False
+            time.sleep(interval)
 
     @not_action
-    def _wait_reset_positions(
+    def _wait_until_false(
         self,
-        setpoints: dict,
-        timeout: float,
-        tolerance: int = 5,
-        interval: float = 0.1,
-        stable_samples: int = 3,
+        node_name: str,
+        timeout: float = 180.0,
+        interval: float = 0.2,
+        description: str = None,
     ) -> bool:
-        targets = {
-            feedback_node: int(setpoints.get(setpoint_node, 0))
-            for setpoint_node, feedback_node in self.RESET_POSITION_NODES.items()
-        }
-        logger.info(f"等待复位到位反馈：{targets}，容差={tolerance}")
-        start = time.monotonic()
-        stable_count = 0
-        last_values = {}
-        while time.monotonic() - start < timeout:
-            last_values = {
-                node: self.get_node_value(node, force_read=True)
-                for node in targets
-            }
-            all_reached = all(
-                value is not None and abs(int(value) - target) <= tolerance
-                for node, target in targets.items()
-                for value in (last_values[node],)
-            )
-            stable_count = stable_count + 1 if all_reached else 0
-            if stable_count >= stable_samples:
-                logger.info(f"✓ 复位到位，位置反馈={last_values}")
+        desc = description or node_name
+        logger.info(f"等待 {desc} 复位（节点: {node_name}）...")
+        start = time.time()
+        while True:
+            value = self.get_node_value(node_name, force_read=True)
+            if not value:
+                logger.info(f"✓ {desc}（[{node_name}]={value}）")
                 return True
+            if time.time() - start >= timeout:
+                logger.error(f"✗ 等待 {desc} 超时（{timeout}s，[{node_name}]={value!r}）")
+                return False
             time.sleep(interval)
-        logger.error(f"✗ 等待复位到位超时，目标={targets}，当前={last_values}")
-        return False
-
-    @not_action
-    def _wait_complete_value(
-        self,
-        expected: int,
-        timeout: float,
-        interval: float = 0.05,
-        description: str = "",
-    ) -> bool:
-        logger.info(
-            f"等待 {description}（{self.COMPLETE_NODE}={expected}）..."
-        )
-        start = time.monotonic()
-        while time.monotonic() - start < timeout:
-            value = self.get_node_value(self.COMPLETE_NODE, force_read=True)
-            if value == expected:
-                logger.info(f"✓ {description}（{self.COMPLETE_NODE}={value}）")
-                return True
-            time.sleep(interval)
-        value = self.get_node_value(self.COMPLETE_NODE, force_read=True)
-        logger.error(
-            f"✗ 等待 {description} 超时（{timeout}s，"
-            f"{self.COMPLETE_NODE}={value!r}，期望={expected}）"
-        )
-        return False
 
     @not_action
     def run_test_flow(self) -> dict:

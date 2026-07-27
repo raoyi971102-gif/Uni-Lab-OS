@@ -1,11 +1,10 @@
 """
-unilab -g unilabos/devices/workstation/GN/GN_station.json --ak 4b9d0867-78f8-4933-80f9-50196afbb4e2 --sk e6beb860-c77a-4b70-a039-c83b2ff0424f --upload_registry --addr https://leap-lab.bohrium.com/api/v1 --disable_browser
 真空烘箱 设备驱动
 
 真空烘箱密码：7701
 温度报警：130°C
 
-协议：opcua_gn1.3.3.csv「真空烘箱」(前缀 VacuumOven_)。
+协议：opcua_gn1.3.6.csv「真空烘箱」(前缀 VacuumOven_)。
 对外仅暴露 execute_command（VacuumOven_CmdType + 写参）。
 
 指令类型 (VacuumOven_CmdType)：
@@ -19,14 +18,20 @@ import os
 import time
 import logging
 import threading
+import traceback
 from enum import Enum
 from typing import Optional
 
 from unilabos.utils.log import logger
 from unilabos.registry.decorators import action, device, not_action
+
+# 导入通讯基类
 from unilabos.devices.workstation.AI4C.base_opcua_client import OpcUaClientWithSubscription
 
-DEFAULT_CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "opcua_gn1.3.3.csv")
+DEFAULT_XLSX_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "opcua_gn1.3.6.csv",
+)
 
 # OPC 1.3.3 VacuumOven_CmdType（与 Excel 表头一致）
 VACUUM_CMD_LABELS = {
@@ -74,7 +79,7 @@ class VacuumOvenDevice(OpcUaClientWithSubscription):
     def __init__(
         self,
         url: str,
-        csv_path: str = DEFAULT_CSV_PATH,
+        xlsx_path: str = DEFAULT_XLSX_PATH,
         username: str = None,
         password: str = None,
         use_subscription: bool = True,
@@ -93,8 +98,61 @@ class VacuumOvenDevice(OpcUaClientWithSubscription):
             *args,
             **kwargs,
         )
-        if csv_path:
-            self.load_nodes_from_csv(csv_path)
+        self._connection_check_interval = 5.0
+        self._command_lock = threading.Lock()
+        if xlsx_path:
+            self._load_nodes_from_xlsx(xlsx_path)
+
+    @not_action
+    def _load_nodes_from_xlsx(self, xlsx_path: str) -> None:
+        """从 opcua_gn CSV（Name/EnglishName/NodeType/DataType/NodeId）加载 VacuumOven_ 前缀节点。"""
+        try:
+            if not os.path.isabs(xlsx_path):
+                xlsx_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), xlsx_path)
+            if not os.path.isfile(xlsx_path):
+                logger.error(f"OPC UA 协议 CSV 不存在: {xlsx_path}")
+                return
+
+            logger.info(f"开始从 CSV 加载 VacuumOven_ 节点: {xlsx_path}")
+            all_nodes, name_mapping, reverse_mapping = self.load_csv(xlsx_path)
+
+            # CSV 含全站节点，本设备只注册 VacuumOven_ 前缀
+            nodes = [n for n in all_nodes if str(n.name).startswith("VacuumOven_")]
+            name_mapping = {
+                en: cn for en, cn in name_mapping.items()
+                if str(en).startswith("VacuumOven_") or str(cn).startswith("VacuumOven_")
+            }
+            reverse_mapping = {
+                cn: en for cn, en in reverse_mapping.items()
+                if str(cn).startswith("VacuumOven_") or str(en).startswith("VacuumOven_")
+            }
+
+            if not nodes:
+                logger.error("CSV 中未解析到任何 VacuumOven_ 节点")
+                return
+
+            self._name_mapping.update(name_mapping)
+            self._reverse_mapping.update(reverse_mapping)
+            self.register_node_list(nodes)
+
+            if self.client and self._variables_to_find:
+                logger.info(f"CSV 解析完成，待查找 {len(self._variables_to_find)} 个节点...")
+                self._find_nodes()
+            self._register_nodes_as_attributes()
+
+            found_count = len(self._node_registry)
+            total_count = len(self._variables_to_find)
+            if found_count < total_count:
+                logger.warning(f"节点查找完成：找到 {found_count}/{total_count} 个节点")
+            else:
+                logger.info(f"✓ 节点查找完成：所有 {found_count} 个节点均已找到")
+
+            if self._use_subscription and found_count > 0:
+                self._setup_subscriptions()
+            logger.info(f"✓ 成功从 CSV 加载 {found_count} 个 VacuumOven_ 节点")
+        except Exception as exc:
+            logger.error(f"从 CSV 加载节点失败 {xlsx_path}: {exc}")
+            traceback.print_exc()
 
     @action(auto_prefix=True, description=_EXECUTE_CMD_DOC)
     def execute_command(
@@ -293,7 +351,7 @@ if __name__ == "__main__":
     VACUUM_OVEN_URL = "opc.tcp://192.168.6.6:4840"
     STATUS_LOG_INTERVAL = 15.0
 
-    oven = VacuumOvenDevice(url=VACUUM_OVEN_URL, csv_path=DEFAULT_CSV_PATH)
+    oven = VacuumOvenDevice(url=VACUUM_OVEN_URL, xlsx_path=DEFAULT_XLSX_PATH)
     time.sleep(2)
 
     logger.info(f"真空烘箱连通性测试: {oven.get_status()}")
@@ -346,7 +404,7 @@ if __name__ == "__main__":
         elif choice == "2":
             oven.execute_command(
                 cmd_type=1,
-                temperature=25,
+                temperature=30,
                 minutes=1,
                 vacuum_high=-95,
                 vacuum_low=-98,

@@ -1,0 +1,2 @@
+# 金纳米颗粒全流程搬运
+python unilabos\app\main.py -g unilabos\devices\workstation\GN\GN_station.json --ak 6b273a1c-4037-44bf-bcb0-b5f13df788a0 --sk 9f802e32-9351-44cd-9c66-58e3cf3edf70 --upload_registry --addr https://leap-lab.bohrium.com/api/v1  --disable_browser

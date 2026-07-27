@@ -1,10 +1,30 @@
 """
-机械手 设备驱动
+机械手 设备驱动（OPC UA 1.3.6，前缀 Robot_）
 
-协议：OPC_UA协议1.3.3(2).xlsx「机械手」；节点：opcua_gn1.3.3.csv（前缀 Robot_）。
+职责：只负责在各工站抓 / 放。参数 = 工站(station) + 物料(item_type) + 抓取数字(number)。
+流程（各步逐个触发、等 FinishFB=1 完成后再下一步）：
+  1) X 小车移动：读当前 X → 距离=目标绝对坐标−当前 → 写距离到 Robot_XPosSet，
+     CmdType 恒=2，触发一次，等 Robot_XPosFB 到达目标绝对坐标（X 移动全程 FinishFB=1）；
+  2)（旋转堆栈）按 number 转到对应列，等旋转到位；
+  3) 抓/放：写模块号+板位到对应寄存器 → CmdType=3(夹料)/4(放料) → 触发，等 FinishFB 完成。
 
-对外仅暴露 execute_command（Robot_CmdType + 写参）；测试流程预设供本地调试。
-伪指令：100=回原点 101=停止（非 PLC 枚举，在 execute_command 内路由）。
+抓放协议（1.3.6）：
+    Robot_ModuleNoSet 选工站 → Robot_<工站>=number（工位号）→ Robot_CmdType(3/4)
+    → Robot_CmdTrig 触发 → 等 Robot_FinishFB 先转 0(忙) 再回 1(完成) → CmdTrig 置 0。
+    （Robot_FinishFB：1=就绪/空闲，0=执行中；上电即为 1 表示空闲可运行。
+      1.3.6 已删除各工站独立的 *_Done 节点，统一用 Robot_FinishFB 的忙→闲边沿判完成。）
+
+旋转堆栈(stack)：旋转与抓取是两个独立动作，由抓放驱动组合——机械手抓取前先请求
+    旋转堆栈（rotary_stack.rotate_for_number：按 number 转到对应列→等旋转到位），
+    到位后再写 Robot_Stack=number 执行抓取。number 与列的对应表固定在
+    rotary_stack.COLUMN_NUMBERS，机械手只传 number，列号由堆栈侧解析。
+    绝对 R 定位依赖 R0 基准，需在开机/换批时外部单独调一次 rotary_stack.reset()。
+
+module_no 对应 1.3.6 Robot_ModuleNoSet（注意：模块号相较 1.3.5 已重排）：
+    常规烘箱1 锁紧2 快换3 离心机4 真空烘箱5 9320设备6 离心管液体处理7 堆栈8 固体加样9 机械手放置板位10
+X 位置来自《X轴位置(1).txt》；成品放置区 X=5318。
+系统级动作：回原点/复位走 System_ResetTrig→System_ResetCompleteFB；停止走 System_StopTrig；
+    上电初始化状态读 System_IsReady（1=可发指令，0=上电回原点故障）。
 """
 
 import os
@@ -15,693 +35,389 @@ from typing import Optional
 
 from unilabos.utils.log import logger
 from unilabos.registry.decorators import action, device, not_action
-from unilabos.devices.workstation.GN.gn_opcua_device import GnOpcUaDevice
+from unilabos.devices.workstation.GN.gn_station_base import GNStationClient
+from unilabos.devices.workstation.GN import rotary_stack
 
-DEFAULT_CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "opcua_gn1.3.3.csv")
+DEFAULT_CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "opcua_gn1.3.6.csv")
 
-X_POS_TOLERANCE = 100
-PICK_PLACE_NODE = "Robot_Pick_up_or_place"
+ITEM_PLATE = "plate"    # 孔板/板位
+ITEM_BOTTLE = "bottle"  # 瓶位
 
-# OPC 1.3.3 Robot_CmdType + 伪指令
-ROBOT_CMD_LABELS = {
-    1: "X向左",
-    2: "X向右",
-    3: "去目标工站/板位夹料",
-    4: "去目标工站/板位放料",
-    7: "复位",
-    8: "失能",
-    9: "使能",
-    10: "动作命令复位",
-    100: "回原点",
-    101: "停止",
-}
+X_REACH_TOL = 0         # X 到位容差（Robot_XPosFB 与目标绝对坐标之差 ≤ 此值即视为到位）
 
 
 class RobotCommand(int, Enum):
-    """机械手指令类型 (Robot_CmdType)"""
+    """机械手指令类型 (Robot_CmdType，1.3.6)。
+    注意：X 小车移动统一用 CmdType=2 + 带符号的相对距离，方向由距离正负体现，
+    不再按左右分 1/2。X_LEFT 仅作协议对照保留。"""
 
     X_LEFT = 1
-    X_RIGHT = 2
-    PICK = 3
-    PLACE = 4
+    X_RIGHT = 2        # X 移动统一用此值（配合带符号距离）
+    PICK = 3          # 夹料（取）
+    PLACE = 4         # 放料（放）
+    STOP = 6          # 停止
     RESET = 7
     DISABLE = 8
     ENABLE = 9
-    ACTION_CMD_RESET = 10
 
 
-# 伪指令（非 PLC 枚举）
-CMD_GO_HOME = 100
-CMD_STOP = 101
+# 取 / 放 → Robot_CmdType（抓放只是写入值不同）
+MODE_TO_CMD = {"取": RobotCommand.PICK, "放": RobotCommand.PLACE}
 
-# OPC UA 1.3.4 工站模块号与各自的动作/完成反馈节点
-ROBOT_STATION_NODES: dict[int, tuple[str, str]] = {
-    1: ("Robot_Locking_mechanism", "Robot_Locking_mechanism_Done"),
-    2: ("Robot_Quick_change_mechanism", "Robot_Quick_change_mechanism_Done"),
-    3: ("Robot_Centrifuge", "Robot_Centrifuge_Done"),
-    4: ("Robot_9320", "Robot_Nine_9320_Done"),
-    5: ("Robot_Centrifuge_tube_liquid_handling", "Robot_Centrifuge_tube_liquid_handling_Done"),
-    6: ("Robot_Stack", "Robot_Stack_Done"),
-    7: ("Robot_Add_solid_sample", "Robot_Add_solid_sample_Done"),
-    8: ("Robot_Oven", "Robot_Oven_Done"),
-    9: ("Robot_Vacuum_oven", "Robot_Vacuum_oven_Done"),
-    10: ("Robot_Finished_Product_Area", "Robot_Finished_Product_Area_Done"),
+
+class Station:
+    """工站：模块号、瓶/板 X 位置、工站动作节点、是否旋转堆栈。"""
+
+    def __init__(self, module_no, x_plate, x_bottle, action_node, rotary=False):
+        self.module_no = module_no
+        self.x_plate = x_plate
+        self.x_bottle = x_bottle
+        self.action_node = action_node
+        self.rotary = rotary
+
+    def x_for(self, item_type: str) -> Optional[int]:
+        return self.x_bottle if item_type == ITEM_BOTTLE else self.x_plate
+
+
+# 工站表（键为前端可选名）。module_no 严格对应 1.3.6 Robot_ModuleNoSet（模块号相较 1.3.5 已重排）。
+STATIONS: dict = {
+    "locking":       Station(2,  -13278, -13278, "Robot_Locking_mechanism"),
+    "quick_change":  Station(3,  -10478, -10478, "Robot_Quick_change_mechanism"),
+    "centrifuge":    Station(4,  -8582,  -8582,  "Robot_Centrifuge"),
+    "nine9320":      Station(6,  -3926,  -3926,  "Robot_9320"),
+    "tube":          Station(7,  -1326,  874,    "Robot_Centrifuge_tube_liquid_handling"),
+    "stack":         Station(8,  3274,   2473,   "Robot_Stack", rotary=True),
+    "solid":         Station(9,  6318,   5971,   "Robot_Add_solid_sample"),
+    "oven":          Station(1,  -13278, -13278, "Robot_Oven"),
+    "vacuum_oven":   Station(5,  -6726,  -6726,  "Robot_Vacuum_oven"),
+    "finished_area": Station(10, 5318,   5318,   "Robot_Finished_Product_Area"),
 }
 
-# 工站预设（destination）；高级用户可显式传 module_no + x_pos 覆盖
-ROBOT_DESTINATIONS: dict[str, tuple[int, int, int]] = {
-    "stack_plate": (6, 3274, 1),
-    "stack_reagent": (6, 3274, 2),
-    "stack_bottle": (6, 2473, 1),
-    "solid_feed": (7, 6318, 1),
-    "tube_handler": (5, -1726, 1),
-    "prcxi": (4, -3926, 1),
-    "magnetic_stirrer": (2, -10478, 1),
-    "centrifuge": (3, -8582, 1),
-    "oven": (8, -13278, 1),
-}
-
-# 堆栈位置1测试流程预设
-TEST_FLOW_PRESETS = [
-    ("1.堆栈位置1夹料", RobotCommand.PICK, dict(
-        module_no=6, stack=1, x_pos=3274, x_speed=300, pick_place=1,
-    )),
-    ("2.堆栈位置1放料", RobotCommand.PLACE, dict(
-        module_no=6, stack=1, x_pos=3274, x_speed=300, pick_place=0,
-    )),
-]
-
-
-_EXECUTE_CMD_DOC = (
-    "按 Robot_CmdType 执行 OPC 1.3.3 指令。"
-    "1=X左 2=X右 3=夹料 4=放料 7=复位 8=失能 9=使能 10=动作命令复位 "
-    "100=回原点 101=停止。"
-    "CmdType 3/4 需 module_no/stack/x_pos/x_speed/pick_place；CmdType 1/2 需 x_pos/x_speed。"
-)
+_STATION_HINT = f"工站可选: {', '.join(STATIONS)}；item_type: {ITEM_PLATE}/{ITEM_BOTTLE}（决定 X 微调）；number=写入 PLC 的抓取工位号（旋转堆栈按该数字自动转到对应列）。"
 
 
 @device(
     id="gn_robotic_arm",
     display_name="机械手",
     category=["workstation"],
-    description="GN 机械手：OPC UA 1.3.3，仅 execute_command 通用入口",
+    description="GN 机械手：OPC UA 1.3.6，工站+子位置抓放，旋转堆栈调用 rotary_stack 旋转驱动",
     icon="",
-    version="2.0.0",
+    version="5.1.0",
 )
-class RoboticArmDevice(GnOpcUaDevice):
-    """机械手设备类（OPC 前缀 Robot_）"""
+class RoboticArmDevice(GNStationClient):
+    """机械手设备类（OPC 前缀 Robot_，抓放旋转堆栈时驱动 Stack_ 节点）"""
+
+    PREFIX = "Robot_"
+    CMD_TYPE_NODE = "Robot_CmdType"
+    CMD_TRIG_NODE = "Robot_CmdTrig"
+    COMPLETE_NODE = "Robot_FinishFB"
 
     def __init__(
         self,
-        url: Optional[str] = None,
-        plc_device_id: Optional[str] = None,
+        url: str,
         csv_path: str = DEFAULT_CSV_PATH,
         username: str = None,
         password: str = None,
-        use_subscription: bool = False,
+        use_subscription: bool = True,
         cache_timeout: float = 5.0,
         subscription_interval: int = 500,
+        enable_connection_monitor: bool = False,
         *args,
         **kwargs,
     ):
         super().__init__(
             url=url,
-            plc_device_id=plc_device_id,
             csv_path=csv_path,
             username=username,
             password=password,
             use_subscription=use_subscription,
             cache_timeout=cache_timeout,
             subscription_interval=subscription_interval,
+            enable_connection_monitor=enable_connection_monitor,
             *args,
             **kwargs,
         )
-        self._pick_place_available = False
-        if not self.plc_device_id:
-            self._refresh_pick_place_available()
 
-    @not_action
-    def bind_plc_driver(self, plc_driver) -> None:
-        super().bind_plc_driver(plc_driver)
-        self._refresh_pick_place_available()
+    # ==================== 抓 / 放 ====================
 
-    @not_action
-    def _refresh_pick_place_available(self) -> None:
-        self._pick_place_available = self._has_opcua_node(PICK_PLACE_NODE)
-        if not self._pick_place_available:
-            logger.warning(
-                f"PLC 未部署 {PICK_PLACE_NODE} 节点，夹/放料将仅依赖 CmdType 3/4"
-            )
+    @action(description="在工站抓取。" + _STATION_HINT)
+    def pick(self, station: str, item_type: str = ITEM_PLATE, number: int = 1,
+             x_speed: int = 300, timeout: float = 180.0) -> dict:
+        return self._pick_or_place("取", station, item_type, number, x_speed, timeout)
 
-    @action(auto_prefix=True, description=_EXECUTE_CMD_DOC)
-    def execute_command(
-        self,
-        cmd_type: int,
-        module_no: Optional[int] = None,
-        stack: Optional[int] = None,
-        x_pos: Optional[int] = None,
-        x_speed: Optional[int] = None,
-        pick_place: Optional[int] = None,
-        timeout: float = 180.0,
-    ) -> dict:
-        """唯一注册动作：按 CmdType 路由至对应 OPC 流程。"""
-        label = ROBOT_CMD_LABELS.get(int(cmd_type), f"CmdType={int(cmd_type)}")
-        return self._run(
-            int(cmd_type),
-            label,
-            module_no=module_no,
-            stack=stack,
-            x_pos=x_pos,
-            x_speed=x_speed,
-            pick_place=pick_place,
-            timeout=timeout,
-        )
+    @action(description="在工站放置。" + _STATION_HINT)
+    def place(self, station: str, item_type: str = ITEM_PLATE, number: int = 1,
+              x_speed: int = 300, timeout: float = 180.0) -> dict:
+        return self._pick_or_place("放", station, item_type, number, x_speed, timeout)
 
-    @action(
-        description="机械臂取放载体至目标工站；可用 destination 预设，"
-        "或显式 module_no + x_pos（高级）",
-    )
-    def transfer_carrier(
-        self,
-        destination: Optional[str] = None,
-        module_no: Optional[int] = None,
-        x_pos: Optional[int] = None,
-        stack: Optional[int] = None,
-        x_speed: int = 300,
-        pick_place: int = 1,
-        timeout: float = 180.0,
-    ) -> dict:
-        if pick_place not in (0, 1):
-            raise ValueError("pick_place 只能为 1（夹料）或 0（放料）")
-        eff_module = module_no
-        eff_x = x_pos
-        eff_stack = stack if stack is not None else 1
-        if eff_module is None or eff_x is None:
-            if not destination:
-                raise ValueError("需 destination 或 module_no+x_pos")
-            preset = ROBOT_DESTINATIONS.get(destination)
-            if preset is None:
-                raise ValueError(
-                    f"未知 destination={destination!r}，"
-                    f"可选: {', '.join(sorted(ROBOT_DESTINATIONS))}"
-                )
-            eff_module, eff_x, default_stack = preset
-            if stack is None:
-                eff_stack = default_stack
-        return self.execute_command(
-            cmd_type=int(RobotCommand.PICK if pick_place == 1 else RobotCommand.PLACE),
-            module_no=eff_module,
-            x_pos=eff_x,
-            stack=eff_stack,
-            x_speed=x_speed,
-            pick_place=pick_place,
-            timeout=timeout,
-        )
+    @action(description="搬运：从 source 抓 → 放到 target。" + _STATION_HINT)
+    def transfer(self, source: str, target: str, item_type: str = ITEM_PLATE,
+                 source_number: int = 1, target_number: int = 1,
+                 x_speed: int = 300, timeout: float = 180.0) -> dict:
+        self.pick(source, item_type, source_number, x_speed, timeout)
+        self.place(target, item_type, target_number, x_speed, timeout)
+        return {"success": True, "message": f"搬运完成 {source}→{target}", "item_type": item_type}
 
-    @not_action
-    def _run(
-        self,
-        cmd_type: int,
-        description: str,
-        module_no: Optional[int] = None,
-        stack: Optional[int] = None,
-        x_pos: Optional[int] = None,
-        x_speed: Optional[int] = None,
-        pick_place: Optional[int] = None,
-        timeout: float = 180.0,
-    ) -> dict:
-        logger.info(f"机械手：{description} (CmdType={cmd_type})")
+    # ==================== 维护动作 ====================
 
-        if cmd_type in (int(RobotCommand.X_LEFT), int(RobotCommand.X_RIGHT)):
-            if x_pos is None or x_speed is None:
-                raise ValueError(f"CmdType={cmd_type} 需要 x_pos 与 x_speed")
-            return self._move_x_absolute(x_pos, x_speed, timeout=timeout)
+    @action(description="使能机械手 (CmdType=9)")
+    def enable(self, timeout: float = 60.0) -> dict:
+        return self._robot_cmd(RobotCommand.ENABLE, "使能", timeout)
 
-        if cmd_type in (int(RobotCommand.PICK), int(RobotCommand.PLACE)):
-            if module_no is None or x_pos is None or x_speed is None:
-                raise ValueError(f"CmdType={cmd_type} 需要 module_no、x_pos 与 x_speed")
-            expected_pick_place = 1 if cmd_type == int(RobotCommand.PICK) else 0
-            if pick_place is not None and pick_place != expected_pick_place:
-                raise ValueError(
-                    f"CmdType={cmd_type} 与 pick_place={pick_place} 冲突，"
-                    f"应为 {expected_pick_place}"
-                )
-            station = ROBOT_STATION_NODES.get(module_no)
-            if station is None:
-                raise ValueError(f"未知机械手模块号 {module_no}，支持: {sorted(ROBOT_STATION_NODES)}")
-            station_action = stack if stack is not None else 1
-            return self._run_station_action(
-                cmd_type=cmd_type,
-                description=description,
-                module_no=module_no,
-                station_action=station_action,
-                action_node=station[0],
-                done_node=station[1],
-                x_pos=x_pos,
-                x_speed=x_speed,
-                pick_place=expected_pick_place,
-                timeout=timeout,
-            )
+    @action(description="失能机械手 (CmdType=8)")
+    def disable(self, timeout: float = 60.0) -> dict:
+        return self._robot_cmd(RobotCommand.DISABLE, "失能", timeout)
 
-        if cmd_type in (
-            int(RobotCommand.RESET),
-            int(RobotCommand.DISABLE),
-            int(RobotCommand.ENABLE),
-        ):
-            return self._run_control_command(cmd_type, description, timeout=timeout)
+    @action(description="复位到安全姿态 (CmdType=7)。是否松夹爪待现场确认，勿在持件时调用")
+    def reset(self, timeout: float = 120.0) -> dict:
+        return self._robot_cmd(RobotCommand.RESET, "复位", timeout)
 
-        if cmd_type == int(RobotCommand.ACTION_CMD_RESET):
-            self._reset_action_command()
-            self._log_status("动作命令复位后")
-            return {"success": True, "message": "动作命令复位完成", "cmd_type": cmd_type}
-
-        if cmd_type == CMD_GO_HOME:
-            return self._go_home(timeout=timeout)
-
-        if cmd_type == CMD_STOP:
-            return self._stop()
-
-        raise ValueError(f"不支持的 CmdType={cmd_type}")
-
-    @not_action
-    def _clear_station_actions(self) -> bool:
-        """清空所有工位动作并回读确认，防止动作残留导致 PLC 重复执行。"""
-        success = True
-        for action_node, _ in ROBOT_STATION_NODES.values():
-            if self._has_opcua_node(action_node):
-                if not self.set_node_value(action_node, 0):
-                    logger.error(f"机械手：工位动作 {action_node} 清零写入失败")
-                    success = False
-        for action_node, _ in ROBOT_STATION_NODES.values():
-            if not self._has_opcua_node(action_node):
-                continue
-            try:
-                value = self.get_node_value(action_node, force_read=True)
-                if value != 0:
-                    logger.error(f"机械手：工位动作 {action_node} 清零失败，回读值={value}")
-                    success = False
-            except Exception as e:
-                logger.error(f"机械手：工位动作 {action_node} 清零回读失败: {e}")
-                success = False
-        return success
-
-    @not_action
-    def _run_station_action(
-        self,
-        cmd_type: int,
-        description: str,
-        module_no: int,
-        station_action: int,
-        action_node: str,
-        done_node: str,
-        x_pos: int,
-        x_speed: int,
-        pick_place: int,
-        timeout: float,
-    ) -> dict:
-        """复位就绪后发送板位和工位动作，并等待该工位自己的 Done 反馈。"""
-        if not self._wait_until_true("Robot_FinishFB", timeout=timeout, description="机械臂复位就绪"):
-            err = self.get_node_value("Robot_Error_code", force_read=True)
-            raise ValueError(f"机械臂未复位就绪，FinishFB 未置 1，Error_code={err}")
-
-        # 拉低上一条触发，随后写入本次板位、工位动作和机械臂取放命令。
-        self.set_node_value("Robot_CmdTrig", 0)
-        time.sleep(0.05)
-        if not self._clear_station_actions():
-            raise ValueError("执行动作前无法清空旧工位动作，已停止下发")
-        self.set_node_value("Robot_ModuleNoSet", module_no)
-        self.set_node_value("Robot_XPosSet", x_pos)
-        self.set_node_value("Robot_XSpeedSet", x_speed)
-        if not self.set_node_value(action_node, station_action):
-            raise ValueError(f"工位动作 {action_node}={station_action} 写入失败")
-        if self._pick_place_available:
-            self.set_node_value(PICK_PLACE_NODE, pick_place)
-            logger.info(
-                f"机械手取放方向: {'夹料' if pick_place == 1 else '放料'} "
-                f"({PICK_PLACE_NODE}={pick_place})"
-            )
-        else:
-            logger.info(
-                f"机械手取放方向: {'夹料' if pick_place == 1 else '放料'} "
-                f"（仅 CmdType={cmd_type}，未写 {PICK_PLACE_NODE}）"
-            )
-        actions_cleared = False
-        try:
-            self.set_node_value("Robot_CmdType", int(cmd_type))
-            self.set_node_value("Robot_CmdTrig", 1)
-
-            self._wait_station_done_feedback(
-                done_node=done_node,
-                timeout=timeout,
-                description=description,
-            )
-
-            # 工位 Done=1 后立即清零对应动作，例如 Robot_Stack_Done=1
-            # 后写 Robot_Stack=0，避免 PLC 再次执行同一动作。
-            if not self.set_node_value(action_node, 0):
-                raise ValueError(f"收到 {done_node}=1 后，{action_node}=0 写入失败")
-            action_value = self.get_node_value(action_node, force_read=True)
-            if action_value != 0:
-                raise ValueError(
-                    f"收到 {done_node}=1 后，{action_node} 清零失败，回读值={action_value}"
-                )
-            logger.info(f"机械手：收到 {done_node}=1，已写入 {action_node}=0")
-        finally:
-            # 超时或 Ctrl+C 中断时也必须兜底清零，防止动作永久保持非零。
-            actions_cleared = self._clear_station_actions()
-            self.set_node_value("Robot_CmdType", int(RobotCommand.ACTION_CMD_RESET))
-            time.sleep(0.05)
-            self.set_node_value("Robot_CmdTrig", 0)
-            logger.info(
-                f"机械手：工位动作清零 {'成功' if actions_cleared else '失败'}，"
-                f"{action_node}=0"
-            )
-
-        if not actions_cleared:
-            raise ValueError("工位动作结束后清零失败，已停止后续动作")
-
-        logger.info(f"{description}完成")
-        self._log_status(f"{description}后")
-        return {
-            "success": True,
-            "message": f"{description}完成",
-            "cmd_type": int(cmd_type),
-            "module_no": module_no,
-            "station_action": station_action,
-            "done_node": done_node,
-        }
-
-    @not_action
-    def _run_control_command(self, cmd_type: int, description: str, timeout: float = 180.0) -> dict:
-        """执行使能/失能/复位命令；FinishFB=1 表示机械臂复位就绪。"""
-        self.set_node_value("Robot_CmdTrig", 0)
-        time.sleep(0.05)
-        self.set_node_value("Robot_CmdType", int(cmd_type))
-        self.set_node_value("Robot_CmdTrig", 1)
-        if not self._wait_until_true("Robot_FinishFB", timeout=timeout, description=f"{description}完成"):
-            self._log_status(f"{description}失败")
-            err = self.get_node_value("Robot_Error_code", force_read=True)
-            raise ValueError(f"{description}失败，FinishFB 未响应，Error_code={err}")
-        logger.info(f"{description}完成")
-        return {"success": True, "message": f"{description}完成", "cmd_type": int(cmd_type)}
-
-    @not_action
-    def _get_node_value_optional(self, name: str):
-        if not self._has_opcua_node(name):
-            return None
-        return self.get_node_value(name, force_read=True)
-
-    @not_action
-    def ensure_idle(self) -> None:
-        """确认机械臂已经复位就绪；FinishFB=1 时 X 轴才允许前往板位。"""
-        if not self._wait_until_true("Robot_FinishFB", timeout=30.0, description="机械臂复位就绪"):
-            err = self.get_node_value("Robot_Error_code", force_read=True)
-            raise ValueError(f"机械臂未复位就绪，FinishFB 未置 1，Error_code={err}")
-
-    @not_action
-    def _reset_action_command(self, timeout: float = 30.0) -> None:
-        """清空工位动作并发送 CmdType=10，结束当前动作。"""
-        self._clear_station_actions()
-        self.set_node_value("Robot_CmdType", int(RobotCommand.ACTION_CMD_RESET))
-        self.set_node_value("Robot_CmdTrig", 0)
-        logger.info("机械手：工位动作已清空，CmdType=10")
-
-    @not_action
-    def _move_x_absolute(
-        self,
-        target_x: int,
-        x_speed: int,
-        tolerance: int = X_POS_TOLERANCE,
-        timeout: float = 120.0,
-    ) -> dict:
-        """X 点动：Robot_XPosSet=绝对目标，按当前 X 选 CmdType 1/2，等 XPosFB 到位"""
-        current = self.get_x_position()
-        if abs(current - target_x) <= tolerance:
-            logger.info(f"机械手：X 已在 {target_x} 附近（current={current}）")
-            return {"success": True, "message": f"X 已在绝对位置 {target_x} 附近"}
-
-        cmd_type = int(RobotCommand.X_RIGHT if current < target_x else RobotCommand.X_LEFT)
-        direction = "向右" if current < target_x else "向左"
-        desc = f"X{direction}移至绝对位置{target_x}"
-        logger.info(f"机械手：{desc}（current={current}）...")
-
+    @action(description="系统复位/回原点 (System_ResetTrig → System_ResetCompleteFB)")
+    def go_home(self, timeout: float = 180.0) -> dict:
+        logger.info("机械手：系统复位/回原点...")
         self.ensure_idle()
-        self.set_node_value("Robot_CmdTrig", 0)
-        time.sleep(0.05)
-        self.set_node_value("Robot_XPosSet", target_x)
-        self.set_node_value("Robot_XSpeedSet", x_speed)
-        self.set_node_value("Robot_CmdType", int(cmd_type))
-        self.set_node_value("Robot_CmdTrig", 1)
+        self.set_node_value("System_ResetTrig", 1)
+        if not self.wait_true("System_ResetCompleteFB", timeout=timeout, description="系统复位完成"):
+            raise ValueError(f"复位失败，Error_code={self.get_node_value('Robot_Error_code', force_read=True)}")
+        self.set_node_value("System_ResetTrig", 0)
+        return {"success": True, "message": "系统复位/回原点完成"}
 
-        if not self._wait_x_reach(target_x, tolerance=tolerance, description=desc, timeout=timeout):
-            self._log_status(f"{desc}失败")
-            raise ValueError(f"{desc}失败，当前 X={self.get_x_position()}")
-
-        self._reset_action_command()
-        self._log_status(f"{desc}后")
-        return {"success": True, "message": f"{desc}完成", "cmd_type": int(cmd_type)}
-
-    @not_action
-    def _go_home(self, timeout: float = 180.0) -> dict:
-        """回原点：Robot_gohome=1，等待 Robot_gohome_done=1"""
-        logger.info("机械手：回原点...")
-        self.ensure_idle()
-        self.set_node_value("Robot_gohome", 1)
-        if not self._wait_until_true("Robot_gohome_done", timeout=timeout, description="回原点完成"):
-            err = self.get_node_value("Robot_Error_code", force_read=True)
-            raise ValueError(f"回原点失败，Error_code={err}")
-        self.set_node_value("Robot_gohome", 0)
-        self._log_status("回原点后")
-        return {"success": True, "message": "回原点完成", "cmd_type": CMD_GO_HOME}
-
-    @not_action
-    def _stop(self) -> dict:
-        """紧急停止：Robot_STOP=1 脉冲"""
+    @action(description="紧急停止 (System_StopTrig)")
+    def stop(self) -> dict:
         logger.info("机械手：停止...")
-        self.set_node_value("Robot_STOP", 1)
+        self.set_node_value("System_StopTrig", 1)
         time.sleep(0.2)
-        self.set_node_value("Robot_STOP", 0)
-        self._log_status("停止后")
-        return {"success": True, "message": "停止命令已下发", "cmd_type": CMD_STOP}
+        self.set_node_value("System_StopTrig", 0)
+        return {"success": True, "message": "停止命令已下发"}
+
+    @action(description="仅 X 平移到某工站，不抓放（调试用）。" + _STATION_HINT)
+    def move_to_station(self, station: str, item_type: str = ITEM_PLATE,
+                        x_speed: int = 300, timeout: float = 120.0) -> dict:
+        return self.move_x(self._target_x(station, item_type), x_speed, timeout)
+
+    # ==================== 内部流程 ====================
 
     @not_action
-    def _wait_x_reach(
-        self,
-        target_x: int,
-        tolerance: int = X_POS_TOLERANCE,
-        stable_samples: int = 3,
-        timeout: float = 120.0,
-        interval: float = 0.2,
-        description: str = "",
-    ) -> bool:
-        desc = description or f"X到达{target_x}"
-        logger.info(f"等待 {desc}（容差±{tolerance}，轮询 Robot_XPosFB）...")
-        start = time.time()
-        stable = 0
-        while time.time() - start < timeout:
-            x = self.get_x_position()
-            if abs(x - target_x) <= tolerance:
-                stable += 1
-                if stable >= stable_samples:
-                    logger.info(f"✓ {desc}（Robot_XPosFB={x}）")
-                    return True
-            else:
-                stable = 0
-            time.sleep(interval)
-        logger.error(f"✗ {desc} 超时，当前 X={self.get_x_position()}，目标={target_x}")
-        return False
+    def _pick_or_place(self, mode, station, item_type, number, x_speed, timeout) -> dict:
+        """抓/放单工站（各步逐个触发、等 FinishFB=1 完成后再下一步）：
+        1) 小车 move_x 到工站绝对坐标，等 FinishFB=1；
+        2)（旋转堆栈）按 number（工站内子位置）转到对应列并校验旋转到位；
+        3) 写模块号(Robot_ModuleNoSet=当前工站) → 写工站子位置(Robot_<工站>=number)
+           → CmdType(3取/4放) → 触发，等 FinishFB=1。"""
+        st = self._station(station)
+        target_x = self._target_x(station, item_type)
+        cmd = int(MODE_TO_CMD[mode])
+        logger.info(f"机械手：{mode} @{station}（module={st.module_no} X={target_x} {item_type} number={number}）")
+
+        # 1) 小车到工站绝对坐标（move_x 内部：读当前→算距离→CmdType2→触发→等 FinishFB）
+        self.move_x(target_x, x_speed, timeout)
+        logger.info(f"机械手：小车已到位 X={target_x}（FinishFB=1），准备{mode}")
+
+        # 2) 旋转堆栈：按 number 转到对应列并校验到位（绝对 R 定位，依赖开机/换批时外部先 reset() 建 R0）
+        if st.rotary:
+            column = rotary_stack.rotate_for_number(self, number, timeout=timeout)
+            logger.info(f"机械手：旋转堆栈已校验到位第{column}列，开始{mode}")
+
+        # 3) 抓/放：写模块号 → 写工站子位置(number) → CmdType(3/4) → 触发，等 FinishFB=1
+        self._run_action(
+            cmd,
+            setpoints={"Robot_ModuleNoSet": st.module_no, st.action_node: number},
+            description=f"{mode}(CmdType={cmd}) 模块={st.module_no} {st.action_node}={number}",
+            timeout=timeout,
+        )
+        self.set_node_value(st.action_node, 0)
+        logger.info(f"机械手：{mode}@{station} 完成（number={number}）")
+        return {"success": True, "message": f"{mode}@{station} 完成", "x": target_x, "number": number}
 
     @not_action
-    def _wait_station_done_feedback(
-        self,
-        done_node: str,
-        timeout: float,
-        description: str,
-    ) -> None:
-        """工位 Done 反馈：空闲多为 1 时先等 1→0（启动），再等 0→1（完成）。"""
-        start = time.monotonic()
-        initial = self.get_node_value(done_node, force_read=True)
-        if initial == 1:
-            start_timeout = min(10.0, timeout)
-            if not self._wait_until_false(
-                done_node,
-                timeout=start_timeout,
-                interval=0.05,
-                description=f"{description}启动（{done_node} 1→0）",
-            ):
-                self._log_status(f"{description}失败")
-                err = self.get_node_value("Robot_Error_code", force_read=True)
-                raise ValueError(
-                    f"{description}未启动，{done_node} 未变为 0，Error_code={err}"
-                )
+    def move_x(self, target_x: int, x_speed: int = 300, timeout: float = 120.0) -> dict:
+        """X 移动到绝对坐标（相对移动实现）：
+        读当前 X(Robot_XPosFB) → 距离 = 目标绝对坐标 − 当前 → 把距离写 Robot_XPosSet，
+        CmdType 恒为 2，触发一次 → 等 Robot_XPosFB 到达目标绝对坐标（±X_REACH_TOL）判完成。
+        （X 移动全程 FinishFB=1，不能用忙→闲判完成，故用位置反馈到位。）"""
+        current = self.get_node_value("Robot_XPosFB", force_read=True)
+        if current is None:
+            raise ValueError("无法读取当前 X 位置(Robot_XPosFB)，连接可能已断开")
+        distance = int(target_x) - int(current)
+        if distance == 0:
+            logger.info(f"X 已在目标 {target_x}，无需移动")
+            return {"success": True, "message": f"X 已在 {target_x}"}
 
-        remaining = max(0.1, timeout - (time.monotonic() - start))
-        if not self._wait_until_true(
-            done_node,
-            timeout=remaining,
-            interval=0.05,
-            description=f"{description}完成（{done_node}→1）",
-        ):
-            self._log_status(f"{description}失败")
-            err = self.get_node_value("Robot_Error_code", force_read=True)
-            raise ValueError(
-                f"{description}超时，{done_node} 未置 1，Error_code={err}"
-            )
+        # 移动指令类型恒为 2；移动距离(带符号)写 Robot_XPosSet；等 Robot_XPosFB 到达目标绝对坐标
+        self._run_action(
+            2,
+            setpoints={"Robot_XPosSet": distance, "Robot_XSpeedSet": x_speed},
+            reach=("Robot_XPosFB", int(target_x), X_REACH_TOL),
+            description=f"X 移动距离 {distance}（{current}→{target_x}）",
+            timeout=timeout,
+        )
+        after = self.get_node_value("Robot_XPosFB", force_read=True)
+        logger.info(f"X 移动完成：当前 X={after}（目标 {target_x}）")
+        return {"success": True, "message": f"X 到位 {target_x}", "x": after}
 
     @not_action
-    def _wait_until_true(
-        self,
-        node_name: str,
-        timeout: float = 180.0,
-        interval: float = 0.2,
-        description: str = None,
-        log_each: bool = False,
-    ) -> bool:
-        desc = description or node_name
-        logger.info(f"等待 {desc}（轮询 {node_name}）...")
-        start = time.time()
-        while time.time() - start < timeout:
-            value = self.get_node_value(node_name, force_read=True)
-            if log_each:
-                logger.info(f"轮询 {node_name}={value}")
-            if value:
-                logger.info(f"✓ {desc}（{node_name}={value}）")
-                return True
-            time.sleep(interval)
-        value = self.get_node_value(node_name, force_read=True)
-        logger.error(f"✗ {desc} 超时（{node_name}={value!r}）")
-        return False
+    def _robot_cmd(self, cmd: RobotCommand, desc: str, timeout: float) -> dict:
+        """Robot_CmdType 通道：就绪/忙握手（见 _run_action）。"""
+        self._run_action(int(cmd), description=desc, timeout=timeout)
+        return {"success": True, "message": f"{desc}完成"}
 
     @not_action
-    def _wait_until_false(
-        self,
-        node_name: str,
-        timeout: float = 30.0,
-        interval: float = 0.2,
-        description: str = None,
-    ) -> bool:
-        desc = description or node_name
-        logger.info(f"等待 {desc}（轮询 {node_name}）...")
-        start = time.time()
-        while time.time() - start < timeout:
-            value = self.get_node_value(node_name, force_read=True)
-            if not value:
-                logger.info(f"✓ {desc}（{node_name}={value}）")
-                return True
-            time.sleep(interval)
-        value = self.get_node_value(node_name, force_read=True)
-        logger.error(f"✗ {desc} 超时（{node_name}={value!r}）")
-        return False
-
-    @not_action
-    def run_test_flow(self) -> dict:
-        """堆栈位置1：使能 → 机械臂复位 → 夹料 → 放料。"""
-        logger.info("机械手：开始堆栈位置1测试流程...")
-        self.execute_command(cmd_type=int(RobotCommand.ENABLE))
-        self.execute_command(cmd_type=int(RobotCommand.RESET))
+    def _run_action(self, cmd_type: int, description: str, timeout: float,
+                    setpoints: Optional[dict] = None, busy_timeout: float = 5.0,
+                    reach=None) -> None:
+        """指令触发 + 完成判定：
+        确认就绪 → 写点位+CmdType → CmdTrig=1 → 判完成 → CmdTrig=0。
+        完成判定两种：
+          reach=(反馈节点, 目标, 容差) → 等该反馈到位（如 X 移动等 Robot_XPosFB 到目标绝对坐标）；
+          reach=None → 走 FinishFB 就绪/忙握手（1=就绪/空闲，0=执行中，忙→闲判完成）。"""
         self.ensure_idle()
-        for step_name, cmd_type, preset in TEST_FLOW_PRESETS:
-            logger.info(f"--- {step_name} (CmdType={int(cmd_type)}) ---")
-            self.execute_command(cmd_type=int(cmd_type), **preset)
-        logger.info("机械手：堆栈位置1测试流程完成")
-        return {"success": True, "message": "堆栈位置1测试流程完成"}
+        if setpoints:
+            for node, val in setpoints.items():
+                if val is not None:
+                    self.set_node_value(node, val)
+
+        self.set_node_value("Robot_CmdTrig", 0)
+        time.sleep(0.05)
+        ok_type = self.set_node_value("Robot_CmdType", int(cmd_type))
+        ok_trig = self.set_node_value("Robot_CmdTrig", 1)
+        if not (ok_type and ok_trig):
+            raise ValueError(f"{description} 指令写入失败（连接可能已断开，请重试）")
+
+        if reach is not None:
+            # 位置到位判据：等反馈节点到达目标（如 X 移动，FinishFB 全程为 1 不可用）
+            fb_node, target, tol = reach
+            done = self.wait_reached(fb_node, target, tol, timeout=timeout,
+                                     description=f"{description} 到位")
+        else:
+            # 就绪/忙握手：先等 FinishFB 变 0（忙），再等其回 1（完成）
+            if self.wait_false("Robot_FinishFB", timeout=busy_timeout, description=f"{description} 开始执行"):
+                done = self.wait_true("Robot_FinishFB", timeout=timeout, description=f"{description} 完成")
+            else:
+                # 必须完整观察到 FinishFB 1→0→1 才能判定动作完成。
+                # 若未进入忙状态，当前的 1 仍是触发前空闲态，不能当作完成反馈。
+                logger.error(f"[{description}] 未观察到 FinishFB 变忙，PLC 未接受或未执行指令")
+                done = False
+
+        self.set_node_value("Robot_CmdTrig", 0)
+        if not done:
+            raise ValueError(f"{description} 未完成/未到位，Error_code={self.get_node_value('Robot_Error_code', force_read=True)}")
+        logger.info(f"{description} 完成")
 
     @not_action
-    def get_x_position(self) -> int:
-        return self.get_node_value("Robot_XPosFB", force_read=True)
+    def ensure_idle(self, timeout: float = 30.0) -> None:
+        """触发前置：CmdTrig=0，并确认 Robot_FinishFB=1（就绪/空闲）。
+        FinishFB=1 是正常空闲态，不做清零；若为 0(忙)则等其回到就绪。"""
+        self.set_node_value("Robot_CmdTrig", 0)
+        time.sleep(0.05)
+        if not self.get_node_value("Robot_FinishFB", force_read=True):
+            if not self.wait_true("Robot_FinishFB", timeout=timeout, description="机械手就绪(FinishFB=1)"):
+                raise ValueError(f"机械手未就绪，Error_code={self.get_node_value('Robot_Error_code', force_read=True)}")
+
+    # ==================== 工具 ====================
+
+    @not_action
+    def _station(self, key: str) -> "Station":
+        st = STATIONS.get(key)
+        if st is None:
+            raise ValueError(f"未知工站 {key!r}，可选: {', '.join(STATIONS)}")
+        return st
+
+    @not_action
+    def _target_x(self, station: str, item_type: str) -> int:
+        if item_type not in (ITEM_PLATE, ITEM_BOTTLE):
+            raise ValueError(f"item_type 必须为 {ITEM_PLATE!r} 或 {ITEM_BOTTLE!r}，收到 {item_type!r}")
+        x = self._station(station).x_for(item_type)
+        if x is None:
+            raise ValueError(f"工站 {station} 未标定 {item_type} 的 X 位置（如成品放置区，请补 STATIONS）")
+        return x
 
     @not_action
     def get_status(self) -> dict:
         return {
-            "X": self.get_x_position(),
-            "x_set": self.get_node_value("Robot_XPosSet", force_read=True),
+            "X": self.get_node_value("Robot_XPosFB", force_read=True),
             "finish": self.get_node_value("Robot_FinishFB", force_read=True),
             "cmd_type": self.get_node_value("Robot_CmdType", force_read=True),
             "cmd_trig": self.get_node_value("Robot_CmdTrig", force_read=True),
             "module_no": self.get_node_value("Robot_ModuleNoSet", force_read=True),
-            "stack": self.get_node_value("Robot_Stack", force_read=True),
-            "stack_done": self.get_node_value("Robot_Stack_Done", force_read=True),
-            "pick_or_place": self._get_node_value_optional(PICK_PLACE_NODE),
-            "gohome_done": self.get_node_value("Robot_gohome_done", force_read=True),
+            # PLC 固件暂未支持以下 1.3.6 新增节点，先注释忽略，升级后再启用
+            # "system_ready": self.get_node_value("System_IsReady", force_read=True),
+            "reset_complete": self.get_node_value("System_ResetCompleteFB", force_read=True),
             "error_code": self.get_node_value("Robot_Error_code", force_read=True),
-            "running_status": self.get_node_value("Robot_Running_Status", force_read=True),
+            "stack_column": rotary_stack.current_column(self),
         }
-
-    @not_action
-    def _log_status(self, prefix: str = "状态") -> None:
-        s = self.get_status()
-        logger.info(
-            f"{prefix}: X={s['X']} XSet={s['x_set']} Finish={s['finish']} "
-            f"CmdType={s['cmd_type']} CmdTrig={s['cmd_trig']} "
-            f"ModuleNo={s['module_no']} Stack={s['stack']} "
-            f"PickPlace={s['pick_or_place']} GoHomeDone={s['gohome_done']} "
-            f"Error={s['error_code']} Running={s['running_status']}"
-        )
 
 
 if __name__ == "__main__":
     logging.getLogger("unilabos").setLevel(logging.INFO)
 
-    ROBOT_URL = "opc.tcp://192.168.6.6:4840"
-
-    robot = RoboticArmDevice(
-        url=ROBOT_URL,
-        csv_path=DEFAULT_CSV_PATH,
-        use_subscription=False,
-    )
+    robot = RoboticArmDevice(url="opc.tcp://192.168.6.6:4840", csv_path=DEFAULT_CSV_PATH, use_subscription=False)
     time.sleep(2)
-    logger.info(f"机械手使能前状态: {robot.get_status()}")
-    robot.execute_command(cmd_type=int(RobotCommand.ENABLE))
-    robot.execute_command(cmd_type=int(RobotCommand.RESET))
     robot.ensure_idle()
-    logger.info(f"机械手复位就绪状态: {robot.get_status()}")
+    logger.info(f"机械手连通性: {robot.get_status()}")
 
-    if input("确认机械手安全区域无人，输入 y 执行堆栈位置1夹料: ").strip().lower() == "y":
-        result = robot.transfer_carrier(destination="stack_plate", x_speed=300)
-        logger.info(f"堆栈位置1夹料结果: {result}")
+    rotary_stack.reset(robot)
+    logger.info("旋转堆栈复位完成，已建立 R0 基准")
+
+    def _ask_int(prompt, default):
+        raw = input(f"{prompt} [{default}]: ").strip()
+        return int(raw) if raw else default
+
+    def _ask_item():
+        return "bottle" if input("物料 plate/bottle [plate]: ").strip().lower() == "bottle" else "plate"
+
+    def _pick_station(title="选择工站"):
+        print(f"{title}：")
+        for i, (key, st) in enumerate(STATIONS.items(), start=1):
+            flag = " [旋转堆栈,需列号]" if st.rotary else ""
+            print(f"  {i:>2} {key:<14} module={st.module_no} X板={st.x_plate} X瓶={st.x_bottle}{flag}")
+        keys = list(STATIONS)
+        idx = _ask_int("工站编号", 1)
+        return keys[idx - 1] if 1 <= idx <= len(keys) else None
+
+    def _run(fn):
+        key = _pick_station()
+        if not key:
+            return
+        item = _ask_item()
+        number = _ask_int("抓取数字(工位号，旋转堆栈按此自动转列)", 1)
+        fn(station=key, item_type=item, number=number)
 
     while True:
-        print("请选择操作：")
-        for idx, (name, cmd, _) in enumerate(TEST_FLOW_PRESETS, start=1):
-            print(f"{idx} {name} (CmdType={int(cmd)})")
-        print("3  复位 (CmdType=7)")
-        print("4  使能 (CmdType=9)")
-        print("5  失能 (CmdType=8)")
-        print("6  动作命令复位 (CmdType=10)")
-        print("7  回原点 (CmdType=100)")
-        print("8  停止 (CmdType=101)")
-        print("11 X移至3274 (CmdType=1/2)")
-        print("12 X移至100 (CmdType=1/2)")
-        print("98 整体测试流程")
+        print("\n请选择操作：")
+        print("1 使能   2 失能   3 复位   4 回原点   5 停止")
+        print("6 抓 pick   7 放 place   8 搬运 transfer   9 仅平移到工站   10 查看状态")
         print("99 退出")
-        choice = input("请输入操作序号：").strip()
+        choice = input("请输入序号：").strip()
         if choice == "99":
             break
-        elif choice == "98":
-            robot.run_test_flow()
+        elif choice == "1":
+            robot.enable()
+        elif choice == "2":
+            robot.disable()
         elif choice == "3":
-            robot.execute_command(cmd_type=7)
+            robot.reset()
         elif choice == "4":
-            robot.execute_command(cmd_type=9)
+            robot.go_home()
         elif choice == "5":
-            robot.execute_command(cmd_type=8)
+            robot.stop()
         elif choice == "6":
-            robot.execute_command(cmd_type=10)
+            _run(robot.pick)
         elif choice == "7":
-            robot.execute_command(cmd_type=100)
+            _run(robot.place)
         elif choice == "8":
-            robot.execute_command(cmd_type=101)
-        elif choice == "11":
-            robot.execute_command(cmd_type=1, x_pos=3274, x_speed=300)
-        elif choice == "12":
-            robot.execute_command(cmd_type=1, x_pos=100, x_speed=300)
-        elif choice.isdigit() and 1 <= int(choice) <= len(TEST_FLOW_PRESETS):
-            name, cmd_type, preset = TEST_FLOW_PRESETS[int(choice) - 1]
-            robot.execute_command(cmd_type=int(cmd_type), **preset)
+            src = _pick_station("选择 源 工站")
+            dst = _pick_station("选择 目标 工站") if src else None
+            if src and dst:
+                item = _ask_item()
+                robot.transfer(src, dst, item, _ask_int("source 抓取数字", 1), _ask_int("target 抓取数字", 1))
+        elif choice == "9":
+            key = _pick_station("平移到工站")
+            if key:
+                robot.move_to_station(station=key, item_type=_ask_item())
+        elif choice == "10":
+            print(robot.get_status())
         else:
-            print("无效的操作序号，请重新输入。")
+            print("无效序号")
 
     robot.disconnect()
-    while True:
-        time.sleep(1)
     print("退出程序。")

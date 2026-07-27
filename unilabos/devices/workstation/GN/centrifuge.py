@@ -2,8 +2,13 @@
 离心机 设备驱动
 
 协议：OPC_UA协议1.3.3(2).xlsx「离心机」；节点：opcua_gn1.3.3.csv（前缀 Centrifuge_）。
+握手统一由 GNStationClient.run_command 承担（写参 → CmdType → CmdTrig → 等 CompleteFB → 等复位）。
 
-对外仅暴露 execute_command（Centrifuge_CmdType + 写参）；测试流程 yaml 预设供本地调试。
+对外动作：
+    execute_command  底层 Centrifuge_CmdType 调试入口
+    run              运行离心 (cmd 6)
+    load_material    放入物料 (cmd 5)
+    unload_material  取出物料 (cmd 7)
 
 指令类型 (Centrifuge_CmdType)：
     1=Y向左 2=Y向右 3=Z向左 4=Z向右
@@ -11,14 +16,9 @@
     9=夹爪张开 10=夹爪夹紧
 
 YAML 字段 → CSV 节点映射：
-    YPos   → Centrifuge_YPosSet
-    Z1Pos  → Centrifuge_ZPosSet（台面Z）
-    Z2Pos  → Centrifuge_InnerZPosSet（离心机内Z）
-    RPM    → Centrifuge_RPM
-    Time   → Centrifuge_Time
-    YSpeed → Centrifuge_YSpeed
-    ZSpeed → Centrifuge_ZSpeed
-    PlateNo→ Centrifuge_PlateNo
+    YPos→Centrifuge_YPosSet  Z1Pos→Centrifuge_ZPosSet  Z2Pos→Centrifuge_InnerZPosSet
+    RPM→Centrifuge_RPM  Time→Centrifuge_Time  YSpeed→Centrifuge_YSpeed
+    ZSpeed→Centrifuge_ZSpeed  PlateNo→Centrifuge_PlateNo
 """
 
 import os
@@ -30,7 +30,7 @@ from typing import Optional
 
 from unilabos.utils.log import logger
 from unilabos.registry.decorators import action, device, not_action
-from unilabos.devices.workstation.GN.gn_opcua_device import GnOpcUaDevice
+from unilabos.devices.workstation.GN.gn_station_base import GNStationClient
 
 DEFAULT_CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "opcua_gn1.3.3.csv")
 
@@ -93,25 +93,25 @@ _EXECUTE_CMD_DOC = (
     id="gn_centrifuge",
     display_name="离心机",
     category=["workstation"],
-    description="GN 离心机：OPC UA 1.3.3，仅 execute_command 通用入口",
+    description="GN 离心机：OPC UA 1.3.3，run_command 握手 + 语义动作 run/load/unload",
     icon="",
-    version="2.0.0",
+    version="3.0.0",
 )
-class CentrifugeDevice(GnOpcUaDevice):
+class CentrifugeDevice(GNStationClient):
     """离心机设备类（OPC 前缀 Centrifuge_）"""
 
+    PREFIX = "Centrifuge_"
     CMD_TYPE_NODE = "Centrifuge_CmdType"
     CMD_TRIG_NODE = "Centrifuge_CmdTrig"
     COMPLETE_NODE = "Centrifuge_CompleteFB"
 
     def __init__(
         self,
-        url: Optional[str] = None,
-        plc_device_id: Optional[str] = None,
+        url: str,
         csv_path: str = DEFAULT_CSV_PATH,
         username: str = None,
         password: str = None,
-        use_subscription: bool = False,
+        use_subscription: bool = True,
         cache_timeout: float = 5.0,
         subscription_interval: int = 500,
         *args,
@@ -119,7 +119,6 @@ class CentrifugeDevice(GnOpcUaDevice):
     ):
         super().__init__(
             url=url,
-            plc_device_id=plc_device_id,
             csv_path=csv_path,
             username=username,
             password=password,
@@ -144,49 +143,13 @@ class CentrifugeDevice(GnOpcUaDevice):
         plate_no: Optional[int] = None,
         timeout: float = 120.0,
     ) -> dict:
-        """唯一注册动作：写参 → CmdType → CmdTrig → 等 CompleteFB。"""
+        """底层调试入口：写参 → CmdType → CmdTrig → 等 CompleteFB → 等复位。"""
         cmd = int(cmd_type)
         effective_timeout = timeout
         if cmd == int(CentrifugeCommand.RUN) and timeout == 120.0:
             minutes = time_minutes if time_minutes is not None else 1
             effective_timeout = minutes * 60 + 180
-        setpoints = self._build_setpoints(
-            y_pos=y_pos, z_pos=z_pos, inner_z_pos=inner_z_pos,
-            rpm=rpm, time_minutes=time_minutes,
-            y_speed=y_speed, z_speed=z_speed, plate_no=plate_no,
-        )
-        label = CENTRIFUGE_CMD_LABELS.get(cmd, f"CmdType={cmd}")
-        return self._run(cmd, label, setpoints, timeout=effective_timeout)
-
-    @action(description="运行离心 (cmd 6)")
-    def run(
-        self,
-        rpm: int = 1000,
-        minutes: int = 10,
-        plate_no: int = 2,
-        timeout: float = 120.0,
-    ) -> dict:
-        return self.execute_command(
-            cmd_type=int(CentrifugeCommand.RUN),
-            rpm=rpm,
-            time_minutes=minutes,
-            plate_no=plate_no,
-            timeout=timeout,
-        )
-
-    @not_action
-    def _build_setpoints(
-        self,
-        y_pos: Optional[int] = None,
-        z_pos: Optional[int] = None,
-        inner_z_pos: Optional[int] = None,
-        rpm: Optional[int] = None,
-        time_minutes: Optional[int] = None,
-        y_speed: Optional[int] = None,
-        z_speed: Optional[int] = None,
-        plate_no: Optional[int] = None,
-    ) -> dict:
-        mapping = {
+        setpoints = {
             "Centrifuge_YPosSet": y_pos,
             "Centrifuge_ZPosSet": z_pos,
             "Centrifuge_InnerZPosSet": inner_z_pos,
@@ -196,80 +159,51 @@ class CentrifugeDevice(GnOpcUaDevice):
             "Centrifuge_ZSpeed": z_speed,
             "Centrifuge_PlateNo": plate_no,
         }
-        return {node: val for node, val in mapping.items() if val is not None}
+        label = CENTRIFUGE_CMD_LABELS.get(cmd, f"CmdType={cmd}")
+        result = self.run_command(cmd, setpoints, description=f"离心机:{label}", timeout=effective_timeout)
+        self._log_positions(f"{label}后")
+        return result
 
-    @not_action
-    def _run(
+    @action(description="运行离心 (cmd 6)")
+    def run(self, rpm: int = 1000, minutes: int = 10, plate_no: int = 2, timeout: float = 120.0) -> dict:
+        return self.execute_command(
+            cmd_type=int(CentrifugeCommand.RUN), rpm=rpm, time_minutes=minutes,
+            plate_no=plate_no, timeout=timeout,
+        )
+
+    @action(description="放入物料 (cmd 5)")
+    def load_material(
         self,
-        cmd_type: int,
-        description: str,
-        setpoints: Optional[dict] = None,
+        y_pos: int = -1700,
+        z_pos: int = 1000,
+        inner_z_pos: int = 3450,
+        y_speed: int = 300,
+        z_speed: int = 300,
+        plate_no: int = 2,
         timeout: float = 120.0,
     ) -> dict:
-        logger.info(f"离心机：{description} (CmdType={cmd_type})")
-        if setpoints:
-            for node, value in setpoints.items():
-                self.set_node_value(node, value)
-        return self._trigger_and_wait(cmd_type, description, timeout=timeout)
+        return self.execute_command(
+            cmd_type=int(CentrifugeCommand.LOAD_MATERIAL),
+            y_pos=y_pos, z_pos=z_pos, inner_z_pos=inner_z_pos,
+            y_speed=y_speed, z_speed=z_speed, plate_no=plate_no, timeout=timeout,
+        )
 
-    @not_action
-    def _trigger_and_wait(self, cmd_type, description: str, timeout: float = 120.0) -> dict:
-        self.set_node_value(self.CMD_TYPE_NODE, int(cmd_type))
-        self.set_node_value(self.CMD_TRIG_NODE, 1)
-        if self._wait_until_true(self.COMPLETE_NODE, timeout=timeout, description=f"{description}完成"):
-            self.set_node_value(self.CMD_TRIG_NODE, 0)
-            if self._wait_until_false(self.COMPLETE_NODE, description=f"{description}完成复位"):
-                logger.info(f"{description}完成")
-                self._log_positions(f"{description}后")
-                return {
-                    "success": True,
-                    "message": f"{description}完成",
-                    "cmd_type": int(cmd_type),
-                }
-            raise ValueError(f"{description}失败，完成复位超时")
-        raise ValueError(f"{description}失败，动作未完成")
-
-    @not_action
-    def _wait_until_true(
+    @action(description="取出物料 (cmd 7)")
+    def unload_material(
         self,
-        node_name: str,
+        y_pos: int = -1700,
+        z_pos: int = 100,
+        inner_z_pos: int = 3450,
+        y_speed: int = 300,
+        z_speed: int = 300,
+        plate_no: int = 2,
         timeout: float = 120.0,
-        interval: float = 0.2,
-        description: str = None,
-    ) -> bool:
-        desc = description or node_name
-        logger.info(f"等待 {desc}（节点: {node_name}）...")
-        start = time.time()
-        while True:
-            value = self.get_node_value(node_name, force_read=True)
-            if value:
-                logger.info(f"✓ {desc}（[{node_name}]={value}）")
-                return True
-            if time.time() - start >= timeout:
-                logger.error(f"✗ 等待 {desc} 超时（{timeout}s，[{node_name}]={value!r}）")
-                return False
-            time.sleep(interval)
-
-    @not_action
-    def _wait_until_false(
-        self,
-        node_name: str,
-        timeout: float = 120.0,
-        interval: float = 0.2,
-        description: str = None,
-    ) -> bool:
-        desc = description or node_name
-        logger.info(f"等待 {desc} 复位（节点: {node_name}）...")
-        start = time.time()
-        while True:
-            value = self.get_node_value(node_name, force_read=True)
-            if not value:
-                logger.info(f"✓ {desc}（[{node_name}]={value}）")
-                return True
-            if time.time() - start >= timeout:
-                logger.error(f"✗ 等待 {desc} 超时（{timeout}s，[{node_name}]={value!r}）")
-                return False
-            time.sleep(interval)
+    ) -> dict:
+        return self.execute_command(
+            cmd_type=int(CentrifugeCommand.UNLOAD_MATERIAL),
+            y_pos=y_pos, z_pos=z_pos, inner_z_pos=inner_z_pos,
+            y_speed=y_speed, z_speed=z_speed, plate_no=plate_no, timeout=timeout,
+        )
 
     @not_action
     def run_test_flow(self) -> dict:
@@ -277,23 +211,15 @@ class CentrifugeDevice(GnOpcUaDevice):
         logger.info("离心机：开始整体测试流程...")
         for step_name, cmd_type, preset in TEST_FLOW_PRESETS:
             logger.info(f"--- {step_name} (CmdType={int(cmd_type)}) ---")
-            label = CENTRIFUGE_CMD_LABELS.get(int(cmd_type), str(cmd_type))
-            timeout = 120.0
-            if int(cmd_type) == int(CentrifugeCommand.RUN):
-                minutes = preset.get("time_minutes", 1)
-                timeout = minutes * 60 + 180
-            self._run(
-                int(cmd_type), f"{step_name}/{label}",
-                self._build_setpoints(**preset), timeout=timeout,
-            )
+            self.execute_command(cmd_type=int(cmd_type), **preset)
         logger.info("离心机：整体测试流程完成")
         return {"success": True, "message": "离心机测试流程完成"}
 
     @not_action
     def get_positions(self) -> dict:
         return {
-            "Y": self.get_node_value("Centrifuge_YPosFB"),
-            "Z": self.get_node_value("Centrifuge_ZPosFB"),
+            "Y": self.get_node_value("Centrifuge_YPosFB", force_read=True),
+            "Z": self.get_node_value("Centrifuge_ZPosFB", force_read=True),
         }
 
     @not_action
@@ -309,17 +235,14 @@ if __name__ == "__main__":
     CENTRIFUGE_URL = "opc.tcp://192.168.6.6:4840"
     POSITION_LOG_INTERVAL = 15.0
 
-    dev = CentrifugeDevice(url=CENTRIFUGE_URL, csv_path=DEFAULT_CSV_PATH)
+    dev = CentrifugeDevice(url=CENTRIFUGE_URL, csv_path=DEFAULT_CSV_PATH, use_subscription=False)
     time.sleep(2)
 
     position_log_running = True
 
     def _position_log_worker():
         while position_log_running:
-            try:
-                dev._log_positions("实时位置")
-            except Exception as e:
-                logger.warning(f"位置反馈日志异常: {e}")
+            dev._log_positions("实时位置")
             time.sleep(POSITION_LOG_INTERVAL)
 
     threading.Thread(target=_position_log_worker, daemon=True, name="CentrifugePositionLog").start()
@@ -353,11 +276,7 @@ if __name__ == "__main__":
             dev.execute_command(cmd_type=cmd_type, **preset)
         elif choice.isdigit() and 1 <= int(choice) <= len(TEST_FLOW_PRESETS):
             name, cmd_type, preset = TEST_FLOW_PRESETS[int(choice) - 1]
-            kwargs = dict(cmd_type=int(cmd_type), **preset)
-            if int(cmd_type) == int(CentrifugeCommand.RUN):
-                minutes = preset.get("time_minutes", 1)
-                kwargs["timeout"] = minutes * 60 + 180
-            dev.execute_command(**kwargs)
+            dev.execute_command(cmd_type=int(cmd_type), **preset)
         else:
             print("无效的操作序号，请重新输入。")
 
