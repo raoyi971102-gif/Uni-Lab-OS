@@ -1037,9 +1037,9 @@ class ResourceTreeSet(object):
 
         同步规则：
         1. 一级节点（根节点）：如果不存在的物料，引入整个子树
-        2. 一级设备下的二级物料：如果不存在，引入整个子树
-        3. 二级设备下的三级物料：如果不存在，引入整个子树
-        如果存在则跳过并提示
+        2. 一级设备下的二级物料：如果不存在，引入整个子树；已存在则深合并其子节点
+        3. 二级设备下的三级物料：如果不存在，引入整个子树；已存在则深合并其子节点
+        已存在的叶子节点跳过并提示
 
         Args:
             remote_tree_set: 远端的资源树集合
@@ -1099,12 +1099,38 @@ class ResourceTreeSet(object):
                                 # 引入整个子树
                                 remote_material.res_content.parent = local_sub_device.res_content
                                 local_sub_device.children.append(remote_material)
+                                local_sub_children_map[remote_material_name] = remote_material
                                 added_count += 1
                             else:
-                                logger.info(
-                                    f"物料 '{remote_root_id}/{remote_child_name}/{remote_material_name}' "
-                                    f"已存在，跳过"
-                                )
+                                # 三级物料已存在（如空 Deck），深合并其下缺失的子物料
+                                local_material = local_sub_children_map[remote_material_name]
+                                local_material_children_map = {
+                                    child.res_content.name: child for child in local_material.children
+                                }
+                                sub_added = 0
+                                for remote_sub in remote_material.children:
+                                    remote_sub_name = remote_sub.res_content.name
+                                    if remote_sub_name not in local_material_children_map:
+                                        remote_sub.res_content.parent = local_material.res_content
+                                        local_material.children.append(remote_sub)
+                                        local_material_children_map[remote_sub_name] = remote_sub
+                                        sub_added += 1
+                                    else:
+                                        logger.info(
+                                            f"物料 '{remote_root_id}/{remote_child_name}/"
+                                            f"{remote_material_name}/{remote_sub_name}' 已存在，跳过"
+                                        )
+                                if sub_added > 0:
+                                    added_count += sub_added
+                                    logger.info(
+                                        f"物料 '{remote_root_id}/{remote_child_name}/{remote_material_name}': "
+                                        f"从远端同步了 {sub_added} 个子物料"
+                                    )
+                                else:
+                                    logger.info(
+                                        f"物料 '{remote_root_id}/{remote_child_name}/{remote_material_name}' "
+                                        f"已存在，跳过"
+                                    )
 
                         if added_count > 0:
                             logger.info(

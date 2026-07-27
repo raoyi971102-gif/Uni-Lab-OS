@@ -1369,6 +1369,7 @@ class LiquidHandlerAbstract(LiquidHandlerMiddleware):
 
     def post_init(self, ros_node: BaseROS2DeviceNode):
         super().post_init(ros_node)
+        # 始终回传 Deck（含 sites 布局）；物料防覆盖依赖 merge_remote_resources 深合并
         ROS2DeviceNode.run_async_func(self._ros_node.update_resource, True, **{
             "resources": [self.deck]
         })
