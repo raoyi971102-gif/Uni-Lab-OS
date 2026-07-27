@@ -2,6 +2,8 @@
 
 本文档说明如何**仅提交** `unilabos/devices/workstation/GN/` 目录的改动，并通过 Pull Request 合并到团队仓库 **`lixinyu1011/Uni-Lab-OS` 的 `GN` 分支**。
 
+> **外部协作者**（Fork `1412universe/Uni-Lab-OS` 并提 PR 到 `lfl/gn-batch-skill`）请参阅 [`GN协作者Fork与PR指南.md`](GN协作者Fork与PR指南.md)，内含 AI 提交 PR 的提示词模板。
+
 ---
 
 ## 1. 仓库与账号关系
