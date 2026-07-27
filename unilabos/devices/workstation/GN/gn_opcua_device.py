@@ -8,6 +8,7 @@ GN OPC UA 设备基类
 from __future__ import annotations
 
 import json
+import os
 import threading
 from typing import Any, Optional
 
@@ -52,6 +53,7 @@ class GnOpcUaDevice(OpcUaClientWithSubscription):
         self._plc_command_client = None
 
         if plc_device_id:
+            # 代理模式经 gn_plc 转发，无需本地注册 CSV 节点
             BaseOpcUaClient.__init__(self)
             self._use_subscription = use_subscription
             self._node_values = {}

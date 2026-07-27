@@ -2,7 +2,7 @@
 离心管液体处理 设备驱动
 
 参照 centrifuge.py / locking_mechanism.py 写法，继承 OPC UA 通讯基类，实现具体的设备动作函数。
-节点变量来自 OPC_UA协议1.3.4(1).xlsx（前缀 Tube_）。
+节点变量来自 OPC_UA协议1.3.4(1).xlsx（opcua_gn1.3.3.csv，前缀 Tube_）。
 各动作点位写死在代码中（原测试流程 step0~step19）。
 
 指令类型 (Tube_CmdType)：
@@ -38,22 +38,13 @@
 import os
 import time
 import logging
-import threading
-import traceback
 from enum import Enum
-from typing import Optional
 
-import pandas as pd
-
-from unilabos.device_comms.opcua_client.node.uniopcua import DataType, NodeType
 from unilabos.utils.log import logger
 from unilabos.registry.decorators import action, device, not_action
-from unilabos.devices.workstation.AI4C.base_opcua_client import OpcUaClientWithSubscription, OpcUaNode
+from unilabos.devices.workstation.AI4C.base_opcua_client import OpcUaClientWithSubscription
 
-DEFAULT_XLSX_PATH = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "OPC_UA协议1.3.4(1).xlsx",
-)
+DEFAULT_CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "opcua_gn1.3.3.csv")
 
 
 class TubeCommand(int, Enum):
@@ -118,12 +109,11 @@ class CentrifugeTubeLiquidHandlingDevice(OpcUaClientWithSubscription):
     """离心管液体处理设备类（OPC 前缀 Tube_）"""
 
     ULTRASOUND_STOP_NODE = "Tube_UltrasoundSTOP"
-    _OPC_WRITE_RETRIES = 2
 
     def __init__(
         self,
         url: str,
-        xlsx_path: str = DEFAULT_XLSX_PATH,
+        csv_path: str = DEFAULT_CSV_PATH,
         username: str = None,
         password: str = None,
         use_subscription: bool = True,
@@ -142,141 +132,8 @@ class CentrifugeTubeLiquidHandlingDevice(OpcUaClientWithSubscription):
             *args,
             **kwargs,
         )
-        self._connection_check_interval = 5.0
-        self._command_lock = threading.Lock()
-        if xlsx_path:
-            self._load_nodes_from_xlsx(xlsx_path)
-
-    @not_action
-    def _reconnect_opcua(self) -> bool:
-        """写/读失败时主动重连并恢复订阅。"""
-        try:
-            with self._client_lock:
-                if not self.client:
-                    return False
-                try:
-                    self.client.disconnect()
-                except Exception:
-                    pass
-                self.client.connect()
-                logger.info("离心管液体处理 OPC UA 主动重连成功")
-                if self._use_subscription:
-                    self._setup_subscriptions()
-                return True
-        except Exception as exc:
-            logger.error(f"离心管液体处理 OPC UA 主动重连失败: {exc}")
-            return False
-
-    @not_action
-    def _opc_write(self, name: str, value, retries: Optional[int] = None) -> bool:
-        attempts = (self._OPC_WRITE_RETRIES if retries is None else retries) + 1
-        for attempt in range(attempts):
-            if self.set_node_value(name, value):
-                return True
-            if attempt + 1 < attempts:
-                logger.warning(
-                    f"写入 {name}={value} 失败，尝试重连 ({attempt + 1}/{attempts - 1})"
-                )
-                self._reconnect_opcua()
-                time.sleep(0.3)
-        return False
-
-    @not_action
-    def _opc_read(self, name: str, force_read: bool = False, retries: Optional[int] = None):
-        attempts = (self._OPC_WRITE_RETRIES if retries is None else retries) + 1
-        for attempt in range(attempts):
-            value = self.get_node_value(name, force_read=force_read)
-            if value is not None:
-                return value
-            if attempt + 1 < attempts:
-                logger.warning(
-                    f"读取 {name} 失败，尝试重连 ({attempt + 1}/{attempts - 1})"
-                )
-                self._reconnect_opcua()
-                time.sleep(0.3)
-        return None
-
-    @not_action
-    def _load_nodes_from_xlsx(self, xlsx_path: str) -> None:
-        """从 OPC_UA协议1.3.4(1).xlsx 加载 Tube_ 前缀节点。"""
-        try:
-            if not os.path.isabs(xlsx_path):
-                xlsx_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), xlsx_path)
-            if not os.path.isfile(xlsx_path):
-                logger.error(f"OPC UA 协议 xlsx 不存在: {xlsx_path}")
-                return
-
-            logger.info(f"开始从 xlsx 加载节点: {xlsx_path}")
-            df = pd.read_excel(xlsx_path, sheet_name=0, header=None)
-            nodes = []
-            name_mapping = {}
-            reverse_mapping = {}
-            module_short = ""
-
-            for i in range(5, len(df)):
-                row = df.iloc[i]
-                mod = row[0]
-                if pd.notna(mod) and str(mod).strip():
-                    module_short = str(mod).strip().split("\n")[0].strip()
-
-                node_id = row[5]
-                point_name = row[6]
-                dtype = row[7]
-                if pd.isna(node_id) or pd.isna(point_name):
-                    continue
-
-                node_id = str(node_id).strip()
-                point_name = str(point_name).strip()
-                english_name = node_id.rsplit(".", 1)[-1]
-                if not english_name.startswith("Tube_"):
-                    continue
-
-                chinese_name = f"{module_short}{point_name}"
-                dtype_str = str(dtype).strip().upper() if pd.notna(dtype) else "INT16"
-                if dtype_str not in ("INT16", "INT32", "DOUBLE"):
-                    dtype_str = "INT16"
-                try:
-                    data_type = DataType[dtype_str]
-                except KeyError:
-                    data_type = DataType.INT16
-
-                nodes.append(
-                    OpcUaNode(
-                        name=chinese_name,
-                        node_type=NodeType.VARIABLE,
-                        node_id=node_id,
-                        data_type=data_type,
-                    )
-                )
-                name_mapping[english_name] = chinese_name
-                reverse_mapping[chinese_name] = english_name
-
-            if not nodes:
-                logger.error("xlsx 中未解析到任何 Tube_ 节点")
-                return
-
-            self._name_mapping.update(name_mapping)
-            self._reverse_mapping.update(reverse_mapping)
-            self.register_node_list(nodes)
-
-            if self.client and self._variables_to_find:
-                logger.info(f"xlsx 解析完成，待查找 {len(self._variables_to_find)} 个节点...")
-                self._find_nodes()
-            self._register_nodes_as_attributes()
-
-            found_count = len(self._node_registry)
-            total_count = len(self._variables_to_find)
-            if found_count < total_count:
-                logger.warning(f"节点查找完成：找到 {found_count}/{total_count} 个节点")
-            else:
-                logger.info(f"✓ 节点查找完成：所有 {found_count} 个节点均已找到")
-
-            if self._use_subscription and found_count > 0:
-                self._setup_subscriptions()
-            logger.info(f"✓ 成功从 xlsx 加载 {found_count} 个节点")
-        except Exception as exc:
-            logger.error(f"从 xlsx 加载节点失败 {xlsx_path}: {exc}")
-            traceback.print_exc()
+        if csv_path:
+            self.load_nodes_from_csv(csv_path)
 
     # ==================== 动作函数（点位写死） ====================
 
@@ -285,19 +142,19 @@ class CentrifugeTubeLiquidHandlingDevice(OpcUaClientWithSubscription):
         """8通道装载（指令类型=19）"""
         logger.info("离心管液体处理：8通道装载...")
         self._write_pipette_option_params()
-        self._set_node_or_raise("Tube_XPosSet", 3095)
-        self._set_node_or_raise("Tube_YPosSet", -2090)
-        self._set_node_or_raise("Tube_Z1PosSet", 905)
-        self._set_node_or_raise("Tube_P1PosSet", 500)
-        self._set_node_or_raise("Tube_XSpeed", 500)
-        self._set_node_or_raise("Tube_YSpeed", 500)
-        self._set_node_or_raise("Tube_Z1Speed", 500)
-        self._set_node_or_raise("Tube_P1Speed", 500)
-        self._set_node_or_raise("Tube_Z2Speed", 500)
-        self._set_node_or_raise("Tube_P2Speed", 500)
-        self._set_node_or_raise("Tube_Z3Speed", 500)
-        self._set_node_or_raise("Tube_Z4Speed", 500)
-        self._set_node_or_raise("Tube_SmallGripperForce", 300)
+        self.set_node_value("Tube_XPosSet", 3095)
+        self.set_node_value("Tube_YPosSet", -2090)
+        self.set_node_value("Tube_Z1PosSet", 905)
+        self.set_node_value("Tube_P1PosSet", 500)
+        self.set_node_value("Tube_XSpeed", 500)
+        self.set_node_value("Tube_YSpeed", 500)
+        self.set_node_value("Tube_Z1Speed", 500)
+        self.set_node_value("Tube_P1Speed", 500)
+        self.set_node_value("Tube_Z2Speed", 500)
+        self.set_node_value("Tube_P2Speed", 500)
+        self.set_node_value("Tube_Z3Speed", 500)
+        self.set_node_value("Tube_Z4Speed", 500)
+        self.set_node_value("Tube_SmallGripperForce", 300)
         return self._trigger_and_wait(TubeCommand.CH8_LOAD_TIP, "8通道装载")
 
     @action(auto_prefix=True, description="2.8通道吸液")
@@ -305,19 +162,19 @@ class CentrifugeTubeLiquidHandlingDevice(OpcUaClientWithSubscription):
         """8通道吸液（指令类型=20）"""
         logger.info("离心管液体处理：8通道吸液...")
         self._write_pipette_option_params()
-        self._set_node_or_raise("Tube_XPosSet", 4563)
-        self._set_node_or_raise("Tube_YPosSet", -2121)
-        self._set_node_or_raise("Tube_Z1PosSet", 900)
-        self._set_node_or_raise("Tube_P1PosSet", 300)
-        self._set_node_or_raise("Tube_XSpeed", 500)
-        self._set_node_or_raise("Tube_YSpeed", 500)
-        self._set_node_or_raise("Tube_Z1Speed", 500)
-        self._set_node_or_raise("Tube_P1Speed", 500)
-        self._set_node_or_raise("Tube_Z2Speed", 500)
-        self._set_node_or_raise("Tube_P2Speed", 500)
-        self._set_node_or_raise("Tube_Z3Speed", 500)
-        self._set_node_or_raise("Tube_Z4Speed", 500)
-        self._set_node_or_raise("Tube_SmallGripperForce", 300)
+        self.set_node_value("Tube_XPosSet", 4563)
+        self.set_node_value("Tube_YPosSet", -2121)
+        self.set_node_value("Tube_Z1PosSet", 900)
+        self.set_node_value("Tube_P1PosSet", 300)
+        self.set_node_value("Tube_XSpeed", 500)
+        self.set_node_value("Tube_YSpeed", 500)
+        self.set_node_value("Tube_Z1Speed", 500)
+        self.set_node_value("Tube_P1Speed", 500)
+        self.set_node_value("Tube_Z2Speed", 500)
+        self.set_node_value("Tube_P2Speed", 500)
+        self.set_node_value("Tube_Z3Speed", 500)
+        self.set_node_value("Tube_Z4Speed", 500)
+        self.set_node_value("Tube_SmallGripperForce", 300)
         return self._trigger_and_wait(TubeCommand.CH8_ASPIRATE_LIQUID, "8通道吸液")
 
     @action(auto_prefix=True, description="3.8通道放液")
@@ -325,19 +182,19 @@ class CentrifugeTubeLiquidHandlingDevice(OpcUaClientWithSubscription):
         """8通道放液（指令类型=21）"""
         logger.info("离心管液体处理：8通道放液...")
         self._write_pipette_option_params()
-        self._set_node_or_raise("Tube_XPosSet", 3093)
-        self._set_node_or_raise("Tube_YPosSet", -3181)
-        self._set_node_or_raise("Tube_Z1PosSet", 1330)
-        self._set_node_or_raise("Tube_P1PosSet", 300)
-        self._set_node_or_raise("Tube_XSpeed", 500)
-        self._set_node_or_raise("Tube_YSpeed", 500)
-        self._set_node_or_raise("Tube_Z1Speed", 500)
-        self._set_node_or_raise("Tube_P1Speed", 500)
-        self._set_node_or_raise("Tube_Z2Speed", 500)
-        self._set_node_or_raise("Tube_P2Speed", 500)
-        self._set_node_or_raise("Tube_Z3Speed", 500)
-        self._set_node_or_raise("Tube_Z4Speed", 500)
-        self._set_node_or_raise("Tube_SmallGripperForce", 300)
+        self.set_node_value("Tube_XPosSet", 3093)
+        self.set_node_value("Tube_YPosSet", -3181)
+        self.set_node_value("Tube_Z1PosSet", 1330)
+        self.set_node_value("Tube_P1PosSet", 300)
+        self.set_node_value("Tube_XSpeed", 500)
+        self.set_node_value("Tube_YSpeed", 500)
+        self.set_node_value("Tube_Z1Speed", 500)
+        self.set_node_value("Tube_P1Speed", 500)
+        self.set_node_value("Tube_Z2Speed", 500)
+        self.set_node_value("Tube_P2Speed", 500)
+        self.set_node_value("Tube_Z3Speed", 500)
+        self.set_node_value("Tube_Z4Speed", 500)
+        self.set_node_value("Tube_SmallGripperForce", 300)
         return self._trigger_and_wait(TubeCommand.CH8_DISPENSE_LIQUID, "8通道放液")
 
     @action(auto_prefix=True, description="4.8通道混匀")
@@ -345,20 +202,20 @@ class CentrifugeTubeLiquidHandlingDevice(OpcUaClientWithSubscription):
         """8通道混匀（指令类型=34）"""
         logger.info("离心管液体处理：8通道混匀...")
         self._write_pipette_option_params()
-        self._set_node_or_raise("Tube_XPosSet", 3093)
-        self._set_node_or_raise("Tube_YPosSet", -3181)
-        self._set_node_or_raise("Tube_Z1PosSet", 1330)
-        self._set_node_or_raise("Tube_P1PosSet", 300)
-        self._set_node_or_raise("Tube_XSpeed", 500)
-        self._set_node_or_raise("Tube_YSpeed", 500)
-        self._set_node_or_raise("Tube_Z1Speed", 500)
-        self._set_node_or_raise("Tube_P1Speed", 500)
-        self._set_node_or_raise("Tube_Z2Speed", 500)
-        self._set_node_or_raise("Tube_P2Speed", 500)
-        self._set_node_or_raise("Tube_Z3Speed", 500)
-        self._set_node_or_raise("Tube_Z4Speed", 500)
-        self._set_node_or_raise("Tube_MixCounts", 5)
-        self._set_node_or_raise("Tube_SmallGripperForce", 300)
+        self.set_node_value("Tube_XPosSet", 3093)
+        self.set_node_value("Tube_YPosSet", -3181)
+        self.set_node_value("Tube_Z1PosSet", 1330)
+        self.set_node_value("Tube_P1PosSet", 300)
+        self.set_node_value("Tube_XSpeed", 500)
+        self.set_node_value("Tube_YSpeed", 500)
+        self.set_node_value("Tube_Z1Speed", 500)
+        self.set_node_value("Tube_P1Speed", 500)
+        self.set_node_value("Tube_Z2Speed", 500)
+        self.set_node_value("Tube_P2Speed", 500)
+        self.set_node_value("Tube_Z3Speed", 500)
+        self.set_node_value("Tube_Z4Speed", 500)
+        self.set_node_value("Tube_MixCounts", 5)
+        self.set_node_value("Tube_SmallGripperForce", 300)
         return self._trigger_and_wait(TubeCommand.CH8_MIX, "8通道混匀")
 
     @action(auto_prefix=True, description="5.8通道卸载")
@@ -366,43 +223,43 @@ class CentrifugeTubeLiquidHandlingDevice(OpcUaClientWithSubscription):
         """8通道卸载（指令类型=22）"""
         logger.info("离心管液体处理：8通道卸载...")
         self._write_pipette_option_params()
-        self._set_node_or_raise("Tube_XPosSet", 2463)
-        self._set_node_or_raise("Tube_YPosSet", -581)
-        self._set_node_or_raise("Tube_Z1PosSet", 1027)
-        self._set_node_or_raise("Tube_P1PosSet", 500)
-        self._set_node_or_raise("Tube_XSpeed", 500)
-        self._set_node_or_raise("Tube_YSpeed", 500)
-        self._set_node_or_raise("Tube_Z1Speed", 500)
-        self._set_node_or_raise("Tube_P1Speed", 3000)
-        self._set_node_or_raise("Tube_Z2Speed", 500)
-        self._set_node_or_raise("Tube_P2Speed", 500)
-        self._set_node_or_raise("Tube_Z3Speed", 500)
-        self._set_node_or_raise("Tube_Z4Speed", 500)
-        self._set_node_or_raise("Tube_SmallGripperForce", 300)
+        self.set_node_value("Tube_XPosSet", 2463)
+        self.set_node_value("Tube_YPosSet", -581)
+        self.set_node_value("Tube_Z1PosSet", 1027)
+        self.set_node_value("Tube_P1PosSet", 500)
+        self.set_node_value("Tube_XSpeed", 500)
+        self.set_node_value("Tube_YSpeed", 500)
+        self.set_node_value("Tube_Z1Speed", 500)
+        self.set_node_value("Tube_P1Speed", 3000)
+        self.set_node_value("Tube_Z2Speed", 500)
+        self.set_node_value("Tube_P2Speed", 500)
+        self.set_node_value("Tube_Z3Speed", 500)
+        self.set_node_value("Tube_Z4Speed", 500)
+        self.set_node_value("Tube_SmallGripperForce", 300)
         return self._trigger_and_wait(TubeCommand.CH8_UNLOAD_TIP, "8通道卸载")
 
     @action(auto_prefix=True, description="6.大夹爪抓取")
     def big_gripper_pick(self) -> dict:
         """大夹爪抓取（指令类型=31）"""
         logger.info("离心管液体处理：大夹爪抓取...")
-        self._set_node_or_raise("Tube_XPosSet", 2490)
-        self._set_node_or_raise("Tube_YPosSet", -3200)
-        self._set_node_or_raise("Tube_Z2PosSet", 1420)
-        self._set_node_or_raise("Tube_XSpeed", 500)
-        self._set_node_or_raise("Tube_YSpeed", 500)
-        self._set_node_or_raise("Tube_Z2Speed", 500)
+        self.set_node_value("Tube_XPosSet", 2490)
+        self.set_node_value("Tube_YPosSet", -3200)
+        self.set_node_value("Tube_Z2PosSet", 1420)
+        self.set_node_value("Tube_XSpeed", 500)
+        self.set_node_value("Tube_YSpeed", 500)
+        self.set_node_value("Tube_Z2Speed", 500)
         return self._trigger_and_wait(TubeCommand.BIG_GRIPPER_PICK, "大夹爪抓取")
 
     @action(auto_prefix=True, description="7.大夹爪放置")
     def big_gripper_place(self) -> dict:
         """大夹爪放置（指令类型=32）"""
         logger.info("离心管液体处理：大夹爪放置...")
-        self._set_node_or_raise("Tube_XPosSet", 7100)
-        self._set_node_or_raise("Tube_YPosSet", -3550)
-        self._set_node_or_raise("Tube_Z2PosSet", 1215)
-        self._set_node_or_raise("Tube_XSpeed", 500)
-        self._set_node_or_raise("Tube_YSpeed", 500)
-        self._set_node_or_raise("Tube_Z2Speed", 500)
+        self.set_node_value("Tube_XPosSet", 7100)
+        self.set_node_value("Tube_YPosSet", -3550)
+        self.set_node_value("Tube_Z2PosSet", 1215)
+        self.set_node_value("Tube_XSpeed", 500)
+        self.set_node_value("Tube_YSpeed", 500)
+        self.set_node_value("Tube_Z2Speed", 500)
         return self._trigger_and_wait(TubeCommand.BIG_GRIPPER_PLACE, "大夹爪放置")
 
     @action(auto_prefix=True, description="8.超声波混匀")
@@ -410,9 +267,9 @@ class CentrifugeTubeLiquidHandlingDevice(OpcUaClientWithSubscription):
         """超声波混匀（指令类型=35）"""
         logger.info("离心管液体处理：超声波混匀...")
         ultrasound_time = 5
-        self._set_node_or_raise("Tube_MPosSet", 300)
-        self._set_node_or_raise("Tube_MSpeed", 300)
-        self._set_node_or_raise("Tube_UltrasoundTime", ultrasound_time)
+        self.set_node_value("Tube_MPosSet", 300)
+        self.set_node_value("Tube_MSpeed", 300)
+        self.set_node_value("Tube_UltrasoundTime", ultrasound_time)
         timeout = ultrasound_time * 60 + 60
         return self._trigger_and_wait(TubeCommand.ULTRASOUND_MIX, "超声波混匀", timeout=timeout)
 
@@ -420,24 +277,24 @@ class CentrifugeTubeLiquidHandlingDevice(OpcUaClientWithSubscription):
     def big_gripper_pick_2(self) -> dict:
         """大夹爪抓取(2)（指令类型=31）"""
         logger.info("离心管液体处理：大夹爪抓取(2)...")
-        self._set_node_or_raise("Tube_XPosSet", 7100)
-        self._set_node_or_raise("Tube_YPosSet", -3550)
-        self._set_node_or_raise("Tube_Z2PosSet", 1215)
-        self._set_node_or_raise("Tube_XSpeed", 500)
-        self._set_node_or_raise("Tube_YSpeed", 500)
-        self._set_node_or_raise("Tube_Z2Speed", 500)
+        self.set_node_value("Tube_XPosSet", 7100)
+        self.set_node_value("Tube_YPosSet", -3550)
+        self.set_node_value("Tube_Z2PosSet", 1215)
+        self.set_node_value("Tube_XSpeed", 500)
+        self.set_node_value("Tube_YSpeed", 500)
+        self.set_node_value("Tube_Z2Speed", 500)
         return self._trigger_and_wait(TubeCommand.BIG_GRIPPER_PICK, "大夹爪抓取(2)")
 
     @action(auto_prefix=True, description="10.大夹爪放置(2)")
     def big_gripper_place_2(self) -> dict:
         """大夹爪放置(2)（指令类型=32）"""
         logger.info("离心管液体处理：大夹爪放置(2)...")
-        self._set_node_or_raise("Tube_XPosSet", 2490)
-        self._set_node_or_raise("Tube_YPosSet", -3200)
-        self._set_node_or_raise("Tube_Z2PosSet", 1420)
-        self._set_node_or_raise("Tube_XSpeed", 500)
-        self._set_node_or_raise("Tube_YSpeed", 500)
-        self._set_node_or_raise("Tube_Z2Speed", 500)
+        self.set_node_value("Tube_XPosSet", 2490)
+        self.set_node_value("Tube_YPosSet", -3200)
+        self.set_node_value("Tube_Z2PosSet", 1420)
+        self.set_node_value("Tube_XSpeed", 500)
+        self.set_node_value("Tube_YSpeed", 500)
+        self.set_node_value("Tube_Z2Speed", 500)
         return self._trigger_and_wait(TubeCommand.BIG_GRIPPER_PLACE, "大夹爪放置(2)")
 
     @action(auto_prefix=True, description="11.小夹爪开盖")
@@ -445,16 +302,16 @@ class CentrifugeTubeLiquidHandlingDevice(OpcUaClientWithSubscription):
         """小夹爪开盖（指令类型=27）"""
         logger.info("离心管液体处理：小夹爪开盖...")
         self._write_lid_gripper_params()
-        self._set_node_or_raise("Tube_XPosSet", 6670)
-        self._set_node_or_raise("Tube_YPosSet", -2300)
-        self._set_node_or_raise("Tube_XSpeed", 500)
-        self._set_node_or_raise("Tube_YSpeed", 500)
-        self._set_node_or_raise("Tube_Z2Speed", 500)
-        self._set_node_or_raise("Tube_P2Speed", 500)
-        self._set_node_or_raise("Tube_Z3Speed", 500)
-        self._set_node_or_raise("Tube_Z4Speed", 500)
-        self._set_node_or_raise("Tube_SmallGripperAngle", 540)
-        self._set_node_or_raise("Tube_SmallGripperForce", 500)
+        self.set_node_value("Tube_XPosSet", 6670)
+        self.set_node_value("Tube_YPosSet", -2300)
+        self.set_node_value("Tube_XSpeed", 500)
+        self.set_node_value("Tube_YSpeed", 500)
+        self.set_node_value("Tube_Z2Speed", 500)
+        self.set_node_value("Tube_P2Speed", 500)
+        self.set_node_value("Tube_Z3Speed", 500)
+        self.set_node_value("Tube_Z4Speed", 500)
+        self.set_node_value("Tube_SmallGripperAngle", 540)
+        self.set_node_value("Tube_SmallGripperForce", 500)
         return self._trigger_and_wait(TubeCommand.SMALL_GRIPPER_OPEN_LID, "小夹爪开盖")
 
     @action(auto_prefix=True, description="12.小夹爪放置")
@@ -462,17 +319,17 @@ class CentrifugeTubeLiquidHandlingDevice(OpcUaClientWithSubscription):
         """小夹爪放置（指令类型=30）"""
         logger.info("离心管液体处理：小夹爪放置...")
         self._write_lid_gripper_params()
-        self._set_node_or_raise("Tube_XPosSet", 6330)
-        self._set_node_or_raise("Tube_YPosSet", -480)
-        self._set_node_or_raise("Tube_Z4PosSet", 1375)
-        self._set_node_or_raise("Tube_XSpeed", 500)
-        self._set_node_or_raise("Tube_YSpeed", 500)
-        self._set_node_or_raise("Tube_Z2Speed", 500)
-        self._set_node_or_raise("Tube_P2Speed", 500)
-        self._set_node_or_raise("Tube_Z3Speed", 500)
-        self._set_node_or_raise("Tube_Z4Speed", 500)
-        self._set_node_or_raise("Tube_SmallGripperAngle", 540)
-        self._set_node_or_raise("Tube_SmallGripperForce", 300)
+        self.set_node_value("Tube_XPosSet", 6330)
+        self.set_node_value("Tube_YPosSet", -480)
+        self.set_node_value("Tube_Z4PosSet", 1375)
+        self.set_node_value("Tube_XSpeed", 500)
+        self.set_node_value("Tube_YSpeed", 500)
+        self.set_node_value("Tube_Z2Speed", 500)
+        self.set_node_value("Tube_P2Speed", 500)
+        self.set_node_value("Tube_Z3Speed", 500)
+        self.set_node_value("Tube_Z4Speed", 500)
+        self.set_node_value("Tube_SmallGripperAngle", 540)
+        self.set_node_value("Tube_SmallGripperForce", 300)
         return self._trigger_and_wait(TubeCommand.SMALL_GRIPPER_PLACE, "小夹爪放置")
 
     @action(auto_prefix=True, description="13.单通道装载")
@@ -480,17 +337,17 @@ class CentrifugeTubeLiquidHandlingDevice(OpcUaClientWithSubscription):
         """单通道装载（指令类型=23）"""
         logger.info("离心管液体处理：单通道装载...")
         self._write_pipette_option_params()
-        self._set_node_or_raise("Tube_XPosSet", 720)
-        self._set_node_or_raise("Tube_YPosSet", -850)
-        self._set_node_or_raise("Tube_P2PosSet", 2000)
-        self._set_node_or_raise("Tube_Z3PosSet", 1030)
-        self._set_node_or_raise("Tube_XSpeed", 500)
-        self._set_node_or_raise("Tube_YSpeed", 500)
-        self._set_node_or_raise("Tube_Z2Speed", 500)
-        self._set_node_or_raise("Tube_P2Speed", 500)
-        self._set_node_or_raise("Tube_Z3Speed", 500)
-        self._set_node_or_raise("Tube_Z4Speed", 500)
-        self._set_node_or_raise("Tube_SmallGripperForce", 300)
+        self.set_node_value("Tube_XPosSet", 720)
+        self.set_node_value("Tube_YPosSet", -850)
+        self.set_node_value("Tube_P2PosSet", 2000)
+        self.set_node_value("Tube_Z3PosSet", 1030)
+        self.set_node_value("Tube_XSpeed", 500)
+        self.set_node_value("Tube_YSpeed", 500)
+        self.set_node_value("Tube_Z2Speed", 500)
+        self.set_node_value("Tube_P2Speed", 500)
+        self.set_node_value("Tube_Z3Speed", 500)
+        self.set_node_value("Tube_Z4Speed", 500)
+        self.set_node_value("Tube_SmallGripperForce", 300)
         return self._trigger_and_wait(TubeCommand.CH1_LOAD_TIP, "单通道装载")
 
     @action(auto_prefix=True, description="14.单通道吸液")
@@ -498,20 +355,20 @@ class CentrifugeTubeLiquidHandlingDevice(OpcUaClientWithSubscription):
         """单通道吸液（指令类型=24）"""
         logger.info("离心管液体处理：单通道吸液...")
         self._write_pipette_option_params()
-        self._set_node_or_raise("Tube_XPosSet", 7920)
-        self._set_node_or_raise("Tube_YPosSet", -2250)
-        self._set_node_or_raise("Tube_P1PosSet", 300)
-        self._set_node_or_raise("Tube_P2PosSet", 2000)
-        self._set_node_or_raise("Tube_Z3PosSet", 1130)
-        self._set_node_or_raise("Tube_XSpeed", 500)
-        self._set_node_or_raise("Tube_YSpeed", 500)
-        self._set_node_or_raise("Tube_Z1Speed", 500)
-        self._set_node_or_raise("Tube_P1Speed", 500)
-        self._set_node_or_raise("Tube_Z2Speed", 500)
-        self._set_node_or_raise("Tube_P2Speed", 500)
-        self._set_node_or_raise("Tube_Z3Speed", 500)
-        self._set_node_or_raise("Tube_Z4Speed", 500)
-        self._set_node_or_raise("Tube_SmallGripperForce", 300)
+        self.set_node_value("Tube_XPosSet", 7920)
+        self.set_node_value("Tube_YPosSet", -2250)
+        self.set_node_value("Tube_P1PosSet", 300)
+        self.set_node_value("Tube_P2PosSet", 2000)
+        self.set_node_value("Tube_Z3PosSet", 1130)
+        self.set_node_value("Tube_XSpeed", 500)
+        self.set_node_value("Tube_YSpeed", 500)
+        self.set_node_value("Tube_Z1Speed", 500)
+        self.set_node_value("Tube_P1Speed", 500)
+        self.set_node_value("Tube_Z2Speed", 500)
+        self.set_node_value("Tube_P2Speed", 500)
+        self.set_node_value("Tube_Z3Speed", 500)
+        self.set_node_value("Tube_Z4Speed", 500)
+        self.set_node_value("Tube_SmallGripperForce", 300)
         return self._trigger_and_wait(TubeCommand.CH1_ASPIRATE_LIQUID, "单通道吸液")
 
     @action(auto_prefix=True, description="15.单通道放液")
@@ -519,20 +376,20 @@ class CentrifugeTubeLiquidHandlingDevice(OpcUaClientWithSubscription):
         """单通道放液（指令类型=25）"""
         logger.info("离心管液体处理：单通道放液...")
         self._write_pipette_option_params()
-        self._set_node_or_raise("Tube_XPosSet", 3920)
-        self._set_node_or_raise("Tube_YPosSet", -2250)
-        self._set_node_or_raise("Tube_P1PosSet", 300)
-        self._set_node_or_raise("Tube_P2PosSet", 2000)
-        self._set_node_or_raise("Tube_Z3PosSet", 930)
-        self._set_node_or_raise("Tube_XSpeed", 500)
-        self._set_node_or_raise("Tube_YSpeed", 500)
-        self._set_node_or_raise("Tube_Z1Speed", 500)
-        self._set_node_or_raise("Tube_P1Speed", 500)
-        self._set_node_or_raise("Tube_Z2Speed", 500)
-        self._set_node_or_raise("Tube_P2Speed", 500)
-        self._set_node_or_raise("Tube_Z3Speed", 500)
-        self._set_node_or_raise("Tube_Z4Speed", 500)
-        self._set_node_or_raise("Tube_SmallGripperForce", 300)
+        self.set_node_value("Tube_XPosSet", 3920)
+        self.set_node_value("Tube_YPosSet", -2250)
+        self.set_node_value("Tube_P1PosSet", 300)
+        self.set_node_value("Tube_P2PosSet", 2000)
+        self.set_node_value("Tube_Z3PosSet", 930)
+        self.set_node_value("Tube_XSpeed", 500)
+        self.set_node_value("Tube_YSpeed", 500)
+        self.set_node_value("Tube_Z1Speed", 500)
+        self.set_node_value("Tube_P1Speed", 500)
+        self.set_node_value("Tube_Z2Speed", 500)
+        self.set_node_value("Tube_P2Speed", 500)
+        self.set_node_value("Tube_Z3Speed", 500)
+        self.set_node_value("Tube_Z4Speed", 500)
+        self.set_node_value("Tube_SmallGripperForce", 300)
         return self._trigger_and_wait(TubeCommand.CH1_DISPENSE_LIQUID, "单通道放液")
 
     @action(auto_prefix=True, description="16.单通道卸载")
@@ -540,20 +397,20 @@ class CentrifugeTubeLiquidHandlingDevice(OpcUaClientWithSubscription):
         """单通道卸载（指令类型=26）"""
         logger.info("离心管液体处理：单通道卸载...")
         self._write_pipette_option_params()
-        self._set_node_or_raise("Tube_XPosSet", 20)
-        self._set_node_or_raise("Tube_YPosSet", -850)
-        self._set_node_or_raise("Tube_P1PosSet", 500)
-        self._set_node_or_raise("Tube_P2PosSet", 2000)
-        self._set_node_or_raise("Tube_Z3PosSet", 1030)
-        self._set_node_or_raise("Tube_XSpeed", 500)
-        self._set_node_or_raise("Tube_YSpeed", 500)
-        self._set_node_or_raise("Tube_Z1Speed", 500)
-        self._set_node_or_raise("Tube_P1Speed", 500)
-        self._set_node_or_raise("Tube_Z2Speed", 500)
-        self._set_node_or_raise("Tube_P2Speed", 500)
-        self._set_node_or_raise("Tube_Z3Speed", 500)
-        self._set_node_or_raise("Tube_Z4Speed", 500)
-        self._set_node_or_raise("Tube_SmallGripperForce", 300)
+        self.set_node_value("Tube_XPosSet", 20)
+        self.set_node_value("Tube_YPosSet", -850)
+        self.set_node_value("Tube_P1PosSet", 500)
+        self.set_node_value("Tube_P2PosSet", 2000)
+        self.set_node_value("Tube_Z3PosSet", 1030)
+        self.set_node_value("Tube_XSpeed", 500)
+        self.set_node_value("Tube_YSpeed", 500)
+        self.set_node_value("Tube_Z1Speed", 500)
+        self.set_node_value("Tube_P1Speed", 500)
+        self.set_node_value("Tube_Z2Speed", 500)
+        self.set_node_value("Tube_P2Speed", 500)
+        self.set_node_value("Tube_Z3Speed", 500)
+        self.set_node_value("Tube_Z4Speed", 500)
+        self.set_node_value("Tube_SmallGripperForce", 300)
         return self._trigger_and_wait(TubeCommand.CH1_UNLOAD_TIP, "单通道卸载")
 
     @action(auto_prefix=True, description="17.小夹爪抓取")
@@ -561,17 +418,17 @@ class CentrifugeTubeLiquidHandlingDevice(OpcUaClientWithSubscription):
         """小夹爪抓取（指令类型=29）"""
         logger.info("离心管液体处理：小夹爪抓取...")
         self._write_lid_gripper_params()
-        self._set_node_or_raise("Tube_XPosSet", 6330)
-        self._set_node_or_raise("Tube_YPosSet", -480)
-        self._set_node_or_raise("Tube_Z4PosSet", 1375)
-        self._set_node_or_raise("Tube_XSpeed", 500)
-        self._set_node_or_raise("Tube_YSpeed", 500)
-        self._set_node_or_raise("Tube_Z2Speed", 500)
-        self._set_node_or_raise("Tube_P2Speed", 500)
-        self._set_node_or_raise("Tube_Z3Speed", 500)
-        self._set_node_or_raise("Tube_Z4Speed", 500)
-        self._set_node_or_raise("Tube_SmallGripperAngle", 540)
-        self._set_node_or_raise("Tube_SmallGripperForce", 300)
+        self.set_node_value("Tube_XPosSet", 6330)
+        self.set_node_value("Tube_YPosSet", -480)
+        self.set_node_value("Tube_Z4PosSet", 1375)
+        self.set_node_value("Tube_XSpeed", 500)
+        self.set_node_value("Tube_YSpeed", 500)
+        self.set_node_value("Tube_Z2Speed", 500)
+        self.set_node_value("Tube_P2Speed", 500)
+        self.set_node_value("Tube_Z3Speed", 500)
+        self.set_node_value("Tube_Z4Speed", 500)
+        self.set_node_value("Tube_SmallGripperAngle", 540)
+        self.set_node_value("Tube_SmallGripperForce", 300)
         return self._trigger_and_wait(TubeCommand.SMALL_GRIPPER_PICK, "小夹爪抓取")
 
     @action(auto_prefix=True, description="18.小夹爪关盖")
@@ -579,36 +436,33 @@ class CentrifugeTubeLiquidHandlingDevice(OpcUaClientWithSubscription):
         """小夹爪关盖（指令类型=28）"""
         logger.info("离心管液体处理：小夹爪关盖...")
         self._write_lid_gripper_params()
-        self._set_node_or_raise("Tube_XPosSet", 6670)
-        self._set_node_or_raise("Tube_YPosSet", -2300)
-        self._set_node_or_raise("Tube_XSpeed", 500)
-        self._set_node_or_raise("Tube_YSpeed", 500)
-        self._set_node_or_raise("Tube_Z2Speed", 500)
-        self._set_node_or_raise("Tube_P2Speed", 500)
-        self._set_node_or_raise("Tube_Z3Speed", 500)
-        self._set_node_or_raise("Tube_Z4Speed", 500)
-        self._set_node_or_raise("Tube_SmallGripperAngle", -540)
-        self._set_node_or_raise("Tube_SmallGripperForce", 300)
+        self.set_node_value("Tube_XPosSet", 6670)
+        self.set_node_value("Tube_YPosSet", -2300)
+        self.set_node_value("Tube_XSpeed", 500)
+        self.set_node_value("Tube_YSpeed", 500)
+        self.set_node_value("Tube_Z2Speed", 500)
+        self.set_node_value("Tube_P2Speed", 500)
+        self.set_node_value("Tube_Z3Speed", 500)
+        self.set_node_value("Tube_Z4Speed", 500)
+        self.set_node_value("Tube_SmallGripperAngle", -540)
+        self.set_node_value("Tube_SmallGripperForce", 300)
         return self._trigger_and_wait(TubeCommand.SMALL_GRIPPER_CLOSE_LID, "小夹爪关盖")
 
     @action(auto_prefix=True, description="19.离心管液体处理复位")
     def reset(self) -> dict:
         """复位（指令类型=36）"""
         logger.info("离心管液体处理：复位...")
-        self._set_node_or_raise("Tube_SmallGripperAngle", 180)
-        self._set_node_or_raise("Tube_SmallGripperForce", 100)
+        self.set_node_value("Tube_SmallGripperAngle", 180)
+        self.set_node_value("Tube_SmallGripperForce", 100)
         return self._trigger_and_wait(TubeCommand.RESET, "复位")
 
     @action(auto_prefix=True, description="20.超声波混匀立即停止")
     def ultrasound_stop(self) -> dict:
         """超声波混匀立即停止：脉冲写 Tube_UltrasoundSTOP=1 后复位为 0"""
         logger.info("离心管液体处理：超声波混匀立即停止...")
-        with self._command_lock:
-            if not self._opc_write(self.ULTRASOUND_STOP_NODE, 1):
-                raise ValueError(f"写入 {self.ULTRASOUND_STOP_NODE}=1 失败")
-            time.sleep(0.2)
-            if not self._opc_write(self.ULTRASOUND_STOP_NODE, 0):
-                raise ValueError(f"写入 {self.ULTRASOUND_STOP_NODE}=0 失败")
+        self.set_node_value(self.ULTRASOUND_STOP_NODE, 1)
+        time.sleep(0.2)
+        self.set_node_value(self.ULTRASOUND_STOP_NODE, 0)
         logger.info("超声波混匀立即停止命令已下发")
         self._log_status("超声波混匀立即停止后")
         return {"success": True, "message": "超声波混匀立即停止命令已下发"}
@@ -624,21 +478,21 @@ class CentrifugeTubeLiquidHandlingDevice(OpcUaClientWithSubscription):
         """单通道混匀（指令类型=33）"""
         logger.info("离心管液体处理：单通道混匀...")
         self._write_pipette_option_params()
-        self._set_node_or_raise("Tube_XPosSet", 3920)
-        self._set_node_or_raise("Tube_YPosSet", -2250)
-        self._set_node_or_raise("Tube_P1PosSet", 300)
-        self._set_node_or_raise("Tube_P2PosSet", 2000)
-        self._set_node_or_raise("Tube_Z3PosSet", 930)
-        self._set_node_or_raise("Tube_XSpeed", 500)
-        self._set_node_or_raise("Tube_YSpeed", 500)
-        self._set_node_or_raise("Tube_Z1Speed", 500)
-        self._set_node_or_raise("Tube_P1Speed", 500)
-        self._set_node_or_raise("Tube_Z2Speed", 500)
-        self._set_node_or_raise("Tube_P2Speed", 500)
-        self._set_node_or_raise("Tube_Z3Speed", 500)
-        self._set_node_or_raise("Tube_Z4Speed", 500)
-        self._set_node_or_raise("Tube_MixCounts", 5)
-        self._set_node_or_raise("Tube_SmallGripperForce", 300)
+        self.set_node_value("Tube_XPosSet", 3920)
+        self.set_node_value("Tube_YPosSet", -2250)
+        self.set_node_value("Tube_P1PosSet", 300)
+        self.set_node_value("Tube_P2PosSet", 2000)
+        self.set_node_value("Tube_Z3PosSet", 930)
+        self.set_node_value("Tube_XSpeed", 500)
+        self.set_node_value("Tube_YSpeed", 500)
+        self.set_node_value("Tube_Z1Speed", 500)
+        self.set_node_value("Tube_P1Speed", 500)
+        self.set_node_value("Tube_Z2Speed", 500)
+        self.set_node_value("Tube_P2Speed", 500)
+        self.set_node_value("Tube_Z3Speed", 500)
+        self.set_node_value("Tube_Z4Speed", 500)
+        self.set_node_value("Tube_MixCounts", 5)
+        self.set_node_value("Tube_SmallGripperForce", 300)
         return self._trigger_and_wait(TubeCommand.CH1_MIX, "单通道混匀")
 
     @action(auto_prefix=True, description="模块1恒温打开（指令类型=38）")
@@ -721,29 +575,29 @@ class CentrifugeTubeLiquidHandlingDevice(OpcUaClientWithSubscription):
     @action(auto_prefix=True, description="单点调试：X向左（指令类型=1）")
     def jog_x_left(self) -> dict:
         logger.info("离心管液体处理：单点调试 X向左...")
-        self._set_node_or_raise("Tube_XPosSet", 3095)
-        self._set_node_or_raise("Tube_XSpeed", 500)
+        self.set_node_value("Tube_XPosSet", 3095)
+        self.set_node_value("Tube_XSpeed", 500)
         return self._trigger_and_wait(TubeCommand.X_LEFT, "X向左")
 
     @action(auto_prefix=True, description="单点调试：X向右（指令类型=2）")
     def jog_x_right(self) -> dict:
         logger.info("离心管液体处理：单点调试 X向右...")
-        self._set_node_or_raise("Tube_XPosSet", 0)
-        self._set_node_or_raise("Tube_XSpeed", 500)
+        self.set_node_value("Tube_XPosSet", 0)
+        self.set_node_value("Tube_XSpeed", 500)
         return self._trigger_and_wait(TubeCommand.X_RIGHT, "X向右")
 
     @action(auto_prefix=True, description="单点调试：Y向前（指令类型=3）")
     def jog_y_forward(self) -> dict:
         logger.info("离心管液体处理：单点调试 Y向前...")
-        self._set_node_or_raise("Tube_YPosSet", -2090)
-        self._set_node_or_raise("Tube_YSpeed", 500)
+        self.set_node_value("Tube_YPosSet", -2090)
+        self.set_node_value("Tube_YSpeed", 500)
         return self._trigger_and_wait(TubeCommand.Y_FORWARD, "Y向前")
 
     @action(auto_prefix=True, description="单点调试：Y向后（指令类型=4）")
     def jog_y_backward(self) -> dict:
         logger.info("离心管液体处理：单点调试 Y向后...")
-        self._set_node_or_raise("Tube_YPosSet", 0)
-        self._set_node_or_raise("Tube_YSpeed", 500)
+        self.set_node_value("Tube_YPosSet", 0)
+        self.set_node_value("Tube_YSpeed", 500)
         return self._trigger_and_wait(TubeCommand.Y_BACKWARD, "Y向后")
 
     # ==================== 内部逻辑（参照 centrifuge 写法） ====================
@@ -757,66 +611,65 @@ class CentrifugeTubeLiquidHandlingDevice(OpcUaClientWithSubscription):
         ch1_reverse_aspirate: int = 0,
     ) -> None:
         """1.3.4 吹样/反向吸液写参（默认 0，与测试流程 yaml 一致）"""
-        self._set_node_or_raise("Tube_Ch8Blow", ch8_blow)
-        self._set_node_or_raise("Tube_Ch1Blow", ch1_blow)
-        self._set_node_or_raise("Tube_Ch8ReverseAspirate", ch8_reverse_aspirate)
-        self._set_node_or_raise("Tube_Ch1ReverseAspirate", ch1_reverse_aspirate)
+        self.set_node_value("Tube_Ch8Blow", ch8_blow)
+        self.set_node_value("Tube_Ch1Blow", ch1_blow)
+        self.set_node_value("Tube_Ch8ReverseAspirate", ch8_reverse_aspirate)
+        self.set_node_value("Tube_Ch1ReverseAspirate", ch1_reverse_aspirate)
 
     @not_action
     def _set_node_or_raise(self, node_name: str, value: int) -> None:
-        if not self._opc_write(node_name, int(value)):
+        if not self.set_node_value(node_name, int(value)):
             raise ValueError(
-                f"写入 {node_name}={value} 失败（OPC 连接可能已断开或 PLC 无此节点），请重启后重试"
+                f"写入 {node_name}={value} 失败（OPC 连接可能已断开或 PLC 无此节点），请重启脚本后重试"
             )
 
     @not_action
     def _write_lid_gripper_params(self) -> None:
         """小夹爪开/关盖共用参数（写死）"""
-        self._set_node_or_raise("Tube_SmallGripperOpenLidStart", 1390)
-        self._set_node_or_raise("Tube_SmallGripperOpenLidEnd", 1330)
-        self._set_node_or_raise("Tube_SmallGripperOpenLidSpeed", 40)
-        self._set_node_or_raise("Tube_SmallGripperOpenLid_RotationSpeed", 300)
-        self._set_node_or_raise("Tube_SmallGripperCloseLidStart", 1330)
-        self._set_node_or_raise("Tube_SmallGripperCloseLidEnd", 1390)
-        self._set_node_or_raise("Tube_SmallGripperCloseLidSpeed", 40)
-        self._set_node_or_raise("Tube_SmallGripperCloseLid_RotationSpeed", 300)
+        self.set_node_value("Tube_SmallGripperOpenLidStart", 1390)
+        self.set_node_value("Tube_SmallGripperOpenLidEnd", 1330)
+        self.set_node_value("Tube_SmallGripperOpenLidSpeed", 40)
+        self.set_node_value("Tube_SmallGripperOpenLid_RotationSpeed", 300)
+        self.set_node_value("Tube_SmallGripperCloseLidStart", 1330)
+        self.set_node_value("Tube_SmallGripperCloseLidEnd", 1390)
+        self.set_node_value("Tube_SmallGripperCloseLidSpeed", 40)
+        self.set_node_value("Tube_SmallGripperCloseLid_RotationSpeed", 300)
 
     @not_action
     def _trigger_and_wait(self, cmd_type, description: str, timeout: float = 180.0) -> dict:
         """下发指令类型并触发，等待 CompleteFB=1 后清理命令（同 rotary_stack，不等待 Complete 清零）。"""
-        with self._command_lock:
-            self._set_node_or_raise("Tube_CmdType", int(cmd_type))
-            self._set_node_or_raise("Tube_CmdTrig", 1)
-            try:
-                if not self._wait_complete_value(
-                    expected=1,
-                    timeout=timeout,
-                    description=f"{description}完成",
-                ):
-                    raise ValueError(f"{description}失败，动作未完成")
-            finally:
-                trigger_cleared = self._opc_write("Tube_CmdTrig", 0)
-                command_cleared = self._opc_write("Tube_CmdType", 0)
-                trigger_value = self._opc_read("Tube_CmdTrig", force_read=True)
-                command_value = self._opc_read("Tube_CmdType", force_read=True)
-                logger.info(
-                    f"离心管液体处理命令清理：CmdTrig={trigger_value!r}，CmdType={command_value!r}"
-                )
-
-            if (
-                not trigger_cleared
-                or not command_cleared
-                or trigger_value != 0
-                or command_value != 0
+        self._set_node_or_raise("Tube_CmdType", int(cmd_type))
+        self._set_node_or_raise("Tube_CmdTrig", 1)
+        try:
+            if not self._wait_complete_value(
+                expected=1,
+                timeout=timeout,
+                description=f"{description}完成",
             ):
-                raise ValueError(
-                    "动作已完成，但命令清零失败："
-                    f"Tube_CmdTrig={trigger_value!r}, Tube_CmdType={command_value!r}"
-                )
+                raise ValueError(f"{description}失败，动作未完成")
+        finally:
+            trigger_cleared = self.set_node_value("Tube_CmdTrig", 0)
+            command_cleared = self.set_node_value("Tube_CmdType", 0)
+            trigger_value = self.get_node_value("Tube_CmdTrig", force_read=True)
+            command_value = self.get_node_value("Tube_CmdType", force_read=True)
+            logger.info(
+                f"离心管液体处理命令清理：CmdTrig={trigger_value!r}，CmdType={command_value!r}"
+            )
 
-            logger.info(f"{description}完成")
-            self._log_status(f"{description}后")
-            return {"success": True, "message": f"{description}完成"}
+        if (
+            not trigger_cleared
+            or not command_cleared
+            or trigger_value != 0
+            or command_value != 0
+        ):
+            raise ValueError(
+                "动作已完成，但命令清零失败："
+                f"Tube_CmdTrig={trigger_value!r}, Tube_CmdType={command_value!r}"
+            )
+
+        logger.info(f"{description}完成")
+        self._log_status(f"{description}后")
+        return {"success": True, "message": f"{description}完成"}
 
     @not_action
     def _wait_complete_value(
@@ -829,7 +682,7 @@ class CentrifugeTubeLiquidHandlingDevice(OpcUaClientWithSubscription):
         start = time.monotonic()
         read_fail_streak = 0
         while time.monotonic() - start < timeout:
-            value = self._opc_read("Tube_CompleteFB", force_read=True)
+            value = self.get_node_value("Tube_CompleteFB", force_read=True)
             if value is None:
                 read_fail_streak += 1
                 if read_fail_streak >= 3:
@@ -843,7 +696,7 @@ class CentrifugeTubeLiquidHandlingDevice(OpcUaClientWithSubscription):
                     logger.info(f"✓ {description}（Tube_CompleteFB={value}）")
                     return True
             time.sleep(interval)
-        value = self._opc_read("Tube_CompleteFB", force_read=True)
+        value = self.get_node_value("Tube_CompleteFB", force_read=True)
         logger.error(
             f"✗ {description}超时（等待 Tube_CompleteFB={expected}，当前={value!r}）"
         )
@@ -905,7 +758,7 @@ if __name__ == "__main__":
 
     tube = CentrifugeTubeLiquidHandlingDevice(
         url=TUBE_URL,
-        xlsx_path=DEFAULT_XLSX_PATH,
+        csv_path=DEFAULT_CSV_PATH,
         use_subscription=False,
     )
     time.sleep(2)

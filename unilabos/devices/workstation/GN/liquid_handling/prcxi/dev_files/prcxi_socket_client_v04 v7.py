@@ -1221,7 +1221,7 @@ class PrcxiSocketClientV04:
 # 八、使用示例（默认只做只读/查询，避免误触发设备动作）
 # =============================================================
 if __name__ == "__main__":
-    sdk = PrcxiSocketClientV04(host="127.0.0.1", port=14514, timeout=15)
+    sdk = PrcxiSocketClientV04(host="127.0.0.1", port=9999, timeout=15)
 
     # 1. 连接判定（新版连接语义 = IClientSession.IsConnect）
     print("\n=== 1. 判断连接 ===")
