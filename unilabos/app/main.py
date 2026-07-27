@@ -753,6 +753,8 @@ def main():
 
             def _exit(signum, frame):
                 comm_client.stop()
+                # Ctrl+C / SIGTERM 退出前销毁设备节点，使 OPC UA 客户端发送 CloseSession。
+                cleanup_for_restart()
                 sys.exit(0)
 
             signal.signal(signal.SIGINT, _exit)

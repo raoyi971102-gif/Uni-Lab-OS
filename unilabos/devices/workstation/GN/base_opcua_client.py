@@ -420,12 +420,13 @@ class OpcUaClientWithSubscription(BaseOpcUaClient):
     在 BaseOpcUaClient 的基础上增加了：
     - 订阅机制
     - 缓存机制
-    - 连接监控
-    - 连接池：同一 URL 共享单一会话
-    """
+    - 断线按需重连（受 _reconnect_min_interval 限流）
+    - 连接探针（`_probe_connection`）用于区分「链路挂了」vs「节点级错误」
 
-    # 类级别连接池：同一 URL 只建立一个 OPC UA 会话，所有设备实例共享
-    _connection_pool: Dict[str, dict] = {}
+    NOTE: 早期版本这里有一个类属性 `_connection_pool` 做「同 URL 隐式共享 client」，
+    但没有引用计数、且和上层 `GnPlcClient._singletons` 语义重复容易出双重簿记 bug，
+    已删除。共享 client 请统一走 `GnPlcClient.get_or_create`（按 URL 单例 + 引用计数）。
+    """
 
     def __init__(
         self,
@@ -442,29 +443,6 @@ class OpcUaClientWithSubscription(BaseOpcUaClient):
         import logging
         logging.getLogger("opcua").setLevel(logging.WARNING)
 
-        # 检查连接池：同一 URL 复用已有连接
-        if url in OpcUaClientWithSubscription._connection_pool:
-            pool = OpcUaClientWithSubscription._connection_pool[url]
-            super().__init__()
-            self.client = pool["client"]
-            self._client_lock = pool["client_lock"]
-            self._node_registry = pool["node_registry"]
-            self._found_node_objects = pool["found_node_objects"]
-            self._variables_to_find = pool["variables_to_find"]
-            self._name_mapping = pool["name_mapping"]
-            self._reverse_mapping = pool["reverse_mapping"]
-            self._node_values = pool["node_values"]
-            self._use_subscription = pool["use_subscription"]
-            self._subscription = pool["subscription"]
-            self._subscription_handles = pool["subscription_handles"]
-            self._subscription_interval = pool["subscription_interval"]
-            self._cache_timeout = cache_timeout
-            self._reconnect_min_interval = 3.0
-            self._reconnect_ts = pool["reconnect_ts"]
-            logger.info(f"✓ 复用已有 OPC UA 连接: {url}")
-            return
-
-        # 首次连接此 URL — 正常流程
         super().__init__()
 
         # OPC UA 客户端初始化
@@ -481,34 +459,16 @@ class OpcUaClientWithSubscription(BaseOpcUaClient):
         self._subscription = None
         self._subscription_handles = {}
         self._subscription_interval = subscription_interval
-
         # 缓存相关属性
         self._node_values = {}
         self._cache_timeout = cache_timeout
 
         # 断线按需重连（无后台线程）：仅当读/写实际失败时才重连并重试一次；限流避免重连风暴
         self._reconnect_min_interval = 3.0
-        self._reconnect_ts = [0.0]  # 可变容器，跨实例共享重连时间戳
+        self._reconnect_ts = [0.0]
 
         # 连接到服务器
         self._connect()
-
-        # 注册到连接池
-        OpcUaClientWithSubscription._connection_pool[url] = {
-            "client": self.client,
-            "client_lock": self._client_lock,
-            "node_registry": self._node_registry,
-            "found_node_objects": self._found_node_objects,
-            "variables_to_find": self._variables_to_find,
-            "name_mapping": self._name_mapping,
-            "reverse_mapping": self._reverse_mapping,
-            "node_values": self._node_values,
-            "use_subscription": self._use_subscription,
-            "subscription": self._subscription,
-            "subscription_handles": self._subscription_handles,
-            "subscription_interval": self._subscription_interval,
-            "reconnect_ts": self._reconnect_ts,
-        }
 
 
     def _connect(self) -> None:
@@ -703,36 +663,92 @@ class OpcUaClientWithSubscription(BaseOpcUaClient):
                 logger.error(f"OPC UA 断线重连失败: {e}")
                 return False
 
+    # ------------------------------------------------------------------
+    # 连接探针：用于区分「链路挂了」vs「节点级错误」
+    # ------------------------------------------------------------------
+
+    # OPC UA 标准节点 Server_ServerStatus_State (ns=0;i=2259)，任何合规服务端都保证存在
+    _PROBE_NODE_ID: str = "ns=0;i=2259"
+
+    def _probe_connection(self) -> bool:
+        """轻探针：直接读 `Server_ServerStatus_State`。
+
+        - True  → session 仍可用（当前失败大概率是节点级问题，不必重连整个会话）
+        - False → 链路真挂了，调用方应触发 `_reconnect()`
+
+        NOTE: `_client_lock` 是 RLock，本函数会被 `_read_raw/_write_raw` 在已持锁的
+        情况下调用，可重入不会死锁。
+        """
+        if not self.client:
+            return False
+        try:
+            with self._client_lock:
+                self.client.get_node(self._PROBE_NODE_ID).get_value()
+            return True
+        except Exception as e:
+            logger.debug(f"OPC UA 连接探针失败: {e}")
+            return False
+
     def _read_raw(self, chinese_name):
-        """读取一次；失败(含 Broken pipe)则重连后重试一次。返回 (value, error)。"""
+        """读取一次；失败时按 **探针分级** 决定是否重连整个会话。
+
+        决策：
+          1. 读成功 → 直接返回
+          2. 读失败 + 探针 OK → 判定为「节点级错误」，不动 session，返回失败
+          3. 读失败 + 探针失败 → 判定为「链路级错误」，`_reconnect()` 后重试一次
+
+        这样避免了「一个节点 id 打错 / 权限拒绝 / 类型不匹配就把整站会话 kill 掉」。
+        """
         with self._client_lock:
             try:
                 value, error = self.use_node(chinese_name).read()
             except Exception as e:
                 logger.error(f"读取节点 {chinese_name} 出错: {e}")
                 value, error = None, True
-            if error and self._reconnect():
-                try:
-                    value, error = self.use_node(chinese_name).read()
-                except Exception as e:
-                    logger.error(f"重连后读取 {chinese_name} 仍出错: {e}")
-                    value, error = None, True
+            if not error:
+                return value, error
+
+            # 分级
+            if self._probe_connection():
+                # 链路正常 → 节点级错误，不重连
+                logger.debug(f"读取 {chinese_name} 失败但探针通过，视为节点级错误（不重连）")
+                return None, True
+
+            # 链路挂了 → 重连 + 重试
+            if not self._reconnect():
+                return None, True
+            try:
+                value, error = self.use_node(chinese_name).read()
+            except Exception as e:
+                logger.error(f"重连后读取 {chinese_name} 仍出错: {e}")
+                value, error = None, True
             return value, error
 
     def _write_raw(self, chinese_name, value) -> bool:
-        """写入一次；失败(含 Broken pipe)则重连后重试一次。返回 error(True=失败)。"""
+        """写入一次；失败时按 **探针分级** 决定是否重连整个会话。
+
+        逻辑同 `_read_raw`。返回 error（True=失败）。
+        """
         with self._client_lock:
             try:
                 error = self.use_node(chinese_name).write(value)
             except Exception as e:
                 logger.error(f"写入节点 {chinese_name} 出错: {e}")
                 error = True
-            if error and self._reconnect():
-                try:
-                    error = self.use_node(chinese_name).write(value)
-                except Exception as e:
-                    logger.error(f"重连后写入 {chinese_name} 仍出错: {e}")
-                    error = True
+            if not error:
+                return error
+
+            if self._probe_connection():
+                logger.debug(f"写入 {chinese_name} 失败但探针通过，视为节点级错误（不重连）")
+                return True
+
+            if not self._reconnect():
+                return True
+            try:
+                error = self.use_node(chinese_name).write(value)
+            except Exception as e:
+                logger.error(f"重连后写入 {chinese_name} 仍出错: {e}")
+                error = True
             return error
 
 

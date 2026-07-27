@@ -1,210 +1,39 @@
 {
-    "nodes": [      
+    "nodes": [
         {
-            "id": "gn_standard_oven",
-            "name": "常规烘箱",
-            "children": [],
+            "id": "gn_workstation",
+            "name": "GN 有机合成工作站",
+            "children": [
+                "gn_robotic_arm",
+                "gn_centrifuge_tube_liquid_handling",
+                "gn_quick_carrier_exchange",
+                "gn_solid_weighing",
+                "gn_rotary_stack",
+                "gn_centrifuge",
+                "gn_standard_oven",
+                "gn_vacuum_oven",
+                "PRCXI"
+            ],
             "parent": null,
             "type": "device",
-            "class": "gn_standard_oven",
+            "class": "gn_workstation",
             "position": {
                 "x": 0,
-                "y": 90,
+                "y": 0,
                 "z": 0
             },
             "pose": {
                 "size": {
-                    "width": 150,
-                    "height": 180,
-                    "depth": 400
+                    "width": 2110,
+                    "height": 400,
+                    "depth": 2500
                 }
             },
             "config": {
                 "url": "opc.tcp://192.168.6.6:4840",
-                "csv_path": "opcua_gn1.3.3.csv",
-                "use_subscription": false
-            },
-            "data": {}
-        },
-        {
-            "id": "gn_locking_mechanism",
-            "name": "锁紧模块",
-            "children": [],
-            "parent": null,
-            "type": "device",
-            "class": "gn_locking_mechanism",
-            "position": {
-                "x": 160,
-                "y": 90,
-                "z": 0
-            },
-            "pose": {
-                "size": {
-                    "width": 150,
-                    "height": 180,
-                    "depth": 400
-                }
-            },
-            "config": {
-                "url": "opc.tcp://192.168.6.6:4840",
-                "csv_path": "opcua_gn1.3.3.csv",
-                "use_subscription": false
-            },
-            "data": {}
-        },
-        {
-            "id": "gn_quick_carrier_exchange",
-            "name": "快换模块",
-            "children": [],
-            "parent": null,
-            "type": "device",
-            "class": "gn_quick_carrier_exchange",
-            "position": {
-                "x": 280,
-                "y": 90,
-                "z": 0
-            },
-            "pose": {
-                "size": {
-                    "width": 150,
-                    "height": 180,
-                    "depth": 400
-                }
-            },
-            "config": {
-                "url": "opc.tcp://192.168.6.6:4840",
-                "csv_path": "opcua_gn1.3.3.csv",
-                "use_subscription": false
-            },
-            "data": {}
-        },
-        {
-            "id": "gn_centrifuge",
-            "name": "离心机",
-            "children": [],
-            "parent": null,
-            "type": "device",
-            "class": "gn_centrifuge",
-            "position": {
-                "x": 470,
-                "y": 90,
-                "z": 0
-            },
-            "pose": {
-                "size": {
-                    "width": 150,
-                    "height": 180,
-                    "depth": 400
-                }
-            },
-            "config": {
-                "url": "opc.tcp://192.168.6.6:4840",
-                "csv_path": "opcua_gn1.3.3.csv",
-                "use_subscription": false
-            },
-            "data": {}
-        },
-        {
-            "id": "gn_vacuum_oven",
-            "name": "真空烘箱",
-            "children": [],
-            "parent": null,
-            "type": "device",
-            "class": "gn_vacuum_oven",
-            "position": {
-                "x": 655,
-                "y": 90,
-                "z": 0
-            },
-            "pose": {
-                "size": {
-                    "width": 150,
-                    "height": 180,
-                    "depth": 400
-                }
-            },
-            "config": {
-                "url": "opc.tcp://192.168.6.6:4840",
-                "csv_path": "opcua_gn1.3.3.csv",
-                "use_subscription": false
-            },
-            "data": {}
-        },
-        {
-            "id": "gn_centrifuge_tube_liquid_handling",
-            "name": "离心管液体处理",
-            "children": [],
-            "parent": null,
-            "type": "device",
-            "class": "gn_centrifuge_tube_liquid_handling",
-            "position": {
-                "x": 1215,
-                "y": 90,
-                "z": 0
-            },
-            "pose": {
-                "size": {
-                    "width": 150,
-                    "height": 180,
-                    "depth": 400
-                }
-            },
-            "config": {
-                "url": "opc.tcp://192.168.6.6:4840",
-                "csv_path": "opcua_gn1.3.3.csv",
-                "use_subscription": false
-            },
-            "data": {}
-        },
-        {
-            "id": "gn_rotary_stack",
-            "name": "旋转堆栈",
-            "children": [],
-            "parent": null,
-            "type": "device",
-            "class": "gn_rotary_stack",
-            "position": {
-                "x": 1655,
-                "y": 90,
-                "z": 0
-            },
-            "pose": {
-                "size": {
-                    "width": 150,
-                    "height": 180,
-                    "depth": 400
-                }
-            },
-            "config": {
-                "url": "opc.tcp://192.168.6.6:4840",
-                "csv_path": "opcua_gn1.3.3.csv",
-                "use_subscription": false
-            },
-            "data": {}
-        },
-        {
-            "id": "gn_solid_weighing",
-            "name": "固体加样",
-            "children": [],
-            "parent": null,
-            "type": "device",
-            "class": "gn_solid_weighing",
-            "position": {
-                "x": 1960,
-                "y": 90,
-                "z": 0
-            },
-            "pose": {
-                "size": {
-                    "width": 150,
-                    "height": 180,
-                    "depth": 400
-                }
-            },
-            "config": {
-                "url": "opc.tcp://192.168.6.6:4840",
-                "csv_path": "opcua_gn1.3.3.csv",
-                "use_subscription": false
+                "csv_path": "opcua_gn1.3.6.csv",
+                "use_subscription": false,
+                "protocol_type": []
             },
             "data": {}
         },
@@ -212,7 +41,7 @@
             "id": "gn_robotic_arm",
             "name": "机械手",
             "children": [],
-            "parent": null,
+            "parent": "gn_workstation",
             "type": "device",
             "class": "gn_robotic_arm",
             "position": {
@@ -229,7 +58,189 @@
             },
             "config": {
                 "url": "opc.tcp://192.168.6.6:4840",
-                "csv_path": "opcua_gn1.3.5.csv",
+                "csv_path": "opcua_gn1.3.6.csv",
+                "use_subscription": false
+            },
+            "data": {}
+        },
+        {
+            "id": "gn_centrifuge_tube_liquid_handling",
+            "name": "离心管液体处理",
+            "children": [],
+            "parent": "gn_workstation",
+            "type": "device",
+            "class": "gn_centrifuge_tube_liquid_handling",
+            "position": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+            },
+            "pose": {
+                "size": {
+                    "width": 2110,
+                    "height": 90,
+                    "depth": 400
+                }
+            },
+            "config": {
+                "url": "opc.tcp://192.168.6.6:4840",
+                "xlsx_path": "opcua_gn1.3.6.csv",
+                "use_subscription": false
+            },
+            "data": {}
+        },
+        {
+            "id": "gn_quick_carrier_exchange",
+            "name": "快速载具交换",
+            "children": [],
+            "parent": "gn_workstation",
+            "type": "device",
+            "class": "gn_quick_carrier_exchange",
+            "position": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+            },
+            "pose": {
+                "size": {
+                    "width": 2110,
+                    "height": 90,
+                    "depth": 400
+                }
+            },
+            "config": {
+                "url": "opc.tcp://192.168.6.6:4840",
+                "csv_path": "opcua_gn1.3.6.csv",
+                "use_subscription": false
+            },
+            "data": {}
+        },
+        {
+            "id": "gn_solid_weighing",
+            "name": "固体加样",
+            "children": [],
+            "parent": "gn_workstation",
+            "type": "device",
+            "class": "gn_solid_weighing",
+            "position": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+            },
+            "pose": {
+                "size": {
+                    "width": 2110,
+                    "height": 90,
+                    "depth": 400
+                }
+            },
+            "config": {
+                "url": "opc.tcp://192.168.6.6:4840",
+                "xlsx_path": "opcua_gn1.3.6.csv",
+                "use_subscription": false
+            },
+            "data": {}
+        },
+        {
+            "id": "gn_rotary_stack",
+            "name": "旋转堆栈",
+            "children": [],
+            "parent": "gn_workstation",
+            "type": "device",
+            "class": "gn_rotary_stack",
+            "position": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+            },
+            "pose": {
+                "size": {
+                    "width": 2110,
+                    "height": 90,
+                    "depth": 400
+                }
+            },
+            "config": {
+                "url": "opc.tcp://192.168.6.6:4840",
+                "csv_path": "opcua_gn1.3.6.csv",
+                "use_subscription": false
+            },
+            "data": {}
+        },
+        {
+            "id": "gn_centrifuge",
+            "name": "离心机",
+            "children": [],
+            "parent": "gn_workstation",
+            "type": "device",
+            "class": "gn_centrifuge",
+            "position": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+            },
+            "pose": {
+                "size": {
+                    "width": 2110,
+                    "height": 90,
+                    "depth": 400
+                }
+            },
+            "config": {
+                "url": "opc.tcp://192.168.6.6:4840",
+                "csv_path": "opcua_gn1.3.6.csv",
+                "use_subscription": false
+            },
+            "data": {}
+        },
+        {
+            "id": "gn_standard_oven",
+            "name": "常规烘箱",
+            "children": [],
+            "parent": "gn_workstation",
+            "type": "device",
+            "class": "gn_standard_oven",
+            "position": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+            },
+            "pose": {
+                "size": {
+                    "width": 2110,
+                    "height": 90,
+                    "depth": 400
+                }
+            },
+            "config": {
+                "url": "opc.tcp://192.168.6.6:4840",
+                "csv_path": "opcua_gn1.3.6.csv",
+                "use_subscription": false
+            },
+            "data": {}
+        },
+        {
+            "id": "gn_vacuum_oven",
+            "name": "真空烘箱",
+            "children": [],
+            "parent": "gn_workstation",
+            "type": "device",
+            "class": "gn_vacuum_oven",
+            "position": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+            },
+            "pose": {
+                "size": {
+                    "width": 2110,
+                    "height": 90,
+                    "depth": 400
+                }
+            },
+            "config": {
+                "url": "opc.tcp://192.168.6.6:4840",
+                "xlsx_path": "opcua_gn1.3.6.csv",
                 "use_subscription": false
             },
             "data": {}
@@ -237,9 +248,17 @@
         {
             "id": "PRCXI",
             "name": "PRCXI",
+            "children": [
+                "PRCXI_Deck"
+            ],
+            "parent": "gn_workstation",
             "type": "device",
             "class": "liquid_handler.prcxi",
-            "parent": null,
+            "position": {
+                "x": 700,
+                "y": 240,
+                "z": 0
+            },
             "pose": {
                 "size": {
                     "width": 1,
@@ -266,10 +285,12 @@
                 "start_rail": 0,
                 "row_nums": 4,
                 "column_nums": 4,
-                "prc_sites_config": [
-                ],
+                "prc_sites_config": [],
                 "pip_setting": {
-                    "left": {"vol": 1250, "channels": 96}
+                    "left": {
+                        "vol": 1250,
+                        "channels": 96
+                    }
                 },
                 "step_mode": false,
                 "touch_tip_mode": "native",
@@ -280,12 +301,7 @@
             },
             "schema": {},
             "description": "",
-            "model": null,
-            "position": {
-                "x": 0,
-                "y": 240,
-                "z": 0
-            }
+            "model": null
         },
         {
             "id": "PRCXI_Deck",

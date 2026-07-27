@@ -704,6 +704,12 @@ def resource_bioyond_to_plr(bioyond_materials: list[dict], type_mapping: Dict[st
     # 用于跟踪同名物料的计数器
     name_counter = {}
 
+    def assign_fresh_tree_uuids(resource: ResourcePLR) -> None:
+        """为新建物料整棵 PLR 树生成 UUID，避免同类模板的子节点 UUID 被复用。"""
+        resource.unilabos_uuid = str(uuid.uuid4())
+        for child in resource.children:
+            assign_fresh_tree_uuids(child)
+
     for material in bioyond_materials:
         # 从反向映射中查找: typeName(显示名称) -> (model, UUID)
         type_info = reverse_type_mapping.get(material.get("typeName"))
@@ -737,7 +743,6 @@ def resource_bioyond_to_plr(bioyond_materials: list[dict], type_mapping: Dict[st
             continue
 
         plr_material.code = material.get("code", "") and material.get("barCode", "") or ""
-        plr_material.unilabos_uuid = str(uuid.uuid4())
 
         # ⭐ 保存 Bioyond 原始信息到 unilabos_extra（用于出库时查询）
         plr_material.unilabos_extra = {
@@ -812,6 +817,7 @@ def resource_bioyond_to_plr(bioyond_materials: list[dict], type_mapping: Dict[st
                     (material["name"], float(material.get("quantity", 0)) if material.get("quantity") else 0)
                 ]
 
+        assign_fresh_tree_uuids(plr_material)
         plr_materials.append(plr_material)
 
         if deck and hasattr(deck, "warehouses"):

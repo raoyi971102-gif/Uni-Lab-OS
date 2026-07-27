@@ -29,8 +29,45 @@ JSON_UNILABOS_PARAM = "unilabos_param"
 # 返回值中的 samples 字段名
 RETURN_UNILABOS_SAMPLES = "unilabos_samples"
 
+
 # sample_uuids 参数类型 (用于 virtual bench 等设备添加 sample_uuids 参数)
 SampleUUIDsType = Dict[str, Optional["PLRResource"]]
+
+
+def _augment_states_with_liquid_history(
+    resource: "PLRResource",
+    states: Dict[str, Any],
+) -> None:
+    """P9 — 把 Uni-Lab 在 PLR tracker 上挂的 ``liquid_history`` 扩展属性并入
+    ``serialize_all_state()`` 返回的 well state dict。
+
+    PLR 原生 ``serialize_all_state()`` 只输出 ``{liquids, pending_liquids}``，
+    会丢失 ``tracker.liquid_history``。本 helper 递归遍历资源树，把每个有 tracker 的
+    节点的 ``liquid_history`` 写入 ``states[node.name]["liquid_history"]``。
+
+    设计要点：
+        - 不可变：若 ``states[name]`` 已有 ``liquid_history`` 字段则不覆盖（向后兼容）。
+        - 列表浅拷贝：避免运行时 mutation 影响 dump 结果。
+        - 节点无 tracker / tracker 无 ``liquid_history`` 属性 → 跳过（不写默认 ``[]``，
+          否则会污染非 well 节点 state）。
+
+    详见 ``product_designs/protocol_convert/09-liquid-history-unknown-debug.md`` §6.3。
+    """
+
+    def _walk(node: "PLRResource") -> None:
+        name = getattr(node, "name", None)
+        if isinstance(name, str) and name in states:
+            tracker = getattr(node, "tracker", None)
+            if tracker is not None:
+                history = getattr(tracker, "liquid_history", None)
+                if isinstance(history, list):
+                    state = states[name]
+                    if isinstance(state, dict) and "liquid_history" not in state:
+                        state["liquid_history"] = list(history)
+        for child in getattr(node, "children", ()) or ():
+            _walk(child)
+
+    _walk(resource)
 
 
 class LabSample(TypedDict):
@@ -121,6 +158,26 @@ class ResourceDictType(TypedDict):
     data: Dict[str, Any]
     extra: Dict[str, Any]
     machine_name: str
+    barcode: str
+    barcode_symbology: str
+
+
+class ResourceDictType(TypedDict):
+    id: str
+    uuid: str
+    name: str
+    description: str
+    resource_schema: Dict[str, Any]
+    model: Dict[str, Any]
+    icon: str
+    parent_uuid: Optional[str]
+    parent: Optional["ResourceDictType"]
+    type: Union[Literal["device"], str]
+    klass: str
+    pose: ResourceDictPositionType
+    config: Dict[str, Any]
+    data: Dict[str, Any]
+    extra: Dict[str, Any]
 
 
 # 统一的资源字典模型，parent 自动序列化为 parent_uuid，children 不序列化
@@ -143,6 +200,10 @@ class ResourceDict(BaseModel):
     data: Dict[str, Any] = Field(description="Resource data, eg: container liquid data")
     extra: Dict[str, Any] = Field(description="Extra data, eg: slot index")
     machine_name: str = Field(description="Machine this resource belongs to", default="")
+    # 由pylabrobot序列化到config，由 get_resource_instance_from_dict 统一提升到此根字段并移出 config
+    barcode: str = Field(description="Material barcode", default="")  #
+    # 条码码制（PLR Barcode.symbology，如 "Code 128"）；与 barcode 一同从 config 提升，回写时组装回 PLR Barcode dict
+    barcode_symbology: str = Field(description="Barcode symbology / 码制", default="")
 
     @field_serializer("parent_uuid")
     def _serialize_parent(self, parent_uuid: Optional["ResourceDict"]):
@@ -229,6 +290,18 @@ class ResourceDictInstance(object):
             content["data"] = {}
         if not content.get("extra"):  # MagicCode
             content["extra"] = {}
+        # 条码：老物料把 barcode 落在 config 中（PLR serialize 的位置），而根字段可能为空。
+        # 统一在此漏斗里提升到根字段并移出 config：根字段已有值则以根字段为准、仅清理 config。
+        # 原生 PLR Barcode 对象序列化为 {data, symbology, position_on_resource}：data→barcode、symbology→barcode_symbology
+        # （position_on_resource 不在 ResourceDict 保留）；自定义 Bottle 则 barcode 直接是字符串。
+        config_barcode = content["config"].pop("barcode", None)
+        if isinstance(config_barcode, dict):
+            if not content.get("barcode"):
+                content["barcode"] = config_barcode.get("data", "")
+            if not content.get("barcode_symbology"):
+                content["barcode_symbology"] = config_barcode.get("symbology", "")
+        elif config_barcode and not content.get("barcode"):
+            content["barcode"] = config_barcode
         if "position" in content:
             pose = content.get("pose", {})
             if "position" not in pose:
@@ -252,12 +325,17 @@ class ResourceDictInstance(object):
             raise err
 
     def get_plr_nested_dict(self) -> Dict[str, Any]:
-        """获取资源实例的嵌套字典表示"""
+        """获取资源实例的嵌套字典表示（barcode 对齐 PLR serialize 形式）"""
         res_dict = self.res_content.model_dump(by_alias=True)
         res_dict["children"] = {child.res_content.id: child.get_plr_nested_dict() for child in self.children}
         res_dict["parent"] = self.res_content.parent_instance_name
         res_dict["position"] = self.res_content.pose.position.model_dump()
         del res_dict["pose"]
+        barcode = res_dict.pop("barcode", "")
+        symbology = res_dict.pop("barcode_symbology", "")
+        res_dict["barcode"] = (
+            {"data": barcode, "symbology": symbology or "", "position_on_resource": "front"} if barcode else None
+        )
         return res_dict
 
 
@@ -441,6 +519,8 @@ class ResourceTreeSet(object):
                 "reagent_bottle": "reagent_bottle",
                 "flask": "flask",
                 "beaker": "beaker",
+                "module": "module",
+                "carrier": "carrier",
             }
             if source in replace_info:
                 return replace_info[source]
@@ -450,7 +530,15 @@ class ResourceTreeSet(object):
                 logger.trace(f"转换pylabrobot的时候，出现未知类型 {source}")
                 return source
 
-        def build_uuid_mapping(res: "PLRResource", uuid_list: list, parent_uuid: Optional[str] = None):
+        seen_source_uuids: Dict[str, str] = {}
+        duplicate_uuid_repairs: List[Tuple[str, str, str]] = []
+
+        def build_uuid_mapping(
+            res: "PLRResource",
+            uuid_list: list,
+            parent_uuid: Optional[str] = None,
+            path: str = "0",
+        ):
             """递归构建uuid和extra映射字典，返回(current_uuid, parent_uuid, extra)元组列表"""
             uid = getattr(res, "unilabos_uuid", "")
             if not uid:
@@ -458,18 +546,40 @@ class ResourceTreeSet(object):
                 res.unilabos_uuid = uid
                 if not known_newly_created:
                     logger.warning(f"{res}没有uuid，请设置后再传入，默认填充{uid}！\n{traceback.format_exc()}")
+            elif uid in seen_source_uuids:
+                old_uid = uid
+                uid = str(uuid.uuid4())
+                res.unilabos_uuid = uid
+                duplicate_uuid_repairs.append((old_uid, uid, path))
 
             # 获取unilabos_extra，默认为空字典
             extra = getattr(res, "unilabos_extra", {})
 
+            seen_source_uuids[uid] = path
             uuid_list.append((uid, parent_uuid, extra))
-            for child in res.children:
-                build_uuid_mapping(child, uuid_list, uid)
+            for index, child in enumerate(res.children):
+                build_uuid_mapping(
+                    child,
+                    uuid_list,
+                    uid,
+                    f"{path}/{index}:{getattr(child, 'name', '?')}",
+                )
 
         def resource_plr_inner(
             d: dict, parent_resource: Optional[ResourceDict], states: dict, uuids: list
         ) -> ResourceDictInstance:
-            current_uuid, parent_uuid, extra = uuids.pop(0)
+            if uuids:
+                current_uuid, parent_uuid, extra = uuids.pop(0)
+            else:
+                # serialize() 树比 res.children 树多出了节点（虚拟子节点等），兜底生成 UUID
+                current_uuid = str(uuid.uuid4())
+                parent_uuid = parent_resource.get("uuid") if isinstance(parent_resource, dict) else (
+                    getattr(parent_resource, "uuid", None) if parent_resource is not None else None
+                )
+                extra = {}
+                logger.warning(
+                    f"from_plr_resources: UUID 列表耗尽，为节点 '{d.get('name', '?')}' 生成临时 UUID {current_uuid}"
+                )
 
             raw_pos = (
                 {"x": d["location"]["x"], "y": d["location"]["y"], "z": d["location"]["z"]}
@@ -542,10 +652,27 @@ class ResourceTreeSet(object):
         for resource in resources:
             # 构建uuid列表
             uuid_list = []
-            build_uuid_mapping(resource, uuid_list, getattr(resource.parent, "unilabos_uuid", None))
+            repair_start = len(duplicate_uuid_repairs)
+            build_uuid_mapping(
+                resource,
+                uuid_list,
+                getattr(resource.parent, "unilabos_uuid", None),
+                f"0:{getattr(resource, 'name', '?')}",
+            )
+            repair_count = len(duplicate_uuid_repairs) - repair_start
+            if repair_count:
+                logger.warning(
+                    f"资源树 {getattr(resource, 'name', '?')} 中发现并修复 "
+                    f"{repair_count} 个重复子节点 UUID"
+                )
 
             serialized_data = resource.serialize()
             all_states = resource.serialize_all_state()
+            # P9 — PLR 原生 serialize_all_state 只输出 {liquids, pending_liquids}，
+            # 丢弃 Uni-Lab 在 tracker 上挂的扩展属性 liquid_history。在这里把它并回 state dict
+            # 以确保 OS→Cloud sync 链路完整保留液体历史。
+            # 详见 ``product_designs/protocol_convert/09-liquid-history-unknown-debug.md`` §6.3。
+            _augment_states_with_liquid_history(resource, all_states)
 
             # 根节点没有父节点，传入 None
             root_instance = resource_plr_inner(serialized_data, None, all_states, uuid_list)
@@ -553,9 +680,16 @@ class ResourceTreeSet(object):
             trees.append(tree_instance)
         return cls(trees)
 
-    def to_plr_resources(self, skip_devices=True) -> List["PLRResource"]:
+    def to_plr_resources(
+        self, skip_devices: bool = True, requested_uuids: Optional[List[str]] = None
+    ) -> List["PLRResource"]:
         """
         将 ResourceTreeSet 转换为 PLR 资源列表
+
+        Args:
+            skip_devices: 是否跳过 device 类型节点
+            requested_uuids: 若指定，则按此 UUID 顺序返回对应资源（用于批量查询时一一对应），
+                否则返回各树的根节点列表
 
         Returns:
             List[PLRResource]: PLR 资源实例列表
@@ -571,17 +705,49 @@ class ResourceTreeSet(object):
             "deck": "Deck",
             "container": "RegularContainer",
             "tip_spot": "TipSpot",
+            "module": "PRCXI9300ModuleSite",
+            "carrier": "ItemizedCarrier",
         }
 
-        def collect_node_data(node: ResourceDictInstance, name_to_uuid: dict, all_states: dict, name_to_extra: dict):
-            """一次遍历收集 name_to_uuid, all_states 和 name_to_extra"""
-            name_to_uuid[node.res_content.name] = node.res_content.uuid
+        def collect_node_data(node: ResourceDictInstance, all_states: dict):
+            """一次遍历收集状态，并补齐节点扩展信息。"""
             all_states[node.res_content.name] = node.res_content.data
-            name_to_extra[node.res_content.name] = node.res_content.extra
-            name_to_extra[node.res_content.name][FRONTEND_POSE_EXTRA] = node.res_content.pose.extra
-            name_to_extra[node.res_content.name][EXTRA_CLASS] = node.res_content.klass
+            node.res_content.extra[FRONTEND_POSE_EXTRA] = node.res_content.pose.extra
+            node.res_content.extra[EXTRA_CLASS] = node.res_content.klass
             for child in node.children:
-                collect_node_data(child, name_to_uuid, all_states, name_to_extra)
+                collect_node_data(child, all_states)
+
+        def apply_tree_metadata(
+            source_node: ResourceDictInstance,
+            target_resource: "PLRResource",
+            tracker: "DeviceNodeResourceTracker",
+            path: str,
+        ) -> int:
+            """按树路径写回 UUID/extra，避免同名兄弟树节点覆盖。"""
+            source = source_node.res_content
+            tracker.set_resource_uuid(target_resource, source.uuid)
+            tracker.set_resource_extra(target_resource, source.extra)
+            tracker.uuid_to_resources[source.uuid] = target_resource
+
+            target_children = list(target_resource.children)
+            if len(source_node.children) != len(target_children):
+                raise ValueError(
+                    f"资源树结构不一致 {path}: "
+                    f"源节点有 {len(source_node.children)} 个子节点，"
+                    f"PLR 节点有 {len(target_children)} 个子节点"
+                )
+
+            count = 1
+            for index, (source_child, target_child) in enumerate(
+                zip(source_node.children, target_children)
+            ):
+                count += apply_tree_metadata(
+                    source_child,
+                    target_child,
+                    tracker,
+                    f"{path}/{index}:{source_child.res_content.name}",
+                )
+            return count
 
         def node_to_plr_dict(node: ResourceDictInstance, has_model: bool):
             """转换节点为 PLR 字典格式"""
@@ -590,8 +756,18 @@ class ResourceTreeSet(object):
             if res.type not in TYPE_MAP:
                 logger.warning(f"未知类型 {res.type}")
 
+            # 反序列化方向：把根字段 barcode/barcode_symbology 组装回 config 的 barcode
+            # （PLR Barcode dict {data, symbology, position_on_resource}），与
+            # get_resource_instance_from_dict 从 config 读取的逻辑对称；position 未保留，默认兜底。
+            config = dict(res.config)
+            if res.barcode:
+                config["barcode"] = {
+                    "data": res.barcode,
+                    "symbology": res.barcode_symbology or "",
+                    "position_on_resource": "front",
+                }
             d = {
-                **res.config,
+                **config,
                 "name": res.name,
                 "type": res.config.get("type", plr_type),
                 "size_x": res.pose.size.width,
@@ -612,14 +788,77 @@ class ResourceTreeSet(object):
                 d["model"] = res.config.get("model", None)
             return d
 
+        # deserialize 会单独处理的元数据 key，不传给构造函数
+        _META_KEYS = {"type", "parent_name", "location", "children", "rotation", "barcode"}
+        # deserialize 自定义逻辑使用的 key（如 TipSpot 用 prototype_tip 构建 make_tip），需保留
+        _DESERIALIZE_PRESERVED_KEYS = {"prototype_tip"}
+
+        def remove_incompatible_params(plr_d: dict) -> None:
+            """递归移除 PLR 类不接受的参数，避免 deserialize 报错。
+            - 移除构造函数不接受的参数（如 compute_height_from_volume、ordering、category）
+            - 对 TubeRack：将 ordering 转为 ordered_items
+            - 保留 deserialize 自定义逻辑需要的 key（如 prototype_tip）
+            """
+            if "type" in plr_d:
+                sub_cls = find_subclass(plr_d["type"], PLRResource)
+                if sub_cls is not None:
+                    spec = inspect.signature(sub_cls)
+                    valid_params = set(spec.parameters.keys())
+                    # TubeRack 特殊处理：先转换 ordering，再参与后续过滤
+                    if "ordering" not in valid_params and "ordering" in plr_d:
+                        ordering = plr_d.pop("ordering", None)
+                        if sub_cls.__name__ == "TubeRack":
+                            plr_d["ordered_items"] = (
+                                _ordering_to_ordered_items(plr_d, ordering)
+                                if ordering
+                                else {}
+                            )
+                    # 移除构造函数不接受的参数（保留 META 和 deserialize 自定义逻辑需要的 key）
+                    for key in list(plr_d.keys()):
+                        if (
+                            key not in _META_KEYS
+                            and key not in _DESERIALIZE_PRESERVED_KEYS
+                            and key not in valid_params
+                        ):
+                            plr_d.pop(key, None)
+            for child in plr_d.get("children", []):
+                remove_incompatible_params(child)
+
+        def _ordering_to_ordered_items(plr_d: dict, ordering: dict) -> dict:
+            """将 ordering 转为 ordered_items，从 children 构建 Tube 对象"""
+            from pylabrobot.resources import Tube, Coordinate
+            from pylabrobot.serializer import deserialize as plr_deserialize
+
+            children = plr_d.get("children", [])
+            ordered_items = {}
+            for idx, (ident, child_name) in enumerate(ordering.items()):
+                child_data = children[idx] if idx < len(children) else None
+                if child_data is None:
+                    continue
+                loc_data = child_data.get("location")
+                loc = (
+                    plr_deserialize(loc_data)
+                    if loc_data
+                    else Coordinate(0, 0, 0)
+                )
+                tube = Tube(
+                    name=child_data.get("name", child_name or ident),
+                    size_x=child_data.get("size_x", 10),
+                    size_y=child_data.get("size_y", 10),
+                    size_z=child_data.get("size_z", 50),
+                    max_volume=child_data.get("max_volume", 1000),
+                )
+                tube.location = loc
+                ordered_items[ident] = tube
+            plr_d["children"] = []  # 已并入 ordered_items，避免重复反序列化
+            return ordered_items
+
         plr_resources = []
         tracker = DeviceNodeResourceTracker()
 
         for tree in self.trees:
-            name_to_uuid: Dict[str, str] = {}
             all_states: Dict[str, Any] = {}
-            name_to_extra: Dict[str, dict] = {}
-            collect_node_data(tree.root_node, name_to_uuid, all_states, name_to_extra)
+            collect_node_data(tree.root_node, all_states)
             has_model = tree.root_node.res_content.type != "deck"
             plr_dict = node_to_plr_dict(tree.root_node, has_model)
             try:
@@ -631,9 +870,7 @@ class ResourceTreeSet(object):
                     raise ValueError(
                         f"无法找到类型 {plr_dict['type']} 对应的 PLR 资源类。原始信息：{tree.root_node.res_content}"
                     )
-                spec = inspect.signature(sub_cls)
-                if "category" not in spec.parameters:
-                    plr_dict.pop("category", None)
+                remove_incompatible_params(plr_dict)
                 plr_resource = sub_cls.deserialize(plr_dict, allow_marshal=True)
                 from pylabrobot.resources import Coordinate
                 from pylabrobot.serializer import deserialize
@@ -641,9 +878,14 @@ class ResourceTreeSet(object):
                 location = cast(Coordinate, deserialize(plr_dict["location"]))
                 plr_resource.location = location
                 plr_resource.load_all_state(all_states)
-                # 使用 DeviceNodeResourceTracker 设置 UUID 和 Extra
-                tracker.loop_set_uuid(plr_resource, name_to_uuid)
-                tracker.loop_set_extra(plr_resource, name_to_extra)
+                # UUID/extra 必须按树位置写回；同类孔板的 well 名称可能完全相同，
+                # 使用 name 作为 key 会让后一个孔板覆盖前一个孔板的子节点 UUID。
+                apply_tree_metadata(
+                    tree.root_node,
+                    plr_resource,
+                    tracker,
+                    f"0:{tree.root_node.res_content.name}",
+                )
                 plr_resources.append(plr_resource)
 
             except Exception as e:
@@ -653,6 +895,18 @@ class ResourceTreeSet(object):
                 logger.error(f"堆栈: {traceback.format_exc()}")
                 raise
 
+        if requested_uuids:
+            # 按请求的 UUID 顺序返回对应资源（从整棵树中按 uuid 提取）
+            result = []
+            for uid in requested_uuids:
+                if uid in tracker.uuid_to_resources:
+                    result.append(tracker.uuid_to_resources[uid])
+                else:
+                    raise ValueError(
+                        f"请求的 UUID {uid} 在资源树中未找到。"
+                        f"可用 UUID 数量: {len(tracker.uuid_to_resources)}"
+                    )
+            return result
         return plr_resources
 
     @classmethod
@@ -740,16 +994,6 @@ class ResourceTreeSet(object):
             所有根节点的资源实例列表
         """
         return [tree.root_node for tree in self.trees]
-
-    @property
-    def root_nodes_uuid(self) -> List[ResourceDictInstance]:
-        """
-        获取所有树的根节点
-
-        Returns:
-            所有根节点的资源实例列表
-        """
-        return [tree.root_node.res_content.uuid for tree in self.trees]
 
     @property
     def all_nodes(self) -> List[ResourceDictInstance]:
@@ -868,6 +1112,17 @@ class ResourceTreeSet(object):
                                 f"从远端同步了 {added_count} 个物料子树"
                             )
                     else:
+                        # 二级是物料
+                        if remote_child_name not in local_children_map:
+                            # 本地不存在该物料，直接引入
+                            remote_child.res_content.parent = local_device.res_content
+                            local_device.children.append(remote_child)
+                            local_children_map[remote_child_name] = remote_child
+                            logger.info(
+                                f"物料 '{remote_root_id}/{remote_child_name}': "
+                                f"从远端同步了整个子树"
+                            )
+                            continue
                         # 二级物料已存在，比较三级子节点是否缺失
                         local_material = local_children_map[remote_child_name]
                         local_material_children_map = {child.res_content.name: child for child in
@@ -911,7 +1166,7 @@ class ResourceTreeSet(object):
 
         return self
 
-    def dump(self, old_position=False) -> List[List[Dict[str, Any]]]:
+    def dump(self, old_position=False) -> List[List[ResourceDictType]]:
         """
         将 ResourceTreeSet 序列化为嵌套列表格式
 

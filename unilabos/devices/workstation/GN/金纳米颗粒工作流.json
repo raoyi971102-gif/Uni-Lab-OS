@@ -1,0 +1,3974 @@
+{
+  "target_lab_uuid": "803298d7-ba98-4cd5-a546-b7ca08b4cb12",
+  "name": "金纳米颗粒联动全流程调试工作流",
+  "data": {
+    "workflow_uuid": "1592d29a-6dbb-4f01-94ff-d5849557dec2",
+    "workflow_name": "金纳米颗粒联动全流程调试工作流",
+    "nodes": [
+      {
+        "uuid": "77214b76-8759-4805-897e-9480398b85e6",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 350,
+            "y": 250,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "cmd_type": 7,
+          "timeout": 120
+        },
+        "footer": "[联动全流程] 01/66 堆栈-复位",
+        "device_name": "gn_stack",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "5701459b-efef-562e-9cee-2f34eb1ffab6",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_stack"
+      },
+      {
+        "uuid": "b0c78834-27c3-471a-a6f4-f230eb867ac0",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 730,
+            "y": 250,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "cmd_type": 5,
+          "r_pos": 0,
+          "r_speed": 300,
+          "timeout": 120
+        },
+        "footer": "[联动全流程] 02/66 堆栈-旋转至第一列",
+        "device_name": "gn_stack",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "5701459b-efef-562e-9cee-2f34eb1ffab6",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_stack"
+      },
+      {
+        "uuid": "68a84df2-1903-4587-90ab-335aaaed1108",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1110,
+            "y": 250,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "cmd_type": 6,
+          "timeout": 120
+        },
+        "footer": "[联动全流程] 03/66 堆栈-相机检测",
+        "device_name": "gn_stack",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "5701459b-efef-562e-9cee-2f34eb1ffab6",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_stack"
+      },
+      {
+        "uuid": "0b1edc87-a9a8-4f44-91c0-aaa67a8de964",
+        "parent_uuid": "",
+        "name": "pick",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1490,
+            "y": 250,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "number": 1,
+          "station": "stack",
+          "timeout": 30000,
+          "x_speed": 300,
+          "item_type": "plate"
+        },
+        "footer": "[联动全流程] 04/66 机械臂-从堆栈取样",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "39450241-0ccb-4017-9a05-e042fce66c77",
+        "template_name": "pick",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "497287a8-fa7e-47cb-9e2c-f02ad1440f00",
+        "parent_uuid": "",
+        "name": "place",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1870,
+            "y": 250,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "number": 1,
+          "station": "solid",
+          "timeout": 30000,
+          "x_speed": 300,
+          "item_type": "plate"
+        },
+        "footer": "[联动全流程] 05/66 机械臂-放入固体加样仪",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "5cd348b5-31d1-4ffc-841d-18672f6d26ed",
+        "template_name": "place",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "8f52b6ad-2a42-4c05-ad8b-75c0113b00f6",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 2250,
+            "y": 250,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "cmd_type": 12,
+          "x_pos": 20,
+          "y_pos": 2100,
+          "material_z_pos": 0,
+          "gripper_z_pos": 2200,
+          "door_pos": 0,
+          "volune_weight": 0,
+          "x_speed": 300,
+          "y_speed": 300,
+          "material_z_speed": 0,
+          "gripper_z_speed": 300,
+          "door_speed": 0,
+          "timeout": 180
+        },
+        "footer": "[联动全流程] 06/66 固体加样-夹取料架",
+        "device_name": "gn_solid_weighing",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "c7c5eb46-b3d5-404f-a24a-8639f894013d",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_solid_weighing"
+      },
+      {
+        "uuid": "f9703064-3f0d-4a5c-abbb-9e59996faeaa",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 350,
+            "y": 550,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "cmd_type": 13,
+          "x_pos": -1730,
+          "y_pos": 1540,
+          "material_z_pos": 0,
+          "gripper_z_pos": 1130,
+          "door_pos": 0,
+          "volune_weight": 0,
+          "x_speed": 300,
+          "y_speed": 300,
+          "material_z_speed": 0,
+          "gripper_z_speed": 300,
+          "door_speed": 0,
+          "timeout": 180
+        },
+        "footer": "[联动全流程] 07/66 固体加样-放置加样工位",
+        "device_name": "gn_solid_weighing",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "c7c5eb46-b3d5-404f-a24a-8639f894013d",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_solid_weighing"
+      },
+      {
+        "uuid": "d7ba0e75-c80f-48f0-b88a-e9e98eb3c239",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 730,
+            "y": 550,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "cmd_type": 10,
+          "x_pos": -1900,
+          "y_pos": 2220,
+          "material_z_pos": 235000,
+          "gripper_z_pos": 0,
+          "door_pos": 0,
+          "volune_weight": 0,
+          "x_speed": 500,
+          "y_speed": 500,
+          "material_z_speed": 0,
+          "gripper_z_speed": 0,
+          "door_speed": 0,
+          "timeout": 180
+        },
+        "footer": "[联动全流程] 08/66 固体加样-取料筒向外",
+        "device_name": "gn_solid_weighing",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "c7c5eb46-b3d5-404f-a24a-8639f894013d",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_solid_weighing"
+      },
+      {
+        "uuid": "0bee067d-aadd-42ca-b691-c377cff790cf",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1110,
+            "y": 550,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "cmd_type": 11,
+          "x_pos": -300,
+          "y_pos": 700,
+          "material_z_pos": 40000,
+          "gripper_z_pos": 0,
+          "door_pos": 3700,
+          "volune_weight": 30,
+          "x_speed": 500,
+          "y_speed": 500,
+          "material_z_speed": 0,
+          "gripper_z_speed": 0,
+          "door_speed": 150,
+          "timeout": 600
+        },
+        "footer": "[联动全流程] 09/66 固体加样-料筒加样",
+        "device_name": "gn_solid_weighing",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "c7c5eb46-b3d5-404f-a24a-8639f894013d",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_solid_weighing"
+      },
+      {
+        "uuid": "784236b0-5d00-41f9-87f3-e868178e34d8",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1490,
+            "y": 550,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "cmd_type": 18,
+          "x_pos": -1900,
+          "y_pos": 2220,
+          "material_z_pos": 235000,
+          "gripper_z_pos": 0,
+          "door_pos": 0,
+          "volune_weight": 0,
+          "x_speed": 500,
+          "y_speed": 500,
+          "material_z_speed": 0,
+          "gripper_z_speed": 0,
+          "door_speed": 0,
+          "timeout": 180
+        },
+        "footer": "[联动全流程] 10/66 固体加样-放料筒向里",
+        "device_name": "gn_solid_weighing",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "c7c5eb46-b3d5-404f-a24a-8639f894013d",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_solid_weighing"
+      },
+      {
+        "uuid": "21860794-701c-4d4f-a97a-09d4782c0a29",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1870,
+            "y": 550,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "cmd_type": 12,
+          "x_pos": -1730,
+          "y_pos": 1540,
+          "material_z_pos": 0,
+          "gripper_z_pos": 1130,
+          "door_pos": 0,
+          "volune_weight": 0,
+          "x_speed": 300,
+          "y_speed": 300,
+          "material_z_speed": 0,
+          "gripper_z_speed": 300,
+          "door_speed": 0,
+          "timeout": 180
+        },
+        "footer": "[联动全流程] 11/66 固体加样-夹取加样工位",
+        "device_name": "gn_solid_weighing",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "c7c5eb46-b3d5-404f-a24a-8639f894013d",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_solid_weighing"
+      },
+      {
+        "uuid": "5fdddc23-18f8-439e-b283-19bffc67a4c7",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 2250,
+            "y": 550,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "cmd_type": 13,
+          "x_pos": 20,
+          "y_pos": 2100,
+          "material_z_pos": 0,
+          "gripper_z_pos": 2180,
+          "door_pos": 0,
+          "volune_weight": 0,
+          "x_speed": 300,
+          "y_speed": 300,
+          "material_z_speed": 0,
+          "gripper_z_speed": 300,
+          "door_speed": 0,
+          "timeout": 180
+        },
+        "footer": "[联动全流程] 12/66 固体加样-放回料架",
+        "device_name": "gn_solid_weighing",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "c7c5eb46-b3d5-404f-a24a-8639f894013d",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_solid_weighing"
+      },
+      {
+        "uuid": "e0c0f2ba-9d43-4a9e-8e05-366b7278f39b",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 350,
+            "y": 850,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "cmd_type": 20,
+          "x_pos": 0,
+          "y_pos": 0,
+          "material_z_pos": 0,
+          "gripper_z_pos": 0,
+          "door_pos": 0,
+          "volune_weight": 0,
+          "x_speed": 0,
+          "y_speed": 0,
+          "material_z_speed": 0,
+          "gripper_z_speed": 0,
+          "door_speed": 0,
+          "timeout": 180
+        },
+        "footer": "[联动全流程] 13/66 固体加样-复位",
+        "device_name": "gn_solid_weighing",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "c7c5eb46-b3d5-404f-a24a-8639f894013d",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_solid_weighing"
+      },
+      {
+        "uuid": "47b4bcd3-36c2-4081-a3fc-b4004e60a3b4",
+        "parent_uuid": "",
+        "name": "pick",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 730,
+            "y": 850,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "number": 1,
+          "station": "solid",
+          "timeout": 30000,
+          "x_speed": 300,
+          "item_type": "plate"
+        },
+        "footer": "[联动全流程] 14/66 机械臂-从固体加样仪取样",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "39450241-0ccb-4017-9a05-e042fce66c77",
+        "template_name": "pick",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "f57a426d-0424-403d-a792-7ae99320f321",
+        "parent_uuid": "",
+        "name": "place",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1110,
+            "y": 850,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "number": 1,
+          "station": "tube",
+          "timeout": 30000,
+          "x_speed": 300,
+          "item_type": "plate"
+        },
+        "footer": "[联动全流程] 15/66 机械臂-放入离心管液体处理仪",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "5cd348b5-31d1-4ffc-841d-18672f6d26ed",
+        "template_name": "place",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "8df1d98b-b017-4943-90e8-8bfa0067ead7",
+        "parent_uuid": "",
+        "name": "auto-ch8_load",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1490,
+            "y": 850,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {},
+        "footer": "[联动全流程] 16/66 离心管处理-八通道装载",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "dc18b27c-278c-403e-8fed-7bab2ade1e68",
+        "template_name": "auto-ch8_load",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "daa6d337-7c65-4720-b534-580f9bd86a1c",
+        "parent_uuid": "",
+        "name": "auto-ch8_aspirate",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1870,
+            "y": 850,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {},
+        "footer": "[联动全流程] 17/66 离心管处理-八通道吸液",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "b10af00e-4f08-52ee-8f27-6d9c57c0fbfb",
+        "template_name": "auto-ch8_aspirate",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "b9699bc0-f13a-4197-83bd-64f8fb57c09a",
+        "parent_uuid": "",
+        "name": "auto-ch8_dispense",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 2250,
+            "y": 850,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {},
+        "footer": "[联动全流程] 18/66 离心管处理-八通道排液",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "fabc5c43-1c1f-5789-8b79-576e7d32e2e7",
+        "template_name": "auto-ch8_dispense",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "0762ec75-6355-4af0-b25c-953612bdbe24",
+        "parent_uuid": "",
+        "name": "auto-ch8_mix",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 350,
+            "y": 1150,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {},
+        "footer": "[联动全流程] 19/66 离心管处理-八通道混匀",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "9e5afc27-e0ea-578f-ad00-952a83483678",
+        "template_name": "auto-ch8_mix",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "b7cca90b-dc09-4d3e-9d05-069637e4e16f",
+        "parent_uuid": "",
+        "name": "auto-ch8_unload",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 730,
+            "y": 1150,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {},
+        "footer": "[联动全流程] 20/66 离心管处理-八通道卸载",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "5e2a38d4-a8d9-504a-9e20-70ee868b5ace",
+        "template_name": "auto-ch8_unload",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "c34f8471-874f-4fd0-96a7-8fa17760df11",
+        "parent_uuid": "",
+        "name": "auto-big_gripper_pick",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1110,
+            "y": 1150,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {},
+        "footer": "[联动全流程] 21/66 离心管处理-大夹爪夹取",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "3663d6db-b23e-59cc-980b-7900edf93dc3",
+        "template_name": "auto-big_gripper_pick",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "90750000-8bc7-4946-99f2-bcd8bb5d5d9d",
+        "parent_uuid": "",
+        "name": "auto-big_gripper_place",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1490,
+            "y": 1150,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {},
+        "footer": "[联动全流程] 22/66 离心管处理-大夹爪放置",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "dedc6125-522b-580d-badb-93b26262a0c6",
+        "template_name": "auto-big_gripper_place",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "438d1f2f-f8d3-4ec5-91a8-8de3d8e38aa8",
+        "parent_uuid": "",
+        "name": "auto-ultrasound_mix",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1870,
+            "y": 1150,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {},
+        "footer": "[联动全流程] 23/66 离心管处理-超声混匀",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "daec7f8b-ff29-5040-bbff-0848dd8d1b87",
+        "template_name": "auto-ultrasound_mix",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "a6f11095-7d6c-4218-af04-b78c18ff8383",
+        "parent_uuid": "",
+        "name": "auto-big_gripper_pick_2",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 2250,
+            "y": 1150,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {},
+        "footer": "[联动全流程] 24/66 离心管处理-大夹爪二次夹取",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "7a2ed91b-7cbd-5f4b-b00c-750b832b6ff7",
+        "template_name": "auto-big_gripper_pick_2",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "bd9f3f72-d57d-476b-a6ed-15ddfb2467c2",
+        "parent_uuid": "",
+        "name": "auto-big_gripper_place_2",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 350,
+            "y": 1450,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {},
+        "footer": "[联动全流程] 25/66 离心管处理-大夹爪二次放置",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "03fee04a-3b93-5b3b-b3fa-513535e05545",
+        "template_name": "auto-big_gripper_place_2",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "acc39035-1589-4bc5-b8c1-4fdaa1c4be15",
+        "parent_uuid": "",
+        "name": "auto-small_gripper_open_lid",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 730,
+            "y": 1450,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {},
+        "footer": "[联动全流程] 26/66 离心管处理-小夹爪开盖",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "d506dc25-e730-5fcf-93f6-c597c6b2ed7a",
+        "template_name": "auto-small_gripper_open_lid",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "c0300ab7-9605-4452-a1c4-c50f75c75125",
+        "parent_uuid": "",
+        "name": "auto-small_gripper_place",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1110,
+            "y": 1450,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {},
+        "footer": "[联动全流程] 27/66 离心管处理-小夹爪放置",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "b2b2c479-dd65-5d79-88aa-f8ffc84798c4",
+        "template_name": "auto-small_gripper_place",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "0fa3ce99-08a9-4669-b702-8f228e98b7f1",
+        "parent_uuid": "",
+        "name": "auto-ch1_load",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1490,
+            "y": 1450,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {},
+        "footer": "[联动全流程] 28/66 离心管处理-单通道装载",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "43010c4a-03be-557b-ab3d-d5789642b1bc",
+        "template_name": "auto-ch1_load",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "40a00680-f7f4-4963-be4e-243943a56fa7",
+        "parent_uuid": "",
+        "name": "auto-ch1_aspirate",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1870,
+            "y": 1450,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {},
+        "footer": "[联动全流程] 29/66 离心管处理-单通道吸液",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "d0656288-04bc-555c-b38b-cde09b5dbd99",
+        "template_name": "auto-ch1_aspirate",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "3268d1b1-32f1-40e3-8e5c-040b8e974996",
+        "parent_uuid": "",
+        "name": "auto-ch1_dispense",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 2250,
+            "y": 1450,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {},
+        "footer": "[联动全流程] 30/66 离心管处理-单通道排液",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "f31b61b4-d376-583e-9bcc-f584e61e93b6",
+        "template_name": "auto-ch1_dispense",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "0b9e60f6-8776-4d6b-9d32-74d6a675add7",
+        "parent_uuid": "",
+        "name": "auto-ch1_unload",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 350,
+            "y": 1750,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {},
+        "footer": "[联动全流程] 31/66 离心管处理-单通道卸载",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "075276d2-157e-5770-b75b-c738b31d2fa1",
+        "template_name": "auto-ch1_unload",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "d6fe284b-b74e-4293-9660-81e05da1a801",
+        "parent_uuid": "",
+        "name": "auto-small_gripper_pick",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 730,
+            "y": 1750,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {},
+        "footer": "[联动全流程] 32/66 离心管处理-小夹爪夹取",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "27928524-f79a-5d99-bf6e-d2082b4ce9fe",
+        "template_name": "auto-small_gripper_pick",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "75e246d1-e609-4496-b08c-5bc3b788219e",
+        "parent_uuid": "",
+        "name": "auto-small_gripper_close_lid",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1110,
+            "y": 1750,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {},
+        "footer": "[联动全流程] 33/66 离心管处理-小夹爪关盖",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "584263ef-a34d-5860-87df-25a540f6352f",
+        "template_name": "auto-small_gripper_close_lid",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "9a36e040-5b32-432d-8286-db19ed98b82b",
+        "parent_uuid": "",
+        "name": "auto-reset",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1490,
+            "y": 1750,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {},
+        "footer": "[联动全流程] 34/66 离心管处理-复位",
+        "device_name": "gn_centrifuge_tube_liquid_handling",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "6c1ec551-93e6-4419-97d3-610ba3d794a0",
+        "template_name": "auto-reset",
+        "resource_name": "gn_centrifuge_tube_liquid_handling"
+      },
+      {
+        "uuid": "ea404cc0-7745-4e78-a2bd-4985d481d897",
+        "parent_uuid": "",
+        "name": "pick",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1870,
+            "y": 1750,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "number": 1,
+          "station": "tube",
+          "timeout": 30000,
+          "x_speed": 300,
+          "item_type": "plate"
+        },
+        "footer": "[联动全流程] 35/66 机械臂-从离心管液体处理仪取样",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "39450241-0ccb-4017-9a05-e042fce66c77",
+        "template_name": "pick",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "3ffd6e21-9b2a-4a77-9d30-87eb40559f79",
+        "parent_uuid": "",
+        "name": "place",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 2250,
+            "y": 1750,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "number": 1,
+          "station": "nine9320",
+          "timeout": 30000,
+          "x_speed": 300,
+          "item_type": "plate"
+        },
+        "footer": "[联动全流程] 36/66 机械臂-放入9320工站",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "5cd348b5-31d1-4ffc-841d-18672f6d26ed",
+        "template_name": "place",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "09729bda-d35d-40b7-817b-13179dfe2411",
+        "parent_uuid": "",
+        "name": "pick",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 350,
+            "y": 2050,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "number": 1,
+          "station": "nine9320",
+          "timeout": 30000,
+          "x_speed": 300,
+          "item_type": "plate"
+        },
+        "footer": "[联动全流程] 37/66 机械臂-从9320工站取样",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "39450241-0ccb-4017-9a05-e042fce66c77",
+        "template_name": "pick",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "b8894a6a-6fca-4d56-b47c-2bd82f392eb0",
+        "parent_uuid": "",
+        "name": "place",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 730,
+            "y": 2050,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "number": 1,
+          "station": "locking",
+          "timeout": 30000,
+          "x_speed": 300,
+          "item_type": "plate"
+        },
+        "footer": "[联动全流程] 38/66 机械臂-放入锁紧模块",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "5cd348b5-31d1-4ffc-841d-18672f6d26ed",
+        "template_name": "place",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "c602407c-4dec-4f57-a89e-aa5e4c7a17d6",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1110,
+            "y": 2050,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "cmd_type": 9,
+          "x_pos": 3700,
+          "y_pos": 930,
+          "z1_pos": 0,
+          "z2_pos": 1105,
+          "x_speed": 500,
+          "y_speed": 500,
+          "z1_speed": 500,
+          "z2_speed": 500,
+          "jaw_position": 30.0,
+          "jaw_force": 0.1,
+          "timeout": 180
+        },
+        "footer": "[联动全流程] 39/66 锁紧模块-夹取耗材",
+        "device_name": "gn_locking_mechanism",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "eb8aafd0-b773-5853-af88-015bbb4724ff",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_locking_mechanism"
+      },
+      {
+        "uuid": "6d4a6094-ecc0-43dc-b445-514081e50172",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1490,
+            "y": 2050,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "cmd_type": 10,
+          "x_pos": 760,
+          "y_pos": 780,
+          "z1_pos": 0,
+          "z2_pos": 1150,
+          "x_speed": 500,
+          "y_speed": 500,
+          "z1_speed": 500,
+          "z2_speed": 500,
+          "jaw_position": 11.0,
+          "jaw_force": 0.1,
+          "timeout": 180
+        },
+        "footer": "[联动全流程] 40/66 锁紧模块-放置耗材",
+        "device_name": "gn_locking_mechanism",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "eb8aafd0-b773-5853-af88-015bbb4724ff",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_locking_mechanism"
+      },
+      {
+        "uuid": "89fa97fa-5621-46b0-bc86-f1ee01f77506",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1870,
+            "y": 2050,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "cmd_type": 9,
+          "x_pos": 2290,
+          "y_pos": 980,
+          "z1_pos": 0,
+          "z2_pos": 875,
+          "x_speed": 500,
+          "y_speed": 500,
+          "z1_speed": 500,
+          "z2_speed": 500,
+          "jaw_position": 65.0,
+          "jaw_force": 0.1,
+          "timeout": 180
+        },
+        "footer": "[联动全流程] 41/66 锁紧模块-夹取盖板",
+        "device_name": "gn_locking_mechanism",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "eb8aafd0-b773-5853-af88-015bbb4724ff",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_locking_mechanism"
+      },
+      {
+        "uuid": "d318c830-1756-450f-8597-d68065e368b8",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 2250,
+            "y": 2050,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "cmd_type": 10,
+          "x_pos": 760,
+          "y_pos": 740,
+          "z1_pos": 0,
+          "z2_pos": 760,
+          "x_speed": 500,
+          "y_speed": 500,
+          "z1_speed": 500,
+          "z2_speed": 500,
+          "jaw_position": 65.0,
+          "jaw_force": 0.1,
+          "timeout": 180
+        },
+        "footer": "[联动全流程] 42/66 锁紧模块-放置盖板",
+        "device_name": "gn_locking_mechanism",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "eb8aafd0-b773-5853-af88-015bbb4724ff",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_locking_mechanism"
+      },
+      {
+        "uuid": "f0a1321a-1c75-4293-81fb-f20caa295e08",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 350,
+            "y": 2350,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "cmd_type": 12,
+          "x_pos": 1086,
+          "y_pos": 430,
+          "z1_pos": 1070,
+          "z2_pos": 0,
+          "x_speed": 500,
+          "y_speed": 500,
+          "z1_speed": 500,
+          "z2_speed": 500,
+          "jaw_position": 0.0,
+          "jaw_force": 0.0,
+          "timeout": 180
+        },
+        "footer": "[联动全流程] 43/66 锁紧模块-取螺丝",
+        "device_name": "gn_locking_mechanism",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "eb8aafd0-b773-5853-af88-015bbb4724ff",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_locking_mechanism"
+      },
+      {
+        "uuid": "6d0fe654-424a-487d-9a11-498e80870d66",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 730,
+            "y": 2350,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "cmd_type": 11,
+          "x_pos": 1270,
+          "y_pos": 2030,
+          "z1_pos": 1065,
+          "z2_pos": 0,
+          "x_speed": 500,
+          "y_speed": 500,
+          "z1_speed": 500,
+          "z2_speed": 500,
+          "jaw_position": 0.0,
+          "jaw_force": 0.0,
+          "timeout": 180
+        },
+        "footer": "[联动全流程] 44/66 锁紧模块-拧紧螺丝",
+        "device_name": "gn_locking_mechanism",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "eb8aafd0-b773-5853-af88-015bbb4724ff",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_locking_mechanism"
+      },
+      {
+        "uuid": "31fb1750-a9f0-49f8-b270-1d09e86e3524",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1110,
+            "y": 2350,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "cmd_type": 16,
+          "timeout": 180
+        },
+        "footer": "[联动全流程] 45/66 锁紧模块-复位",
+        "device_name": "gn_locking_mechanism",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "eb8aafd0-b773-5853-af88-015bbb4724ff",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_locking_mechanism"
+      },
+      {
+        "uuid": "24e5daf0-c7b8-4706-8a95-7d55b26b2ed2",
+        "parent_uuid": "",
+        "name": "pick",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1490,
+            "y": 2350,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "number": 1,
+          "station": "locking",
+          "timeout": 30000,
+          "x_speed": 300,
+          "item_type": "plate"
+        },
+        "footer": "[联动全流程] 46/66 机械臂-从锁紧模块取样",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "39450241-0ccb-4017-9a05-e042fce66c77",
+        "template_name": "pick",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "cc210480-9283-4403-8f8f-2bc08d4cfce4",
+        "parent_uuid": "",
+        "name": "place",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1870,
+            "y": 2350,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "number": 1,
+          "station": "quick_change",
+          "timeout": 30000,
+          "x_speed": 300,
+          "item_type": "plate"
+        },
+        "footer": "[联动全流程] 47/66 机械臂-放入快换模块",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "5cd348b5-31d1-4ffc-841d-18672f6d26ed",
+        "template_name": "place",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "51230ec5-1ffa-4430-82e3-87501f74b328",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 2250,
+            "y": 2350,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "cmd_type": 11,
+          "x_pos": 0,
+          "top_z_pos": -830,
+          "take_z_pos": 1800,
+          "push_pos": 240.0,
+          "push_z_pos": 0,
+          "x_speed": 300,
+          "z1_speed": 100,
+          "z2_speed": 100,
+          "push_speed": 50,
+          "z3_speed": 0,
+          "stir_rpm": 0,
+          "stir_temp": 0,
+          "stir_time_minutes": 0,
+          "timeout": 180
+        },
+        "footer": "[联动全流程] 48/66 快换模块-物料顶出",
+        "device_name": "gn_quick_carrier_exchange",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "21c03543-7141-588b-a5d5-1c25830f4c33",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_quick_carrier_exchange"
+      },
+      {
+        "uuid": "10dde8d0-56f0-4f72-a894-7d9ff79fd0a9",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 350,
+            "y": 2650,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "cmd_type": 12,
+          "x_pos": 1800,
+          "top_z_pos": 0,
+          "take_z_pos": 1600,
+          "push_pos": 184.948,
+          "push_z_pos": 2100,
+          "x_speed": 300,
+          "z1_speed": 100,
+          "z2_speed": 100,
+          "push_speed": 50,
+          "z3_speed": 100,
+          "stir_rpm": 0,
+          "stir_temp": 0,
+          "stir_time_minutes": 0,
+          "timeout": 180
+        },
+        "footer": "[联动全流程] 49/66 快换模块-物料放置",
+        "device_name": "gn_quick_carrier_exchange",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "21c03543-7141-588b-a5d5-1c25830f4c33",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_quick_carrier_exchange"
+      },
+      {
+        "uuid": "a09e02f6-a9c5-4e47-8c8f-02e666bd188b",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 730,
+            "y": 2650,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "cmd_type": 14,
+          "timeout": 180
+        },
+        "footer": "[联动全流程] 50/66 快换模块-复位",
+        "device_name": "gn_quick_carrier_exchange",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "21c03543-7141-588b-a5d5-1c25830f4c33",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_quick_carrier_exchange"
+      },
+      {
+        "uuid": "dc678639-87fc-41fc-905b-cd503e96f8f5",
+        "parent_uuid": "",
+        "name": "pick",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1110,
+            "y": 2650,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "number": 1,
+          "station": "quick_change",
+          "timeout": 30000,
+          "x_speed": 300,
+          "item_type": "plate"
+        },
+        "footer": "[联动全流程] 51/66 机械臂-从快换模块取样",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "39450241-0ccb-4017-9a05-e042fce66c77",
+        "template_name": "pick",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "c8de7cd9-cfde-44e9-b651-cae4f92f6c9d",
+        "parent_uuid": "",
+        "name": "place",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1490,
+            "y": 2650,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "number": 1,
+          "station": "centrifuge",
+          "timeout": 30000,
+          "x_speed": 300,
+          "item_type": "plate"
+        },
+        "footer": "[联动全流程] 52/66 机械臂-放入离心机",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "5cd348b5-31d1-4ffc-841d-18672f6d26ed",
+        "template_name": "place",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "9d2d59f5-5a51-4900-a3f6-5762eb72a1d7",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1870,
+            "y": 2650,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "cmd_type": 5,
+          "y_pos": -1700,
+          "z_pos": 1000,
+          "inner_z_pos": 3450,
+          "rpm": 0,
+          "time_minutes": 0,
+          "y_speed": 300,
+          "z_speed": 300,
+          "plate_no": 2,
+          "timeout": 120
+        },
+        "footer": "[联动全流程] 53/66 离心机-放入物料",
+        "device_name": "gn_centrifuge",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "47120650-d9f2-5232-9546-b7e0efaa5ff7",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_centrifuge"
+      },
+      {
+        "uuid": "3c774de0-e419-4dc9-bce9-d0438c9fcde5",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 2250,
+            "y": 2650,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "cmd_type": 6,
+          "y_pos": 0,
+          "z_pos": 0,
+          "inner_z_pos": 0,
+          "rpm": 1000,
+          "time_minutes": 1,
+          "y_speed": 0,
+          "z_speed": 0,
+          "plate_no": 2,
+          "timeout": 240
+        },
+        "footer": "[联动全流程] 54/66 离心机-运行",
+        "device_name": "gn_centrifuge",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "47120650-d9f2-5232-9546-b7e0efaa5ff7",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_centrifuge"
+      },
+      {
+        "uuid": "fceba27c-0a7a-427f-86b4-42a554773815",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 350,
+            "y": 2950,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "cmd_type": 7,
+          "y_pos": -1700,
+          "z_pos": 100,
+          "inner_z_pos": 3450,
+          "rpm": 0,
+          "time_minutes": 0,
+          "y_speed": 300,
+          "z_speed": 300,
+          "plate_no": 2,
+          "timeout": 120
+        },
+        "footer": "[联动全流程] 55/66 离心机-取出物料",
+        "device_name": "gn_centrifuge",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "47120650-d9f2-5232-9546-b7e0efaa5ff7",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_centrifuge"
+      },
+      {
+        "uuid": "f7a884a7-8058-4912-bfff-87ec33b74018",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 730,
+            "y": 2950,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "cmd_type": 8,
+          "timeout": 120
+        },
+        "footer": "[联动全流程] 56/66 离心机-复位",
+        "device_name": "gn_centrifuge",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "47120650-d9f2-5232-9546-b7e0efaa5ff7",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_centrifuge"
+      },
+      {
+        "uuid": "818dffb7-81f9-4154-882f-6d1a43646ae4",
+        "parent_uuid": "",
+        "name": "pick",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1110,
+            "y": 2950,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "number": 1,
+          "station": "centrifuge",
+          "timeout": 30000,
+          "x_speed": 300,
+          "item_type": "plate"
+        },
+        "footer": "[联动全流程] 57/66 机械臂-从离心机取样",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "39450241-0ccb-4017-9a05-e042fce66c77",
+        "template_name": "pick",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "2861291c-bc76-41b2-b03e-94bb6c6f798a",
+        "parent_uuid": "",
+        "name": "place",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1490,
+            "y": 2950,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "number": 1,
+          "station": "vacuum_oven",
+          "timeout": 30000,
+          "x_speed": 300,
+          "item_type": "plate"
+        },
+        "footer": "[联动全流程] 58/66 机械臂-放入真空烘箱",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "5cd348b5-31d1-4ffc-841d-18672f6d26ed",
+        "template_name": "place",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "12cdc547-9192-4800-8121-95444026c627",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1870,
+            "y": 2950,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "cmd_type": 1,
+          "temperature_1": 80,
+          "minutes_1": 1,
+          "vacuum_high_1": -80,
+          "vacuum_low_1": -90,
+          "wait": true,
+          "timeout": 660
+        },
+        "footer": "[联动全流程] 59/66 真空烘箱-启动第一段",
+        "device_name": "gn_vacuum_oven",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "b89bdb74-4fb0-52a2-aef0-58b8fb7a7db8",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_vacuum_oven"
+      },
+      {
+        "uuid": "276d7ff6-8d92-44b3-84df-86d39297cdd0",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 2250,
+            "y": 2950,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "cmd_type": 2,
+          "wait": true,
+          "timeout": 180
+        },
+        "footer": "[联动全流程] 60/66 真空烘箱-复位",
+        "device_name": "gn_vacuum_oven",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "b89bdb74-4fb0-52a2-aef0-58b8fb7a7db8",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_vacuum_oven"
+      },
+      {
+        "uuid": "efa3d8f0-6546-4367-ad7b-af94b5e913c7",
+        "parent_uuid": "",
+        "name": "pick",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 350,
+            "y": 3250,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "number": 1,
+          "station": "vacuum_oven",
+          "timeout": 30000,
+          "x_speed": 300,
+          "item_type": "plate"
+        },
+        "footer": "[联动全流程] 61/66 机械臂-从真空烘箱取样",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "39450241-0ccb-4017-9a05-e042fce66c77",
+        "template_name": "pick",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "967a0186-076a-4576-8267-c3e19e2c00e2",
+        "parent_uuid": "",
+        "name": "place",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 730,
+            "y": 3250,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "number": 1,
+          "station": "oven",
+          "timeout": 30000,
+          "x_speed": 300,
+          "item_type": "plate"
+        },
+        "footer": "[联动全流程] 62/66 机械臂-放入常规烘箱",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "5cd348b5-31d1-4ffc-841d-18672f6d26ed",
+        "template_name": "place",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "207f6efd-0583-4249-b73b-f0f6929b874b",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1110,
+            "y": 3250,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "cmd_type": 1,
+          "temperature": 25,
+          "hours": 0,
+          "minutes": 1,
+          "timeout": 360
+        },
+        "footer": "[联动全流程] 63/66 常规烘箱-启动",
+        "device_name": "gn_standard_oven",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "b573741b-5f52-5d82-8e38-767df1a2b4b7",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_standard_oven"
+      },
+      {
+        "uuid": "c203f9cb-bd80-4ac3-a270-53d73faf5df4",
+        "parent_uuid": "",
+        "name": "auto-execute_command",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1490,
+            "y": 3250,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "cmd_type": 2,
+          "hours": 0,
+          "minutes": 0,
+          "timeout": 120
+        },
+        "footer": "[联动全流程] 64/66 常规烘箱-停止复位",
+        "device_name": "gn_standard_oven",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "b573741b-5f52-5d82-8e38-767df1a2b4b7",
+        "template_name": "auto-execute_command",
+        "resource_name": "gn_standard_oven"
+      },
+      {
+        "uuid": "ad51f6b2-e1c2-4ece-af9a-57dfb6c98a99",
+        "parent_uuid": "",
+        "name": "pick",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 1870,
+            "y": 3250,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "number": 1,
+          "station": "oven",
+          "timeout": 30000,
+          "x_speed": 300,
+          "item_type": "plate"
+        },
+        "footer": "[联动全流程] 65/66 机械臂-从常规烘箱取样",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "39450241-0ccb-4017-9a05-e042fce66c77",
+        "template_name": "pick",
+        "resource_name": "gn_robotic_arm"
+      },
+      {
+        "uuid": "a050fae4-5e08-4540-89c9-bee523c1c655",
+        "parent_uuid": "",
+        "name": "place",
+        "type": "ILab",
+        "icon": "",
+        "pose": {
+          "layout": "x-y",
+          "position": {
+            "x": 2250,
+            "y": 3250,
+            "z": 0
+          },
+          "position_3d": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "size": {
+            "width": 0,
+            "height": 0,
+            "depth": 0
+          },
+          "scale": {
+            "x": 1,
+            "y": 1,
+            "z": 1
+          },
+          "rotation": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "extra": null,
+          "cross_section_type": "rectangle"
+        },
+        "param": {
+          "number": 1,
+          "station": "finished_area",
+          "timeout": 30000,
+          "x_speed": 300,
+          "item_type": "plate"
+        },
+        "footer": "[联动全流程] 66/66 机械臂-放入成品区",
+        "device_name": "gn_robotic_arm",
+        "disabled": false,
+        "minimized": false,
+        "lab_node_type": "Device",
+        "template_uuid": "5cd348b5-31d1-4ffc-841d-18672f6d26ed",
+        "template_name": "place",
+        "resource_name": "gn_robotic_arm"
+      }
+    ],
+    "edges": [
+      {
+        "source_node_uuid": "77214b76-8759-4805-897e-9480398b85e6",
+        "target_node_uuid": "b0c78834-27c3-471a-a6f4-f230eb867ac0",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "b0c78834-27c3-471a-a6f4-f230eb867ac0",
+        "target_node_uuid": "68a84df2-1903-4587-90ab-335aaaed1108",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "68a84df2-1903-4587-90ab-335aaaed1108",
+        "target_node_uuid": "0b1edc87-a9a8-4f44-91c0-aaa67a8de964",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "0b1edc87-a9a8-4f44-91c0-aaa67a8de964",
+        "target_node_uuid": "497287a8-fa7e-47cb-9e2c-f02ad1440f00",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "497287a8-fa7e-47cb-9e2c-f02ad1440f00",
+        "target_node_uuid": "8f52b6ad-2a42-4c05-ad8b-75c0113b00f6",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "8f52b6ad-2a42-4c05-ad8b-75c0113b00f6",
+        "target_node_uuid": "f9703064-3f0d-4a5c-abbb-9e59996faeaa",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "f9703064-3f0d-4a5c-abbb-9e59996faeaa",
+        "target_node_uuid": "d7ba0e75-c80f-48f0-b88a-e9e98eb3c239",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "d7ba0e75-c80f-48f0-b88a-e9e98eb3c239",
+        "target_node_uuid": "0bee067d-aadd-42ca-b691-c377cff790cf",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "0bee067d-aadd-42ca-b691-c377cff790cf",
+        "target_node_uuid": "784236b0-5d00-41f9-87f3-e868178e34d8",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "784236b0-5d00-41f9-87f3-e868178e34d8",
+        "target_node_uuid": "21860794-701c-4d4f-a97a-09d4782c0a29",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "21860794-701c-4d4f-a97a-09d4782c0a29",
+        "target_node_uuid": "5fdddc23-18f8-439e-b283-19bffc67a4c7",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "5fdddc23-18f8-439e-b283-19bffc67a4c7",
+        "target_node_uuid": "e0c0f2ba-9d43-4a9e-8e05-366b7278f39b",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "e0c0f2ba-9d43-4a9e-8e05-366b7278f39b",
+        "target_node_uuid": "47b4bcd3-36c2-4081-a3fc-b4004e60a3b4",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "47b4bcd3-36c2-4081-a3fc-b4004e60a3b4",
+        "target_node_uuid": "f57a426d-0424-403d-a792-7ae99320f321",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "f57a426d-0424-403d-a792-7ae99320f321",
+        "target_node_uuid": "8df1d98b-b017-4943-90e8-8bfa0067ead7",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "8df1d98b-b017-4943-90e8-8bfa0067ead7",
+        "target_node_uuid": "daa6d337-7c65-4720-b534-580f9bd86a1c",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "daa6d337-7c65-4720-b534-580f9bd86a1c",
+        "target_node_uuid": "b9699bc0-f13a-4197-83bd-64f8fb57c09a",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "b9699bc0-f13a-4197-83bd-64f8fb57c09a",
+        "target_node_uuid": "0762ec75-6355-4af0-b25c-953612bdbe24",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "0762ec75-6355-4af0-b25c-953612bdbe24",
+        "target_node_uuid": "b7cca90b-dc09-4d3e-9d05-069637e4e16f",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "b7cca90b-dc09-4d3e-9d05-069637e4e16f",
+        "target_node_uuid": "c34f8471-874f-4fd0-96a7-8fa17760df11",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "c34f8471-874f-4fd0-96a7-8fa17760df11",
+        "target_node_uuid": "90750000-8bc7-4946-99f2-bcd8bb5d5d9d",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "90750000-8bc7-4946-99f2-bcd8bb5d5d9d",
+        "target_node_uuid": "438d1f2f-f8d3-4ec5-91a8-8de3d8e38aa8",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "438d1f2f-f8d3-4ec5-91a8-8de3d8e38aa8",
+        "target_node_uuid": "a6f11095-7d6c-4218-af04-b78c18ff8383",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "a6f11095-7d6c-4218-af04-b78c18ff8383",
+        "target_node_uuid": "bd9f3f72-d57d-476b-a6ed-15ddfb2467c2",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "bd9f3f72-d57d-476b-a6ed-15ddfb2467c2",
+        "target_node_uuid": "acc39035-1589-4bc5-b8c1-4fdaa1c4be15",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "acc39035-1589-4bc5-b8c1-4fdaa1c4be15",
+        "target_node_uuid": "c0300ab7-9605-4452-a1c4-c50f75c75125",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "c0300ab7-9605-4452-a1c4-c50f75c75125",
+        "target_node_uuid": "0fa3ce99-08a9-4669-b702-8f228e98b7f1",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "0fa3ce99-08a9-4669-b702-8f228e98b7f1",
+        "target_node_uuid": "40a00680-f7f4-4963-be4e-243943a56fa7",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "40a00680-f7f4-4963-be4e-243943a56fa7",
+        "target_node_uuid": "3268d1b1-32f1-40e3-8e5c-040b8e974996",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "3268d1b1-32f1-40e3-8e5c-040b8e974996",
+        "target_node_uuid": "0b9e60f6-8776-4d6b-9d32-74d6a675add7",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "0b9e60f6-8776-4d6b-9d32-74d6a675add7",
+        "target_node_uuid": "d6fe284b-b74e-4293-9660-81e05da1a801",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "d6fe284b-b74e-4293-9660-81e05da1a801",
+        "target_node_uuid": "75e246d1-e609-4496-b08c-5bc3b788219e",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "75e246d1-e609-4496-b08c-5bc3b788219e",
+        "target_node_uuid": "9a36e040-5b32-432d-8286-db19ed98b82b",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "9a36e040-5b32-432d-8286-db19ed98b82b",
+        "target_node_uuid": "ea404cc0-7745-4e78-a2bd-4985d481d897",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "ea404cc0-7745-4e78-a2bd-4985d481d897",
+        "target_node_uuid": "3ffd6e21-9b2a-4a77-9d30-87eb40559f79",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "3ffd6e21-9b2a-4a77-9d30-87eb40559f79",
+        "target_node_uuid": "09729bda-d35d-40b7-817b-13179dfe2411",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "09729bda-d35d-40b7-817b-13179dfe2411",
+        "target_node_uuid": "b8894a6a-6fca-4d56-b47c-2bd82f392eb0",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "b8894a6a-6fca-4d56-b47c-2bd82f392eb0",
+        "target_node_uuid": "c602407c-4dec-4f57-a89e-aa5e4c7a17d6",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "c602407c-4dec-4f57-a89e-aa5e4c7a17d6",
+        "target_node_uuid": "6d4a6094-ecc0-43dc-b445-514081e50172",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "6d4a6094-ecc0-43dc-b445-514081e50172",
+        "target_node_uuid": "89fa97fa-5621-46b0-bc86-f1ee01f77506",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "89fa97fa-5621-46b0-bc86-f1ee01f77506",
+        "target_node_uuid": "d318c830-1756-450f-8597-d68065e368b8",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "d318c830-1756-450f-8597-d68065e368b8",
+        "target_node_uuid": "f0a1321a-1c75-4293-81fb-f20caa295e08",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "f0a1321a-1c75-4293-81fb-f20caa295e08",
+        "target_node_uuid": "6d0fe654-424a-487d-9a11-498e80870d66",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "6d0fe654-424a-487d-9a11-498e80870d66",
+        "target_node_uuid": "31fb1750-a9f0-49f8-b270-1d09e86e3524",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "31fb1750-a9f0-49f8-b270-1d09e86e3524",
+        "target_node_uuid": "24e5daf0-c7b8-4706-8a95-7d55b26b2ed2",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "24e5daf0-c7b8-4706-8a95-7d55b26b2ed2",
+        "target_node_uuid": "cc210480-9283-4403-8f8f-2bc08d4cfce4",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "cc210480-9283-4403-8f8f-2bc08d4cfce4",
+        "target_node_uuid": "51230ec5-1ffa-4430-82e3-87501f74b328",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "51230ec5-1ffa-4430-82e3-87501f74b328",
+        "target_node_uuid": "10dde8d0-56f0-4f72-a894-7d9ff79fd0a9",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "10dde8d0-56f0-4f72-a894-7d9ff79fd0a9",
+        "target_node_uuid": "a09e02f6-a9c5-4e47-8c8f-02e666bd188b",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "a09e02f6-a9c5-4e47-8c8f-02e666bd188b",
+        "target_node_uuid": "dc678639-87fc-41fc-905b-cd503e96f8f5",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "dc678639-87fc-41fc-905b-cd503e96f8f5",
+        "target_node_uuid": "c8de7cd9-cfde-44e9-b651-cae4f92f6c9d",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "c8de7cd9-cfde-44e9-b651-cae4f92f6c9d",
+        "target_node_uuid": "9d2d59f5-5a51-4900-a3f6-5762eb72a1d7",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "9d2d59f5-5a51-4900-a3f6-5762eb72a1d7",
+        "target_node_uuid": "3c774de0-e419-4dc9-bce9-d0438c9fcde5",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "3c774de0-e419-4dc9-bce9-d0438c9fcde5",
+        "target_node_uuid": "fceba27c-0a7a-427f-86b4-42a554773815",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "fceba27c-0a7a-427f-86b4-42a554773815",
+        "target_node_uuid": "f7a884a7-8058-4912-bfff-87ec33b74018",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "f7a884a7-8058-4912-bfff-87ec33b74018",
+        "target_node_uuid": "818dffb7-81f9-4154-882f-6d1a43646ae4",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "818dffb7-81f9-4154-882f-6d1a43646ae4",
+        "target_node_uuid": "2861291c-bc76-41b2-b03e-94bb6c6f798a",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "2861291c-bc76-41b2-b03e-94bb6c6f798a",
+        "target_node_uuid": "12cdc547-9192-4800-8121-95444026c627",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "12cdc547-9192-4800-8121-95444026c627",
+        "target_node_uuid": "276d7ff6-8d92-44b3-84df-86d39297cdd0",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "276d7ff6-8d92-44b3-84df-86d39297cdd0",
+        "target_node_uuid": "efa3d8f0-6546-4367-ad7b-af94b5e913c7",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "efa3d8f0-6546-4367-ad7b-af94b5e913c7",
+        "target_node_uuid": "967a0186-076a-4576-8267-c3e19e2c00e2",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "967a0186-076a-4576-8267-c3e19e2c00e2",
+        "target_node_uuid": "207f6efd-0583-4249-b73b-f0f6929b874b",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "207f6efd-0583-4249-b73b-f0f6929b874b",
+        "target_node_uuid": "c203f9cb-bd80-4ac3-a270-53d73faf5df4",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "c203f9cb-bd80-4ac3-a270-53d73faf5df4",
+        "target_node_uuid": "ad51f6b2-e1c2-4ece-af9a-57dfb6c98a99",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      },
+      {
+        "source_node_uuid": "ad51f6b2-e1c2-4ece-af9a-57dfb6c98a99",
+        "target_node_uuid": "a050fae4-5e08-4540-89c9-bee523c1c655",
+        "source_handle_key": "ready",
+        "source_handle_io": "source",
+        "target_handle_key": "ready",
+        "target_handle_io": "target"
+      }
+    ]
+  }
+}

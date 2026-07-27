@@ -46,7 +46,7 @@ COLUMN_NUMBERS = {
     11: range(74, 79),   # 第十一列 74~78（枪头盒）
     12: range(79, 84),   # 第十二列 79~83（枪头盒）
 }
-# 抓取数字 → 列号（反查表）
+# 抓取数字 → 列号（反查表）+
 NUMBER_TO_COLUMN = {n: col for col, nums in COLUMN_NUMBERS.items() for n in nums}
 
 

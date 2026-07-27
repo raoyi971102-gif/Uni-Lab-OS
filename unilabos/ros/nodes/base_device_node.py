@@ -348,7 +348,6 @@ class PropertyPublisher:
         self.timer.cancel()
         self.timer = self.node.create_timer(self.timer_period, self.publish_property)
 
-
 class BaseROS2DeviceNode(Node, Generic[T]):
     """
     ROS2设备节点基类
@@ -394,6 +393,7 @@ class BaseROS2DeviceNode(Node, Generic[T]):
             print_publish: 是否打印发布信息
         """
         self.driver_instance = driver_instance
+        self._driver_cleanup_done = False
         self.device_id = device_id
         self.registry_name = registry_name
         self.uuid = device_uuid
@@ -836,6 +836,20 @@ class BaseROS2DeviceNode(Node, Generic[T]):
         plr_resource = tree_set.to_plr_resources()[0]
         self.lab_logger().debug(f"获取资源 {resource_id} 成功")
         return plr_resource
+
+    def destroy_node(self):
+        """销毁 ROS 节点前先关闭驱动连接，避免 OPC UA Session 遗留在 PLC。"""
+        if not self._driver_cleanup_done:
+            self._driver_cleanup_done = True
+            disconnect = getattr(self.driver_instance, "disconnect", None)
+            if callable(disconnect):
+                try:
+                    disconnect()
+                except Exception as exc:
+                    self.lab_logger().warning(
+                        f"设备驱动断开失败 {self.device_id}: {exc}"
+                    )
+        return super().destroy_node()
 
     def transfer_to_new_resource(
         self, plr_resource: "ResourcePLR", tree: ResourceTreeInstance, additional_add_params: Dict[str, Any]

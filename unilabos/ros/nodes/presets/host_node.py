@@ -650,6 +650,20 @@ class HostNode(BaseROS2DeviceNode):
         except DeviceClassInvalid as e:
             self.lab_logger().error(f"[Host Node] Device class invalid: {e}")
             d = None
+        except Exception:
+            self.lab_logger().error(
+                f"[Host Node] Device {device_id} initialization failed; "
+                "disconnecting already initialized local devices."
+            )
+            for initialized_id, initialized_device in list(self.devices_instances.items()):
+                try:
+                    initialized_device.ros_node_instance.destroy_node()
+                except Exception as cleanup_error:
+                    self.lab_logger().warning(
+                        f"[Host Node] Failed to clean up {initialized_id}: {cleanup_error}"
+                    )
+            self.devices_instances.clear()
+            raise
         if d is None:
             return
         # noinspection PyProtectedMember
