@@ -236,13 +236,19 @@ def legacy_steps_to_v04_solution_steps(steps: Sequence[Dict[str, Any]]) -> List[
         elif function == "DefectiveLift":
             source = _as_int(step.get("PlateNo"), 1)
             destination = source
-            put_down_position = _as_int(step.get("Hierarchy"), 1)
-            force = _as_int(step.get("Force"), 1)
+            pinch_it_up_position = _as_int(
+                step.get("PinchItUpPosition", step.get("Hierarchy")), 1
+            )
+            put_down_position = pinch_it_up_position
+            force = _as_int(step.get("Force"), 5)
             if idx + 1 < len(steps_list) and steps_list[idx + 1].get("Function") == "PutDown":
                 next_step = steps_list[idx + 1]
                 destination = _as_int(next_step.get("PlateNo"), destination)
-                put_down_position = _as_int(next_step.get("Hierarchy"), put_down_position)
-                # 合并 PutDown 时若其带 Force 则覆盖（仍默认 1）
+                put_down_position = _as_int(
+                    next_step.get("PutDownPosition", next_step.get("Hierarchy")),
+                    put_down_position,
+                )
+                # 合并 PutDown 时若其带 Force 则覆盖（仍默认 5）
                 if next_step.get("Force") is not None:
                     force = _as_int(next_step.get("Force"), force)
                 idx += 1
@@ -251,20 +257,26 @@ def legacy_steps_to_v04_solution_steps(steps: Sequence[Dict[str, Any]]) -> List[
                 "Kind": "MvKit",
                 "Source": source,
                 "Destination": destination,
-                "PinchItUpPosition": _as_int(step.get("Hierarchy"), 1),
+                "PinchItUpPosition": pinch_it_up_position,
                 "PutDownPosition": put_down_position,
                 "Force": force,
             }
         elif function == "PutDown":
             destination = _as_int(step.get("PlateNo"), 1)
+            put_down_position = _as_int(
+                step.get("PutDownPosition", step.get("Hierarchy")), 1
+            )
+            pinch_it_up_position = _as_int(
+                step.get("PinchItUpPosition", put_down_position), put_down_position
+            )
             data = {
                 **base,
                 "Kind": "MvKit",
                 "Source": destination,
                 "Destination": destination,
-                "PinchItUpPosition": _as_int(step.get("Hierarchy"), 1),
-                "PutDownPosition": _as_int(step.get("Hierarchy"), 1),
-                "Force": _as_int(step.get("Force"), 1),
+                "PinchItUpPosition": pinch_it_up_position,
+                "PutDownPosition": put_down_position,
+                "Force": _as_int(step.get("Force"), 5),
             }
         elif function == "Shaking":
             data = {
@@ -2245,26 +2257,44 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
             cur = parent
         return None
 
-    def _attach_resources_to_deck_if_needed(self, items: Sequence[Resource]) -> None:
-        """把通过 _resolve_to_plr_resources 拿回的"游离"耗材自动挂到 self.deck。
+    def _attach_resources_to_deck_if_needed(self, items: Sequence[Resource]) -> List[Resource]:
+        """把游离耗材对齐到 self.deck 上已挂载的同名实例；无同名则尝试挂载。
 
-        - 已经在 PRCXI9300Deck 上（含 name 同名）的跳过；
-        - 优先按 ``unilabos_extra.update_resource_site`` 的 Tn 解析槽位；
-        - 否则交给 ``Deck.assign_child_resource`` 找空槽。
-        - 任意失败仅打印告警，不中断主流程（backend 仍可走名字兜底）。
+        远端 ``get_resource`` / ``to_plr`` 常把板/枪头架解成 ``parent=None`` 的孤儿副本，
+        与 deck 上已有同名实例并存。若继续用孤儿去做 ``update_resource``，
+        ``parent_uuid`` 会被强制写成设备 UUID，前端就会看到物料变成 Deck 同级。
+
+        Returns:
+            与 ``items`` 等长的列表：尽量换成 deck 上的板/孔/TipSpot，保持父子关系正确。
         """
         deck = getattr(self, "deck", None)
         if not isinstance(deck, PRCXI9300Deck):
-            return
-        existing_names = {getattr(c, "name", None) for c in deck.children}
+            return list(items)
+        by_name = {getattr(c, "name", None): c for c in deck.children}
+        existing_names = set(by_name.keys())
+        out: List[Resource] = []
         for item in items:
             top = self._top_level_consumable(item)
             if top is None or not isinstance(top, Resource):
+                out.append(item)
                 continue
             if isinstance(getattr(top, "parent", None), PRCXI9300Deck):
+                out.append(item)
                 continue
             top_name = getattr(top, "name", None)
-            if top_name in existing_names:
+            deck_top = by_name.get(top_name)
+            if deck_top is not None:
+                # 同名已在 deck：改用 deck 实例（板本身或对应子孔/TipSpot）
+                if item is top:
+                    remapped: Resource = deck_top
+                else:
+                    child_name = getattr(item, "name", None)
+                    remapped = next(
+                        (c for c in (getattr(deck_top, "children", None) or [])
+                         if getattr(c, "name", None) == child_name),
+                        item,
+                    )
+                out.append(remapped)
                 continue
             spot_idx: Optional[int] = None
             extra = getattr(top, "unilabos_extra", {}) or {}
@@ -2277,8 +2307,11 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
             try:
                 deck.assign_child_resource(top, spot=spot_idx, reassign=False)
                 existing_names.add(top_name)
+                by_name[top_name] = top
             except Exception as e:
                 print(f"[PRCXI] 自动挂载到 deck 失败: name={top_name}, site={site or '?'}, err={e}")
+            out.append(item)
+        return out
 
     @staticmethod
     def _is_success(res: Any) -> bool:
@@ -3141,8 +3174,10 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         # 路径才置位，且它们各自的 finally 会复位，杜绝标志泄漏。
         if self.step_mode:
             self._step_protocol_open = True
-        # 远端解析回来的 PLR 实例可能未挂到 self.deck，主动绑定一次，避免 backend 取 plate.parent==None
-        self._attach_resources_to_deck_if_needed(list(sources) + list(targets) + list(tip_racks))
+        # 远端解析回来的 PLR 实例可能未挂到 self.deck：对齐到 deck 同名实例，避免孤儿板上行
+        sources = self._attach_resources_to_deck_if_needed(list(sources))
+        targets = self._attach_resources_to_deck_if_needed(list(targets))
+        tip_racks = self._attach_resources_to_deck_if_needed(list(tip_racks))
         if isinstance(tip_racks[0], TipRack):
             tip_rack = tip_racks[0]
         else:
@@ -3682,7 +3717,9 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         pickup_direction: GripDirection = GripDirection.FRONT,
         pickup_distance_from_top: float = 13.2 - 3.33,
         hierarchy: int = 1,
-        force: int = 1,
+        pinch_it_up_position: int = 1,
+        put_down_position: int = 1,
+        force: int = 5,
         **backend_kwargs,
     ):
         """把 ``plate`` 搬到 ``to`` 号 slot。
@@ -3693,8 +3730,10 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         - 放置后把 ``plate`` 在资源树里 reparent 到目标 slot；若该 slot 上有
           plate_adapter 或 module，则 plate 最终挂到该 adapter/module 上，并同步更新物料。
 
-        ``hierarchy``：夹爪夹取/放下高度档位，默认 1。
-        ``force``：MvKit 夹持力，默认 1。
+        ``pinch_it_up_position``：MvKit 夹取高度档位（V04 ``PinchItUpPosition``），默认 1，可单独设其他整数。
+        ``put_down_position``：MvKit 放下高度档位（V04 ``PutDownPosition``），默认 1，可单独设其他整数。
+        ``hierarchy``：兼容旧字段，不再覆盖 pinch/put_down。
+        ``force``：MvKit 夹持力，默认 5。
 
         因 pylabrobot 的 ``move_plate/move_resource`` 需要 ``to`` 是 Resource/Coordinate
         来做坐标计算与 reparent，``to:int`` 时不再委托父类，由本方法直接驱动 backend +
@@ -3712,20 +3751,31 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
             to = self._unilabos_backend._deck_plate_slot_no(to, getattr(to, "parent", None))
 
         # 确保 plate 已挂到 deck，并从 plate 反推当前（源）slot。
-        self._attach_resources_to_deck_if_needed([plate])
+        plate = self._attach_resources_to_deck_if_needed([plate])[0]
         src_slot = self._unilabos_backend._deck_plate_slot_no(plate, getattr(plate, "parent", None))
         if self.step_mode:
             await self.create_protocol(f"move_plate{time.time()}")
         # 下发硬件 pick+drop（simulator 模式只更新物料，不产生硬件步骤）。
         step = None
         if not self._simulator:
-            hierarchy = int(backend_kwargs.get("hierarchy", hierarchy))
             force = int(backend_kwargs.get("force", force))
+            pinch_it_up_position = int(
+                backend_kwargs.get("pinch_it_up_position", pinch_it_up_position)
+            )
+            put_down_position = int(
+                backend_kwargs.get("put_down_position", put_down_position)
+            )
             pick_step = await self._unilabos_backend.pick_up_resource(
-                None, source_plate_number=src_slot, hierarchy=hierarchy, force=force
+                None,
+                source_plate_number=src_slot,
+                pinch_it_up_position=pinch_it_up_position,
+                force=force,
             )
             drop_step = await self._unilabos_backend.drop_resource(
-                None, target_plate_number=to, hierarchy=hierarchy, force=force
+                None,
+                target_plate_number=to,
+                put_down_position=put_down_position,
+                force=force,
             )
             step = [pick_step, drop_step]
 
@@ -3765,10 +3815,19 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
                 dst_resource.assign_child_resource(target_plate)
         elif isinstance(deck, PRCXI9300Deck):
             deck.assign_child_at_slot(target_plate, to, reassign=True)
-        # 同步槽位标记，保证后续 _get_slot_number 反推一致。
+        # 同步槽位标记，保证后续 _get_slot_number 反推一致，并供前端按 Tn 落位。
         extra = getattr(target_plate, "unilabos_extra", None)
-        if isinstance(extra, dict):
-            extra["update_resource_site"] = f"T{to}"
+        if not isinstance(extra, dict):
+            extra = {}
+            setattr(target_plate, "unilabos_extra", extra)
+        extra["update_resource_site"] = f"T{to}"
+
+        # 上行物料（parent/pose/site）；抽象类 move_plate 会做，本方法重写后需自行补上，
+        # 否则云端/前端仍停在原槽位。
+        if getattr(self, "_ros_node", None) is not None and isinstance(self.deck, Deck):
+            ROS2DeviceNode.run_async_func(
+                self._ros_node.update_resource, True, **{"resources": [target_plate]}
+            )
 
         if self.step_mode and step is not None:
             await self.run_protocol()
@@ -3992,10 +4051,14 @@ class PRCXI9300Backend(LiquidHandlerBackend):
             plate_number = self._deck_plate_slot_no(plate, getattr(plate, "parent", None))
         is_whole_plate = True
         balance_height = 0
-        hierarchy = int(backend_kwargs.get("hierarchy", 1))  # 夹取层级，默认 1
-        force = int(backend_kwargs.get("force", 1))  # MvKit 夹持力，默认 1
+        pinch_it_up_position = int(backend_kwargs.get("pinch_it_up_position", 1))
+        force = int(backend_kwargs.get("force", 5))
         step = self.api_client.clamp_jaw_pick_up(
-            plate_number, is_whole_plate, balance_height, hierarchy=hierarchy, force=force
+            plate_number,
+            is_whole_plate,
+            balance_height,
+            pinch_it_up_position=pinch_it_up_position,
+            force=force,
         )
 
         self.steps_todo_list.append(step)
@@ -4018,10 +4081,14 @@ class PRCXI9300Backend(LiquidHandlerBackend):
         balance_height = 0
         if plate_number is None:
             raise ValueError("target_plate_number is required when dropping a resource")
-        hierarchy = int(backend_kwargs.get("hierarchy", 1))  # 放下层级，默认 1
-        force = int(backend_kwargs.get("force", 1))  # MvKit 夹持力，默认 1
+        put_down_position = int(backend_kwargs.get("put_down_position", 1))
+        force = int(backend_kwargs.get("force", 5))
         step = self.api_client.clamp_jaw_drop(
-            plate_number, is_whole_plate, balance_height, hierarchy=hierarchy, force=force
+            plate_number,
+            is_whole_plate,
+            balance_height,
+            put_down_position=put_down_position,
+            force=force,
         )
         self.steps_todo_list.append(step)
         return step
@@ -4106,16 +4173,22 @@ class PRCXI9300Backend(LiquidHandlerBackend):
 
     def run_protocol(self, protocol_id: str = None):
         self._ensure_run_ready()
-        if self.protocol_version == "v04":
-            return self._run_protocol_v04(protocol_id)
-        return self._run_protocol_v03(protocol_id)
+        try:
+            if self.protocol_version == "v04":
+                return self._run_protocol_v04(protocol_id)
+            return self._run_protocol_v03(protocol_id)
+        finally:
+            self.steps_todo_list = []
 
     async def run_protocol_async(self, protocol_id: str = None):
         """异步执行方案，避免在协程里阻塞式 sleep。"""
         self._ensure_run_ready()
-        if self.protocol_version == "v04":
-            return await self._run_protocol_v04_async(protocol_id)
-        return await self._run_protocol_v03_async(protocol_id)
+        try:
+            if self.protocol_version == "v04":
+                return await self._run_protocol_v04_async(protocol_id)
+            return await self._run_protocol_v03_async(protocol_id)
+        finally:
+            self.steps_todo_list = []
 
     def _run_protocol_v03(self, protocol_id: str = None):
         """v03：AddSolution(steps) → LoadSolution(guid) → Start → wait_for_finish（保持原行为）。"""
@@ -5084,12 +5157,26 @@ class PRCXI9300Api:
 
         - ``v03``：沿用 ``IMachineState.GetStepStateList`` 三态判断。
         - ``v04``：改用 ``IAutomation.GetStartStatus`` 轮询（运行中=true，结束=false）。
+        - 运行结束后若 ``GetResetStatus`` 显示正在复位/初始化，继续等到复位完成，
+          才视为 wait 真正结束。
         - ``timeout_s`` 默认 None：不设总超时；仅显式传入正数时才可能超时返回 False。
         """
         self._wait_timeout_last = False
+        timeout_norm = self._normalize_wait_timeout_seconds(timeout_s)
+        deadline = (time.time() + timeout_norm) if timeout_norm is not None else None
         if self.is_v04:
-            return self._wait_for_finish_v04(timeout_s=timeout_s)
-        return self._wait_for_finish_v03(timeout_s=timeout_s)
+            ok = self._wait_for_finish_v04(timeout_s=timeout_s)
+        else:
+            ok = self._wait_for_finish_v03(timeout_s=timeout_s)
+        if not ok:
+            return False
+        remaining = None
+        if deadline is not None:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                self._wait_timeout_last = True
+                return False
+        return self._wait_post_run_reset_idle(timeout_s=remaining)
 
     async def wait_for_finish_async(
         self,
@@ -5097,11 +5184,86 @@ class PRCXI9300Api:
         sleep_coro: Optional[Callable[[float], Awaitable[None]]] = None,
         timeout_s: Optional[float] = None,
     ) -> bool:
-        """异步等待方案执行完成（用于 async action，避免阻塞执行器）。"""
+        """异步等待方案执行完成（用于 async action，避免阻塞执行器）。
+
+        运行结束后若设备仍在复位/初始化，继续等到 ``GetResetStatus`` 退出复位中。
+        """
         self._wait_timeout_last = False
+        timeout_norm = self._normalize_wait_timeout_seconds(timeout_s)
+        deadline = (time.time() + timeout_norm) if timeout_norm is not None else None
         if self.is_v04:
-            return await self._wait_for_finish_v04_async(sleep_coro=sleep_coro, timeout_s=timeout_s)
-        return await self._wait_for_finish_v03_async(sleep_coro=sleep_coro, timeout_s=timeout_s)
+            ok = await self._wait_for_finish_v04_async(sleep_coro=sleep_coro, timeout_s=timeout_s)
+        else:
+            ok = await self._wait_for_finish_v03_async(sleep_coro=sleep_coro, timeout_s=timeout_s)
+        if not ok:
+            return False
+        remaining = None
+        if deadline is not None:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                self._wait_timeout_last = True
+                return False
+        return await self._wait_post_run_reset_idle_async(
+            sleep_coro=sleep_coro, timeout_s=remaining
+        )
+
+    def _wait_post_run_reset_idle(self, timeout_s: Optional[float] = None) -> bool:
+        """运行结束后等待自动复位/初始化结束（``GetResetStatus`` true=复位中）。"""
+        if self.debug:
+            return True
+        timeout_s = self._normalize_wait_timeout_seconds(timeout_s)
+        deadline = (time.time() + timeout_s) if timeout_s is not None else None
+        # 短观察窗：方案刚结束时复位状态可能略晚才拉高。
+        observe_deadline = time.time() + 2.0
+        if deadline is not None:
+            observe_deadline = min(observe_deadline, deadline)
+        seen_resetting = False
+
+        while True:
+            if deadline is not None and time.time() >= deadline:
+                if not self.get_reset_status():
+                    return True
+                self._wait_timeout_last = True
+                return False
+            in_reset = self.get_reset_status()
+            if in_reset:
+                seen_resetting = True
+            elif seen_resetting:
+                return True
+            elif time.time() >= observe_deadline:
+                return True
+            time.sleep(0.5 if not seen_resetting else 1.0)
+
+    async def _wait_post_run_reset_idle_async(
+        self,
+        *,
+        sleep_coro: Optional[Callable[[float], Awaitable[None]]] = None,
+        timeout_s: Optional[float] = None,
+    ) -> bool:
+        """异步版：运行结束后等待复位/初始化结束。"""
+        if self.debug:
+            return True
+        timeout_s = self._normalize_wait_timeout_seconds(timeout_s)
+        deadline = (time.time() + timeout_s) if timeout_s is not None else None
+        observe_deadline = time.time() + 2.0
+        if deadline is not None:
+            observe_deadline = min(observe_deadline, deadline)
+        seen_resetting = False
+
+        while True:
+            if deadline is not None and time.time() >= deadline:
+                if not self.get_reset_status():
+                    return True
+                self._wait_timeout_last = True
+                return False
+            in_reset = self.get_reset_status()
+            if in_reset:
+                seen_resetting = True
+            elif seen_resetting:
+                return True
+            elif time.time() >= observe_deadline:
+                return True
+            await self._wait_sleep_async(sleep_coro, 0.5 if not seen_resetting else 1.0)
 
     def _wait_for_finish_v03(self, timeout_s: Optional[float] = None) -> bool:
         timeout_s = self._normalize_wait_timeout_seconds(timeout_s)
@@ -5647,12 +5809,13 @@ class PRCXI9300Api:
         plate_no: int,
         is_whole_plate: bool,
         balance_height: int,
-        hierarchy: int = 1,
-        force: int = 1,
+        force: int = 5,
+        pinch_it_up_position: int = 1,
+        hierarchy: Optional[int] = None,
     ) -> Dict[str, Any]:
-        # ``Hierarchy``（层级）决定夹爪夹取/放下的高度档位（板位堆叠层级），与 SDK StepData
-        # 的 ``hierarchy`` 字段对齐，默认 1。
-        # ``Force`` 为 MvKit 夹持力，默认 1。
+        # ``PinchItUpPosition`` / ``Hierarchy``：夹取高度档位，默认 1，可单独设为其他整数。
+        # ``Force``：MvKit 夹持力，默认 5。
+        pinch = int(hierarchy) if hierarchy is not None else int(pinch_it_up_position)
         return {
             "StepAxis": "ClampingJaw",
             "Function": "DefectiveLift",
@@ -5662,7 +5825,8 @@ class PRCXI9300Api:
             "HoleCol": 1,
             "BalanceHeight": balance_height,
             "PlateOrHoleNum": f"T{plate_no}",
-            "Hierarchy": hierarchy,
+            "Hierarchy": pinch,
+            "PinchItUpPosition": pinch,
             "Force": force,
         }
 
@@ -5671,12 +5835,13 @@ class PRCXI9300Api:
         plate_no: int,
         is_whole_plate: bool,
         balance_height: int,
-        hierarchy: int = 1,
-        force: int = 1,
+        force: int = 5,
+        put_down_position: int = 1,
+        hierarchy: Optional[int] = None,
     ) -> Dict[str, Any]:
-        # ``Hierarchy``（层级）决定夹爪夹取/放下的高度档位（板位堆叠层级），与 SDK StepData
-        # 的 ``hierarchy`` 字段对齐，默认 1。
-        # ``Force`` 为 MvKit 夹持力，默认 1。
+        # ``PutDownPosition`` / ``Hierarchy``：放下高度档位，默认 1，可单独设为其他整数。
+        # ``Force``：MvKit 夹持力，默认 5。
+        put_down = int(hierarchy) if hierarchy is not None else int(put_down_position)
         return {
             "StepAxis": "ClampingJaw",
             "Function": "PutDown",
@@ -5686,7 +5851,8 @@ class PRCXI9300Api:
             "HoleCol": 1,
             "BalanceHeight": balance_height,
             "PlateOrHoleNum": f"T{plate_no}",
-            "Hierarchy": hierarchy,
+            "Hierarchy": put_down,
+            "PutDownPosition": put_down,
             "Force": force,
         }
 

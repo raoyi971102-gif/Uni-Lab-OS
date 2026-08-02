@@ -1396,14 +1396,49 @@ class LiquidHandlerAbstract(LiquidHandlerMiddleware):
             raise ValueError("dict 格式的资源必须包含 uuid 或 unilabos_uuid 字段")
 
         def _resolve_from_local_by_uuids() -> List[Union[Container, TipRack]]:
+            """远端失败时的本地降级：先 uuid，再 id/name（含路径末段）。"""
             resolved_locals: List[Union[Container, TipRack]] = []
             missing: List[str] = []
-            for uid in uuids:
+            hit_via: List[str] = []
+            for (_idx, orig), uid in zip(dict_items, uuids):
                 matches = self._ros_node.resource_tracker.figure_resource({"uuid": uid}, try_mode=True)
+                via = "uuid"
+                if not matches and isinstance(orig, dict):
+                    # figure_resource 有 uuid 时不会回退 id/name，需显式再查
+                    cand_ids = []
+                    raw_id = orig.get("id")
+                    if isinstance(raw_id, str) and raw_id:
+                        cand_ids.append(raw_id)
+                        if "/" in raw_id:
+                            cand_ids.append(raw_id.rstrip("/").split("/")[-1])
+                    for cid in cand_ids:
+                        matches = self._ros_node.resource_tracker.figure_resource({"id": cid}, try_mode=True)
+                        if matches:
+                            via = f"id:{cid}"
+                            break
+                    if not matches:
+                        raw_name = orig.get("name")
+                        if isinstance(raw_name, str) and raw_name:
+                            matches = self._ros_node.resource_tracker.figure_resource(
+                                {"name": raw_name}, try_mode=True
+                            )
+                            if matches:
+                                via = f"name:{raw_name}"
                 if matches:
                     resolved_locals.append(cast(Union[Container, TipRack], matches[0]))
+                    hit_via.append(via)
                 else:
                     missing.append(str(uid))
+                    hit_via.append("miss")
+            # #region agent log
+            try:
+                import time as _t, json as _j
+                _tracker_n = len(getattr(self._ros_node.resource_tracker, "resources", []) or [])
+                with open(r"d:\Download\Uni-Lab-OS\debug-8f6ad7.log", "a", encoding="utf-8") as _f:
+                    _f.write(_j.dumps({"sessionId":"8f6ad7","runId":"post-fix","hypothesisId":"D,F","location":"liquid_handler_abstract.py:local_fallback","message":"local resolve uuid/id/name","data":{"uuids":uuids,"missing":missing,"hit":len(resolved_locals),"hit_via":hit_via,"tracker_roots":_tracker_n,"orig_ids":[x.get("id") for _, x in dict_items if isinstance(x, dict)],"orig_names":[x.get("name") for _, x in dict_items if isinstance(x, dict)]},"timestamp":int(_t.time()*1000)}, ensure_ascii=False)+"\n")
+            except Exception:
+                pass
+            # #endregion
             if missing:
                 raise ValueError(
                     f"远端资源树未返回且本地资源也未命中，缺失 UUID: {missing}"
@@ -1442,7 +1477,15 @@ class LiquidHandlerAbstract(LiquidHandlerMiddleware):
                 raise ValueError(
                     f"远端资源解析数量不匹配: requested={len(uuids)}, resolved={len(resolved)}"
                 )
-        except Exception:
+        except Exception as _remote_exc:
+            # #region agent log
+            try:
+                import time as _t, json as _j
+                with open(r"d:\Download\Uni-Lab-OS\debug-8f6ad7.log", "a", encoding="utf-8") as _f:
+                    _f.write(_j.dumps({"sessionId":"8f6ad7","runId":"post-fix","hypothesisId":"C,D,F","location":"liquid_handler_abstract.py:remote_fail","message":"remote resolve failed, fallback local","data":{"uuids":uuids,"exc_type":type(_remote_exc).__name__,"exc":str(_remote_exc)[:400]},"timestamp":int(_t.time()*1000)}, ensure_ascii=False)+"\n")
+            except Exception:
+                pass
+            # #endregion
             resolved = _resolve_from_local_by_uuids()
 
         result = list(items)

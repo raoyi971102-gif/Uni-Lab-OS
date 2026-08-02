@@ -37,7 +37,7 @@ DEFAULT_CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "opc
         "GN 有机合成工作站顶层设备：机械手 + 8 个功能子设备 + PRCXI 液体处理器；"
         "内部通过 GnPlcClient 单例保持与 PLC 的**唯一 OPC UA 会话**。"
     ),
-    icon="",
+    icon="gn_full_station_icon.webp",
     version="1.0.0",
 )
 class GNWorkstation(WorkstationBase):

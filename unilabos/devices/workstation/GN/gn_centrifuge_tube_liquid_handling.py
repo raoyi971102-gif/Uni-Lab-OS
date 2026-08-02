@@ -103,6 +103,64 @@ class TubeCommand(int, Enum):
     THERMO_MODULE4_SHAKE_CLOSE = 47
 
 
+TUBE_CMD_LABELS = {
+    1: "X向左",
+    2: "X向右",
+    3: "Y向前",
+    4: "Y向后",
+    5: "8通道Z向上",
+    6: "8通道Z向下",
+    7: "8通道移液吸",
+    8: "8通道移液放",
+    9: "大夹爪Z向上",
+    10: "大夹爪Z向下",
+    11: "单通道移液吸",
+    12: "单通道移液放",
+    13: "单通道向上",
+    14: "单通道向下",
+    15: "小夹爪向上",
+    16: "小夹爪向下",
+    17: "磁力架轴向上",
+    18: "磁力架轴向下",
+    19: "8通道装载",
+    20: "8通道吸液",
+    21: "8通道放液",
+    22: "8通道卸载",
+    23: "单通道装载",
+    24: "单通道吸液",
+    25: "单通道放液",
+    26: "单通道卸载",
+    27: "小夹爪开盖",
+    28: "小夹爪关盖",
+    29: "小夹爪抓取",
+    30: "小夹爪放置",
+    31: "大夹爪抓取",
+    32: "大夹爪放置",
+    33: "单通道混匀",
+    34: "8通道混匀",
+    35: "超声波混匀",
+    36: "复位",
+    37: "xyz回原点",
+    38: "模块1恒温打开",
+    39: "模块1恒温关闭",
+    40: "模块2恒温打开",
+    41: "模块2恒温关闭",
+    42: "模块3恒温打开",
+    43: "模块3恒温关闭",
+    44: "模块4恒温打开",
+    45: "模块4恒温关闭",
+    46: "模块4震荡打开",
+    47: "模块4震荡关闭",
+}
+
+_EXECUTE_CMD_DOC = (
+    "按 Tube_CmdType 执行 OPC UA 指令。"
+    "写参 → CmdType → CmdTrig → 等 CompleteFB。"
+    "1~18 点动；19~35 业务动作；36 复位；37 xyz 回原点；38~47 恒温/震荡。"
+    "ultrasound_stop=True 时仅脉冲 Tube_UltrasoundSTOP，不走 CmdType。"
+)
+
+
 @device(
     id="gn_centrifuge_tube_liquid_handling",
     display_name="离心管液体处理",
@@ -141,6 +199,131 @@ class CentrifugeTubeLiquidHandlingDevice(GNStationClient):
         )
         self._connection_check_interval = 5.0
         self._command_lock = threading.Lock()
+
+    @action(auto_prefix=True, description=_EXECUTE_CMD_DOC)
+    def execute_command(
+        self,
+        cmd_type: int,
+        x_pos: Optional[int] = None,
+        y_pos: Optional[int] = None,
+        z1_pos: Optional[int] = None,
+        p1_pos: Optional[int] = None,
+        z2_pos: Optional[int] = None,
+        p2_pos: Optional[int] = None,
+        z3_pos: Optional[int] = None,
+        z4_pos: Optional[int] = None,
+        m_pos: Optional[int] = None,
+        x_speed: Optional[int] = None,
+        y_speed: Optional[int] = None,
+        z1_speed: Optional[int] = None,
+        p1_speed: Optional[int] = None,
+        z2_speed: Optional[int] = None,
+        p2_speed: Optional[int] = None,
+        z3_speed: Optional[int] = None,
+        z4_speed: Optional[int] = None,
+        m_speed: Optional[int] = None,
+        mix_counts: Optional[int] = None,
+        ultrasound_time: Optional[int] = None,
+        shaking_speed: Optional[int] = None,
+        shaking_time: Optional[int] = None,
+        small_gripper_angle: Optional[int] = None,
+        small_gripper_force: Optional[int] = None,
+        ultrasound_stop: bool = False,
+        timeout: float = 180.0,
+    ) -> dict:
+        """通用入口：写参 → CmdType → CmdTrig → 等 CompleteFB。"""
+        if ultrasound_stop:
+            return self.ultrasound_stop()
+        if timeout is None or float(timeout) <= 0:
+            timeout = 180.0
+        cmd = int(cmd_type)
+        setpoints = self._build_setpoints(
+            x_pos=x_pos,
+            y_pos=y_pos,
+            z1_pos=z1_pos,
+            p1_pos=p1_pos,
+            z2_pos=z2_pos,
+            p2_pos=p2_pos,
+            z3_pos=z3_pos,
+            z4_pos=z4_pos,
+            m_pos=m_pos,
+            x_speed=x_speed,
+            y_speed=y_speed,
+            z1_speed=z1_speed,
+            p1_speed=p1_speed,
+            z2_speed=z2_speed,
+            p2_speed=p2_speed,
+            z3_speed=z3_speed,
+            z4_speed=z4_speed,
+            m_speed=m_speed,
+            mix_counts=mix_counts,
+            ultrasound_time=ultrasound_time,
+            shaking_speed=shaking_speed,
+            shaking_time=shaking_time,
+            small_gripper_angle=small_gripper_angle,
+            small_gripper_force=small_gripper_force,
+        )
+        for node, value in setpoints.items():
+            self._set_node_or_raise(node, value)
+        label = TUBE_CMD_LABELS.get(cmd, f"CmdType={cmd}")
+        logger.info(f"离心管液体处理：{label} (CmdType={cmd})")
+        return self._trigger_and_wait(cmd, label, timeout=float(timeout))
+
+    @not_action
+    def _build_setpoints(
+        self,
+        x_pos: Optional[int] = None,
+        y_pos: Optional[int] = None,
+        z1_pos: Optional[int] = None,
+        p1_pos: Optional[int] = None,
+        z2_pos: Optional[int] = None,
+        p2_pos: Optional[int] = None,
+        z3_pos: Optional[int] = None,
+        z4_pos: Optional[int] = None,
+        m_pos: Optional[int] = None,
+        x_speed: Optional[int] = None,
+        y_speed: Optional[int] = None,
+        z1_speed: Optional[int] = None,
+        p1_speed: Optional[int] = None,
+        z2_speed: Optional[int] = None,
+        p2_speed: Optional[int] = None,
+        z3_speed: Optional[int] = None,
+        z4_speed: Optional[int] = None,
+        m_speed: Optional[int] = None,
+        mix_counts: Optional[int] = None,
+        ultrasound_time: Optional[int] = None,
+        shaking_speed: Optional[int] = None,
+        shaking_time: Optional[int] = None,
+        small_gripper_angle: Optional[int] = None,
+        small_gripper_force: Optional[int] = None,
+    ) -> dict:
+        mapping = {
+            "Tube_XPosSet": x_pos,
+            "Tube_YPosSet": y_pos,
+            "Tube_Z1PosSet": z1_pos,
+            "Tube_P1PosSet": p1_pos,
+            "Tube_Z2PosSet": z2_pos,
+            "Tube_P2PosSet": p2_pos,
+            "Tube_Z3PosSet": z3_pos,
+            "Tube_Z4PosSet": z4_pos,
+            "Tube_MPosSet": m_pos,
+            "Tube_XSpeed": x_speed,
+            "Tube_YSpeed": y_speed,
+            "Tube_Z1Speed": z1_speed,
+            "Tube_P1Speed": p1_speed,
+            "Tube_Z2Speed": z2_speed,
+            "Tube_P2Speed": p2_speed,
+            "Tube_Z3Speed": z3_speed,
+            "Tube_Z4Speed": z4_speed,
+            "Tube_MSpeed": m_speed,
+            "Tube_MixCounts": mix_counts,
+            "Tube_UltrasoundTime": ultrasound_time,
+            "Tube_ThermostaticModule4_Shaking_Speed": shaking_speed,
+            "Tube_ThermostaticModule4_Shaking_Time": shaking_time,
+            "Tube_SmallGripperAngle": small_gripper_angle,
+            "Tube_SmallGripperForce": small_gripper_force,
+        }
+        return {node: val for node, val in mapping.items() if val is not None}
 
     # ==================== 动作函数（点位写死） ====================
 

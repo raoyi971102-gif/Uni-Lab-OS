@@ -799,7 +799,19 @@ class BaseROS2DeviceNode(Node, Generic[T]):
                 )
             )
         )  # type: ignore
-        raw_nodes = json.loads(response.response)
+        # #region agent log
+        try:
+            import time as _t
+            _raw = response.response or ""
+            with open(r"d:\Download\Uni-Lab-OS\debug-8f6ad7.log", "a", encoding="utf-8") as _f:
+                _f.write(json.dumps({"sessionId":"8f6ad7","runId":"post-fix","hypothesisId":"C","location":"base_device_node.py:get_resource","message":"got resource_tree response","data":{"uuids":resources_uuid,"resp_len":len(_raw),"resp_head":_raw[:200],"looks_json":_raw[:1] in ("[","{")},"timestamp":int(_t.time()*1000)}, ensure_ascii=False)+"\n")
+        except Exception:
+            pass
+        # #endregion
+        raw = (response.response or "").strip()
+        if not raw or raw.startswith("ERROR"):
+            raise ValueError(f"资源树查询失败（远端未返回有效 JSON）: {raw[:200]!r}")
+        raw_nodes = json.loads(raw)
         tree_set = ResourceTreeSet.from_raw_dict_list(raw_nodes)
         self.lab_logger().trace(f"获取资源结果: {len(tree_set.trees)} 个资源树 {tree_set.root_nodes}")
         return tree_set

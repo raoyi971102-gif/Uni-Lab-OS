@@ -1189,6 +1189,14 @@ class HostNode(BaseROS2DeviceNode):
 
         resource_response = http_client.resource_tree_get(uuid_list, with_children)
         response.response = json.dumps(resource_response)
+        # #region agent log
+        try:
+            import time as _t
+            with open(r"d:\Download\Uni-Lab-OS\debug-8f6ad7.log", "a", encoding="utf-8") as _f:
+                _f.write(json.dumps({"sessionId":"8f6ad7","hypothesisId":"C","location":"host_node.py:get_callback:ok","message":"resource get success","data":{"uuids":uuid_list,"nodes":len(resource_response) if isinstance(resource_response, list) else -1,"resp_len":len(response.response or "")},"timestamp":int(_t.time()*1000)}, ensure_ascii=False)+"\n")
+        except Exception:
+            pass
+        # #endregion
         self.lab_logger().trace(f"[Host Node-Resource] Resource tree get request callback {response.response}")
 
     async def _resource_tree_action_remove_callback(self, data: dict, response: SerialCommand_Response):
@@ -1277,7 +1285,21 @@ class HostNode(BaseROS2DeviceNode):
         except Exception as e:
             self.lab_logger().error(f"[Host Node-Resource] Error adding resource tree: {e}")
             self.lab_logger().error(traceback.format_exc())
-            response.response = f"ERROR: {str(e)}"
+            # get 动作必须返回可 json.loads 的列表；否则下游 JSONDecodeError 会掩盖真实错误，
+            # 且本地降级路径永远接不到「远端空结果」语义。
+            _action = locals().get("action")
+            if _action == "get":
+                response.response = "[]"
+            else:
+                response.response = f"ERROR: {str(e)}"
+            # #region agent log
+            try:
+                import time as _t
+                with open(r"d:\Download\Uni-Lab-OS\debug-8f6ad7.log", "a", encoding="utf-8") as _f:
+                    _f.write(json.dumps({"sessionId":"8f6ad7","runId":"post-fix","hypothesisId":"C","location":"host_node.py:update_callback:exc","message":"resource tree callback error handled","data":{"exc_type":type(e).__name__,"exc":str(e)[:500],"action":_action,"response_head":(response.response or "")[:200]},"timestamp":int(_t.time()*1000)}, ensure_ascii=False)+"\n")
+            except Exception:
+                pass
+            # #endregion
 
         return response
 
