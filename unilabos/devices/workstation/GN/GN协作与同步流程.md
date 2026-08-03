@@ -1,6 +1,6 @@
 # GN 工作站协作与同步流程
 
-本文档说明如何**仅提交** `unilabos/devices/workstation/GN/` 目录的改动，并通过 Pull Request 合并到团队仓库 **`lixinyu1011/Uni-Lab-OS` 的 `GN` 分支**。
+本文档说明如何**仅提交** `unilabos/devices/workstation/GN/` 目录的改动，并通过 Pull Request 合并到团队仓库 **`lixinyu1011/Uni-Lab-OS` 的 `GN-20260803` 分支**。
 
 ---
 
@@ -8,9 +8,9 @@
 
 | 角色 | 仓库 / 账号 | 说明 |
 |------|-------------|------|
-| 团队上游 | [lixinyu1011/Uni-Lab-OS](https://github.com/lixinyu1011/Uni-Lab-OS) | PR 合并目标，**base 分支 = `GN`** |
+| 团队上游 | [lixinyu1011/Uni-Lab-OS](https://github.com/lixinyu1011/Uni-Lab-OS) | PR 合并目标，**base 分支 = `GN-20260803`** |
 | 个人 Fork | [1412universe/Uni-Lab-OS](https://github.com/1412universe/Uni-Lab-OS) | 本地 push 目标 |
-| 本地工作目录 | `/Users/fenglongli/Downloads/Uni-Lab-OS` | 开发环境 |
+| 本地工作目录 | `D:\Download\Uni-Lab-OS` | 开发环境 |
 | 仅提交范围 | `unilabos/devices/workstation/GN/` | **禁止** `git add .` |
 
 ---
@@ -32,14 +32,16 @@ ssh -T git@github.com
 在仓库根目录执行：
 
 ```bash
-cd /Users/fenglongli/Downloads/Uni-Lab-OS
+cd D:\Download\Uni-Lab-OS
 
 # origin：自己的 fork（用于 push）
 git remote set-url origin git@github.com:1412universe/Uni-Lab-OS.git
 
 # upstream：团队仓库（用于 pull / PR 目标）
-git remote add upstream git@github.com:lixinyu1011/Uni-Lab-OS.git 2>/dev/null || \
-git remote set-url upstream git@github.com:lixinyu1011/Uni-Lab-OS.git
+git remote add upstream git@github.com:lixinyu1011/Uni-Lab-OS.git 2>$null
+if ($LASTEXITCODE -ne 0) {
+  git remote set-url upstream git@github.com:lixinyu1011/Uni-Lab-OS.git
+}
 
 git remote -v
 ```
@@ -54,7 +56,7 @@ upstream  git@github.com:lixinyu1011/Uni-Lab-OS.git (fetch/push)
 ### 2.3 可选：快捷命令
 
 ```bash
-git config alias.add-gn '!git add unilabos/devices/workstation/GN/'
+git config alias.add-gn "!git add unilabos/devices/workstation/GN/"
 ```
 
 之后可用 `git add-gn` 代替完整路径。
@@ -64,7 +66,7 @@ git config alias.add-gn '!git add unilabos/devices/workstation/GN/'
 ## 3. 标准开发流程（每次改动）
 
 ```text
-同步 upstream/GN
+同步 upstream/GN-20260803
     ↓
 新建功能分支 lfl/gn-xxx
     ↓
@@ -74,22 +76,25 @@ git add unilabos/devices/workstation/GN/
     ↓
 commit → push 到 origin（fork）
     ↓
-提 PR：1412universe/lfl/gn-xxx → lixinyu1011/GN
+提 PR：1412universe/lfl/gn-xxx → lixinyu1011/GN-20260803
     ↓
 Review → Merge
     ↓
-本地 GN 与 upstream/GN 同步
+本地与 upstream/GN-20260803 同步
 ```
 
-### 3.1 同步最新 GN
+### 3.1 同步最新 GN-20260803
 
 ```bash
-cd /Users/fenglongli/Downloads/Uni-Lab-OS
+cd D:\Download\Uni-Lab-OS
 
 git fetch upstream
-git checkout GN
-git reset --hard upstream/GN
+git checkout GN-20260803
+git reset --hard upstream/GN-20260803
 ```
+
+> 若本地尚未创建该分支，可先执行：
+> `git checkout -b GN-20260803 upstream/GN-20260803`
 
 ### 3.2 新建功能分支
 
@@ -99,7 +104,7 @@ git reset --hard upstream/GN
 git checkout -b lfl/gn-v1.1
 ```
 
-> **不要在 `GN` 分支上直接 commit 再 push**，应始终使用功能分支 + PR。
+> **不要在 `GN-20260803` 分支上直接 commit 再 push**，应始终使用功能分支 + PR。
 
 ### 3.3 仅暂存 GN 目录
 
@@ -146,7 +151,7 @@ git push -u origin lfl/gn-v1.1
 | 项 | 值 |
 |----|-----|
 | base repository | `lixinyu1011/Uni-Lab-OS` |
-| **base** | **`GN`**（⚠️ 不是 `main`） |
+| **base** | **`GN-20260803`**（⚠️ 不是 `main`，也不是旧的 `GN`） |
 | head repository | `1412universe/Uni-Lab-OS` |
 | compare | `lfl/gn-v1.1`（你的功能分支） |
 
@@ -157,7 +162,7 @@ git push -u origin lfl/gn-v1.1
 
 | 检查项 | 正确示例 |
 |--------|----------|
-| base 分支 | `GN` |
+| base 分支 | `GN-20260803` |
 | commit 数量 | 通常 1～数个，与本次任务相关 |
 | 改动文件 | 仅 `unilabos/devices/workstation/GN/` 下文件 |
 | 不应出现 | 612 commits、700 files（说明 base 误选为 `main`） |
@@ -178,23 +183,23 @@ git push -u origin lfl/gn-v1.1
 
 ## 5. PR 合并后：本地同步
 
-PR 被 merge 到 `lixinyu1011/GN` 后：
+PR 被 merge 到 `lixinyu1011/GN-20260803` 后：
 
 ```bash
-cd /Users/fenglongli/Downloads/Uni-Lab-OS
+cd D:\Download\Uni-Lab-OS
 
 git fetch upstream
-git checkout GN
-git reset --hard upstream/GN
+git checkout GN-20260803
+git reset --hard upstream/GN-20260803
 
 # 可选：删除已合并的本地功能分支
 git branch -d lfl/gn-v1.1
 ```
 
-若仍需在 fork 的 `origin/GN` 上保持一致：
+若仍需在 fork 的 `origin/GN-20260803` 上保持一致：
 
 ```bash
-git push origin GN
+git push origin GN-20260803
 ```
 
 ---
@@ -228,10 +233,10 @@ GitHub 已不支持账号密码 push HTTPS。改用 SSH（见 §2.1），或将 
 
 ### 7.3 PR 改动文件过多（数百 commit / 文件）
 
-**原因：** base 误选为 `main` 而非 `GN`。  
-**处理：** 关闭错误 PR，按 §4 重新创建，base 选 **`GN`**。
+**原因：** base 误选为 `main`（或旧的 `GN`）而非 `GN-20260803`。  
+**处理：** 关闭错误 PR，按 §4 重新创建，base 选 **`GN-20260803`**。
 
-### 7.4 commit 在 `GN` 上但还没 push
+### 7.4 commit 在 `GN-20260803` 上但还没 push
 
 可基于当前 commit 建分支再 push：
 
@@ -255,7 +260,9 @@ git add unilabos/devices/workstation/GN/
 
 ```bash
 # 开始新任务
-git fetch upstream && git checkout GN && git reset --hard upstream/GN
+git fetch upstream
+git checkout GN-20260803
+git reset --hard upstream/GN-20260803
 git checkout -b lfl/gn-<name>
 
 # 提交（仅 GN）
@@ -265,17 +272,19 @@ git commit -m "feat(GN): ..."
 git push -u origin lfl/gn-<name>
 
 # 合并后同步
-git fetch upstream && git checkout GN && git reset --hard upstream/GN
+git fetch upstream
+git checkout GN-20260803
+git reset --hard upstream/GN-20260803
 ```
 
 ---
 
 ## 9. 参考链接
 
-- 团队 GN 分支：https://github.com/lixinyu1011/Uni-Lab-OS/tree/GN
+- 团队协作分支：https://github.com/lixinyu1011/Uni-Lab-OS/tree/GN-20260803
 - 个人 Fork：https://github.com/1412universe/Uni-Lab-OS
-- V1.0 示例 PR：`feat(GN): V1.0` → base `GN`，1 commit，26 files
+- V1.0 示例 PR：`feat(GN): V1.0` → base `GN`（历史示例；当前请以 `GN-20260803` 为 base）
 
 ---
 
-*最后更新：2026-07-17*
+*最后更新：2026-08-03*
