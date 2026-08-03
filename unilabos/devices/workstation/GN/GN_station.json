@@ -17,6 +17,7 @@
             "parent": null,
             "type": "device",
             "class": "gn_workstation",
+            "icon": "gn_full_station_icon.webp",
             "position": {
                 "x": 0,
                 "y": 0,

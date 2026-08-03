@@ -238,6 +238,7 @@ class CentrifugeTubeLiquidHandlingDevice(GNStationClient):
             timeout = 180.0
         cmd = int(cmd_type)
         setpoints = self._build_setpoints(
+            cmd_type=cmd,
             x_pos=x_pos,
             y_pos=y_pos,
             z1_pos=z1_pos,
@@ -272,6 +273,7 @@ class CentrifugeTubeLiquidHandlingDevice(GNStationClient):
     @not_action
     def _build_setpoints(
         self,
+        cmd_type: Optional[int] = None,
         x_pos: Optional[int] = None,
         y_pos: Optional[int] = None,
         z1_pos: Optional[int] = None,
@@ -323,7 +325,15 @@ class CentrifugeTubeLiquidHandlingDevice(GNStationClient):
             "Tube_SmallGripperAngle": small_gripper_angle,
             "Tube_SmallGripperForce": small_gripper_force,
         }
-        return {node: val for node, val in mapping.items() if val is not None}
+        setpoints = {node: val for node, val in mapping.items() if val is not None}
+        # 震荡转速/时间仅 CmdType=46（模块4震荡打开）需要写入。
+        # 云端 auto-execute_command 常对全部可选参数字段填 0；若一律写入，
+        # 会在 PLC 未暴露 Shaking 节点（未进 OPC 注册表）时直接报错。
+        # 专用动作 small_gripper_open_lid / reset 等也不写这两项。
+        if cmd_type != int(TubeCommand.THERMO_MODULE4_SHAKE_OPEN):
+            setpoints.pop("Tube_ThermostaticModule4_Shaking_Speed", None)
+            setpoints.pop("Tube_ThermostaticModule4_Shaking_Time", None)
+        return setpoints
 
     # ==================== 动作函数（点位写死） ====================
 

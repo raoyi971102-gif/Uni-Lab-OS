@@ -165,7 +165,12 @@ class CentrifugeDevice(GNStationClient):
             y_speed=y_speed, z_speed=z_speed, plate_no=plate_no,
         )
         label = CENTRIFUGE_CMD_LABELS.get(cmd, f"CmdType={cmd}")
-        return self._run(cmd, label, setpoints, timeout=effective_timeout)
+        result = self._run(cmd, label, setpoints, timeout=effective_timeout)
+        # 复位完成后额外等待，再允许后续动作（PLC 机械到位缓冲）
+        if cmd == int(CentrifugeCommand.RESET) and result.get("success"):
+            logger.info("离心机复位完成，等待 10 秒后再继续后续操作...")
+            time.sleep(10)
+        return result
 
     @action(description="运行离心 (cmd 6)")
     def run(
