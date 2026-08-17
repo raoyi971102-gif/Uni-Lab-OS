@@ -972,6 +972,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             if self._wait_until_true("Add_Sample_Process_Complete", description="加样加工完成"):
                 logger.info("加样加工完成")
                 self.set_node_value("Add_Sample_Start_Process", False)  # 复位加工
+                self._wait_until_false("Add_Sample_Process_Complete", description="加样加工完成复位")
                 return {
                     "success": True,
                     "message": "加样加工完成",
@@ -984,6 +985,118 @@ class XUSEDevice(OpcUaClientWithSubscription):
             error_msg = "加样失败，未收到加样请求"
             logger.error(error_msg)
             raise ValueError(error_msg)
+
+    @action()
+    def add_powder_multiple_times(
+        self,
+        param_dir: str = "",
+        record_dir: str = "",
+        check_can_occupied: bool = True,
+    ) -> dict:
+        """按目录中的参数文件依次执行多次加粉。
+
+        仅读取 ``param_dir`` 目录第一层的 Excel(.xlsx) 文件，忽略 Office 临时文件
+        （文件名以 ``~$`` 开头），并按文件名自然排序，例如 2.xlsx 会排在 10.xlsx 前。
+        每个文件严格按以下顺序执行：
+          1) 调用 set_add_powder_params 下发该文件中的参数；
+          2) 参数实际写入后，调用 add_powder 执行一次加粉；
+          3) 当前加粉完成并复位后，再处理下一个文件。
+
+        任一文件下发或加粉失败时会立即停止，防止后续文件使用错误或残留参数继续加工。
+
+        Args:
+            param_dir[加样参数目录]: 参数文件所在目录；仅处理目录第一层的 .xlsx 文件。
+            record_dir[档案保存目录]: 每次参数下发档案的保存目录（可选；留空 = 本模块下的 records/）。
+            check_can_occupied[是否检查罐体占位]: True=每次下发和加粉前检查罐体占位；False=跳过占位检查。
+        """
+        import re
+
+        cleaned_dir = str(param_dir or "").strip().strip('"').strip("'")
+        if not cleaned_dir:
+            error_msg = "未提供加样参数目录"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        absolute_dir = os.path.abspath(os.path.expanduser(cleaned_dir))
+        if not os.path.isdir(absolute_dir):
+            error_msg = f"加样参数目录不存在或不是目录: {absolute_dir}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        def _natural_sort_key(path: str) -> tuple:
+            """生成不区分大小写的自然排序键，使数字片段按数值排序。"""
+            parts = re.split(r"(\d+)", os.path.basename(path).casefold())
+            return tuple((0, int(part)) if part.isdigit() else (1, part) for part in parts)
+
+        try:
+            with os.scandir(absolute_dir) as entries:
+                param_files = sorted(
+                    [
+                        entry.path
+                        for entry in entries
+                        if entry.is_file()
+                        and entry.name.lower().endswith(".xlsx")
+                        and not entry.name.startswith("~$")
+                    ],
+                    key=_natural_sort_key,
+                )
+        except OSError as e:
+            error_msg = f"无法读取加样参数目录 {absolute_dir}: {e}"
+            logger.error(error_msg)
+            raise ValueError(error_msg) from e
+
+        if not param_files:
+            error_msg = f"加样参数目录中没有可用的 .xlsx 文件: {absolute_dir}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        total = len(param_files)
+        results: list = []
+        logger.info(f"开始多次加粉，共发现 {total} 个参数文件: {absolute_dir}")
+
+        for index, param_file in enumerate(param_files, start=1):
+            filename = os.path.basename(param_file)
+            logger.info(f"[多次加粉 {index}/{total}] 下发参数: {filename}")
+            try:
+                params_result = self.set_add_powder_params(
+                    param_file=param_file,
+                    record_dir=record_dir,
+                    check_can_occupied=check_can_occupied,
+                )
+                written = int(params_result.get("data", {}).get("written", 0))
+                if not params_result.get("success", False) or written <= 0:
+                    raise ValueError(f"参数文件未写入任何加样参数: {filename}")
+
+                logger.info(f"[多次加粉 {index}/{total}] 执行加粉: {filename}")
+                powder_result = self.add_powder(check_can_occupied=check_can_occupied)
+                if not powder_result.get("success", False):
+                    raise ValueError(f"加粉动作返回失败: {filename}")
+
+                results.append(
+                    {
+                        "index": index,
+                        "param_file": param_file,
+                        "params": params_result,
+                        "add_powder": powder_result,
+                    }
+                )
+                logger.info(f"[多次加粉 {index}/{total}] 完成: {filename}")
+            except Exception as e:
+                error_msg = f"多次加粉在第 {index}/{total} 个文件失败（{filename}）: {e}"
+                logger.error(error_msg)
+                raise ValueError(error_msg) from e
+
+        logger.info(f"多次加粉全部完成，共处理 {total} 个参数文件")
+        return {
+            "success": True,
+            "message": f"多次加粉全部完成，共处理 {total} 个参数文件",
+            "data": {
+                "param_dir": absolute_dir,
+                "total": total,
+                "completed": len(results),
+                "results": results,
+            },
+        }
 
     
     @action()
