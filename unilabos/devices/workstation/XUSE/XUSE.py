@@ -938,12 +938,12 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
         
     @action()
-    def add_powder(self) -> dict:
+    def add_powder(self, check_can_occupied: bool = True) -> dict:
         """
         加样（加粉）—— 只触发加粉动作，不含参数下发。
 
         本动作只负责触发一次加粉：
-        - 等待罐体占位
+        - （可选）等待罐体占位
         - 等待 Add_Sample_Request_Process 上升沿
         - 触发 Add_Sample_Start_Process
         - 等待 Add_Sample_Process_Complete 后复位
@@ -951,15 +951,21 @@ class XUSEDevice(OpcUaClientWithSubscription):
         所有加样相关参数（单值参数：粉末名称/位置号/重量/震荡最高速度/粉末号；
         数组参数：1ML/500NL 的开口量/落粉均速/旋转速度/提前停止量）
         请通过 set_add_powder_params 加载 xlsx 在本动作之前下发。
+
+        Args:
+            check_can_occupied[是否检查罐体占位]: True=加粉前等待并校验罐体占位；False=跳过占位检查。
         """
-        logger.info("加粉...")
+        logger.info(f"加粉...（check_can_occupied={check_can_occupied}）")
 
-        if not self._wait_condition(lambda: self.is_add_sample_occupied()):
-            error_msg = "没有罐体，无法加粉"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
+        if check_can_occupied:
+            if not self._wait_condition(lambda: self.is_add_sample_occupied()):
+                error_msg = "没有罐体，无法加粉"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+            logger.info("有罐体，开始加粉...")
+        else:
+            logger.info("跳过罐体占位检查，直接开始加粉...")
 
-        logger.info("有罐体，开始加粉...")
         if self._wait_until_true("Add_Sample_Request_Process", description="加样请求加工"):
             logger.info("接收到加样请求加工")
             self.set_node_value("Add_Sample_Start_Process", True)  # 开始加工
@@ -2202,7 +2208,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
 
         self._wait_until_true("Robotic_Arm_Idle_2", description="等待机械臂2空闲")
         
-        if self.get_small_crucible_discharge_current_position() != SmallCrucibleDischargePosition.FEEDING:
+        if self.get_small_crucible_discharge_current_position() != SmallCrucibleDischargePosition.FEEDIFNG:
             error_msg = f"当前小坩锅搬运位置不是放料位，无法放到搬运位置"
             logger.error(error_msg)
             raise ValueError(error_msg)
@@ -2329,18 +2335,13 @@ class XUSEDevice(OpcUaClientWithSubscription):
     def small_crucible_discharge(self) -> dict:
         """
         小坩锅出料
-        - 检查搬运位置在放料位
         - 检查 4 个出料占位都为 True
         - 设置出料操作
         - 等待出料完成
         - 返回成功
         """
         logger.info("小坩埚出料")
-        if self.get_small_crucible_discharge_current_position() != SmallCrucibleDischargePosition.FEEDING:
-            error_msg = f"当前小坩埚搬运位置不是放料位，无法出料"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
-        
+
         if not self._wait_condition(lambda: all(self.is_small_crucible_discharge_occupied(i) for i in (1, 2, 3, 4))):
             unoccupied = [i for i in (1, 2, 3, 4) if not self.is_small_crucible_discharge_occupied(i)]
             error_msg = f"小坩埚出料占位 {unoccupied} 未占位，无法出料"
@@ -2378,11 +2379,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         - 返回成功
         """
         logger.info("小坩埚上料")
-        if self.get_small_crucible_discharge_current_position() != SmallCrucibleDischargePosition.DISCHARGE:
-            error_msg = f"当前小坩锅搬运位置不是出料位，无法上料"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
-        
+
         self.set_node_value("Small_Crucible_Discharge_Target_Position_Code", SmallCrucibleDischargePosition.FEEDING) # 设置上料位置
         self.set_node_value("Small_Crucible_Discharge_Action_Trigger", False)  # 上升沿: 先复位
         time.sleep(0.5)
@@ -2414,11 +2411,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         - 返回成功
         """
         logger.info("大坩埚出料")
-        if self.get_large_crucible_feed_current_position() != LargeCrucibleFeedPosition.PICKING:
-            error_msg = "当前大坩埚搬运位置不是取料位，无法出料"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
-        
+
         self.set_node_value("Large_Crucible_Feed_Target_Position_Code", LargeCrucibleFeedPosition.FEEDING) # 设置出料位置
         self.set_node_value("Large_Crucible_Feed_Action_Trigger", False)  # 上升沿: 先复位
         time.sleep(0.5)
@@ -2450,11 +2443,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         - 返回成功
         """
         logger.info("大坩埚上料")
-        if self.get_large_crucible_feed_current_position() != LargeCrucibleFeedPosition.FEEDING:
-            error_msg = f"当前大坩锅搬运位置不是入料位，无法上料"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
-        
+
         self.set_node_value("Large_Crucible_Feed_Target_Position_Code", LargeCrucibleFeedPosition.PICKING) # 设置取料位置
         self.set_node_value("Large_Crucible_Feed_Action_Trigger", False)  # 上升沿: 先复位
         time.sleep(0.5)
@@ -3202,6 +3191,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         self,
         param_file: str = "",
         record_dir: str = "",
+        check_can_occupied: bool = True,
     ) -> dict:
         """
         设置加样参数（一次性从 xlsx 下发所有参数）。
@@ -3223,7 +3213,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
 
         前置等待（与 add_powder 保持一致）：
           - xlsx 中存在任一非空参数时，在首次实际写入 OPC 之前，会先：
-            1) 等待罐体占位（is_add_sample_occupied，3s 超时；未占位则抛错）
+            1) （可选）等待罐体占位（is_add_sample_occupied；未占位则抛错）
             2) 等待 Add_Sample_Request_Process = True（无超时）
           - 全部参数为空 → 不做前置等待，直接返回。
 
@@ -3235,6 +3225,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         Args:
             param_file[加样参数文件]: 加样参数 Excel(.xlsx) 文件绝对路径（留空 = 不下发任何参数）。
             record_dir[档案保存目录]: 本次下发档案 xlsx 的保存目录（可选; 留空 = 本模块下的 records/）。
+            check_can_occupied[是否检查罐体占位]: True=下发前等待并校验罐体占位；False=跳过占位检查。
         """
         import re
         import openpyxl
@@ -3297,14 +3288,17 @@ class XUSEDevice(OpcUaClientWithSubscription):
                         return True
             return False
 
-        # ---- 前置等待：与 add_powder 一致（占位 + Add_Sample_Request_Process）----
+        # ---- 前置等待：与 add_powder 一致（可选占位 + Add_Sample_Request_Process）----
         # 只在 xlsx 有实际要下发的参数时执行；全空 xlsx 直接跳过等待。
         if _has_any_nonempty_target():
-            logger.info("加样参数下发前置：等待罐体占位 + 加样请求加工...")
-            if not self._wait_condition(lambda: self.is_add_sample_occupied()):
-                error_msg = "没有罐体，无法下发加样参数"
-                logger.error(error_msg)
-                raise ValueError(error_msg)
+            if check_can_occupied:
+                logger.info("加样参数下发前置：等待罐体占位 + 加样请求加工...")
+                if not self._wait_condition(lambda: self.is_add_sample_occupied()):
+                    error_msg = "没有罐体，无法下发加样参数"
+                    logger.error(error_msg)
+                    raise ValueError(error_msg)
+            else:
+                logger.info("加样参数下发前置：跳过罐体占位检查，等待加样请求加工...")
             self._wait_until_true("Add_Sample_Request_Process", description="加样请求加工")
             logger.info("已收到加样请求加工，开始下发参数")
         else:
