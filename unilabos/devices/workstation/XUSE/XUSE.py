@@ -3120,7 +3120,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
         """
         设置马弗炉烧结参数（6 台分别设置）。
 
-        从 Excel 参数文件读取并下发到各马弗炉写节点 马弗炉_写[N].<参数名>。
+        从 Excel 参数文件读取，将所有非空参数值乘以 100 后，下发到各马弗炉写节点
+        马弗炉_写[N].<参数名>。
         Excel 含若干 sheet，每个 sheet 对应一台马弗炉（sheet 名中的数字 1~6 即炉号）；
         每个 sheet 两列：第一列"参数名"，第二列"参数值"，首行为表头；参数值为空的行会被跳过。
         参数名需与节点字段一致（见 templates/马弗炉参数模板.xlsx）。
@@ -3129,6 +3130,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             param_file[马弗炉参数文件]: 马弗炉参数 Excel(.xlsx) 文件路径，含 6 个 sheet 分别设置 6 台马弗炉。
         """
         import re
+        from decimal import Decimal
         import openpyxl
 
         if param_file:
@@ -3170,7 +3172,12 @@ class XUSEDevice(OpcUaClientWithSubscription):
                     continue  # 参数值为空则跳过该参数
                 node_name = f"马弗炉_写[{furnace_idx}].{param_name}"
                 try:
-                    if self.set_node_value(node_name, int(float(value))):
+                    scaled_value = int(Decimal(str(value).strip()) * 100)
+                    logger.info(
+                        f"[马弗炉参数下发] 写入 {node_name} = {scaled_value} "
+                        f"(Excel 原始值={value!r}, 已乘以 100)"
+                    )
+                    if self.set_node_value(node_name, scaled_value):
                         written += 1
                     else:
                         errors.append(f"{node_name} 写入失败")
