@@ -158,7 +158,7 @@ class BaseOpcUaClient(UniversalDriver):
         
         返回: (节点列表, 英文到中文映射, 中文到英文映射)
         """
-        df = pd.read_csv(file_path)
+        df = pd.read_csv(file_path, encoding="utf-8-sig")
         df = df.drop_duplicates(subset='Name', keep='first')
         nodes = []
         

@@ -4,9 +4,10 @@ AI4C 设备驱动
 """
 
 import json
+import re
 import time
 import traceback
-from typing import Optional
+from typing import Optional, Sequence
 import os
 import threading
 
@@ -68,6 +69,12 @@ MAX_SOLID_WEIGHING_STACK_POSITION = 25
 # 最大和最小的移液站板位
 MIN_PIPETTING_STATION_POSITION = 1
 MAX_PIPETTING_STATION_POSITION = 16
+
+# 固体称量槽位区间写法，例如 "1-8"
+_SOLID_WEIGHING_SLOT_RANGE_RE = re.compile(r"^(\d+)\s*-\s*(\d+)$")
+
+# OPC UA「固体称量克数 / 误差」寄存器的单位：写入的整数 1 = 0.1 mg
+SOLID_WEIGHING_WEIGHT_UNIT_MG = 0.1
 
 
 # 定义 AI4C 设备通信类
@@ -441,7 +448,8 @@ class AI4CDevice(OpcUaClientWithSubscription):
             logger.error(f"移液站板位错误，必须在范围[{MIN_PIPETTING_STATION_POSITION}, {MAX_PIPETTING_STATION_POSITION}]内")
             return False
 
-        nodeId = f"Pipetting_Station_Occupied[{position}]"
+        # 机械臂板位 1-16，对应 PLC 数组下标 0-15
+        nodeId = f"Pipetting_Station_Occupied[{position - 1}]"
         return self.get_node_value(nodeId)
 
     @not_action
@@ -1323,25 +1331,168 @@ class AI4CDevice(OpcUaClientWithSubscription):
         else:
             raise ValueError("固态称重门关闭失败")
         
+    @not_action
+    def _normalize_int_sequence(self, value, name: str) -> list[int]:
+        """将单个整数或整数列表规范化为非空 list[int]。"""
+        if value is None:
+            raise ValueError(f"{name} 不能为空")
+        if isinstance(value, bytes):
+            raise ValueError(f"{name} 必须是整数或整数列表")
+        if isinstance(value, str):
+            text = value.strip().replace("，", ",")
+            if not text:
+                raise ValueError(f"{name} 不能为空")
+            parts = [part.strip() for part in text.replace(" ", ",").split(",") if part.strip()]
+            if not parts:
+                raise ValueError(f"{name} 不能为空")
+            try:
+                return [int(part) for part in parts]
+            except ValueError as e:
+                raise ValueError(f"{name} 必须是整数或整数列表") from e
+        if isinstance(value, Sequence):
+            if len(value) == 0:
+                raise ValueError(f"{name} 列表不能为空")
+            try:
+                return [int(item) for item in value]
+            except (TypeError, ValueError) as e:
+                raise ValueError(f"{name} 必须是整数或整数列表") from e
+        try:
+            return [int(value)]
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"{name} 必须是整数或整数列表") from e
+
+    @not_action
+    def _expand_slot_token(self, token) -> list[int]:
+        """解析单个槽位 token：整数，或 'x-y' 闭区间。"""
+        if isinstance(token, bool):
+            raise ValueError("称量槽位不能为布尔值")
+        if isinstance(token, (int, float)):
+            return [int(token)]
+        text = str(token).strip()
+        if not text:
+            return []
+        matched = _SOLID_WEIGHING_SLOT_RANGE_RE.match(text)
+        if matched:
+            start, end = int(matched.group(1)), int(matched.group(2))
+            step = 1 if end >= start else -1
+            return list(range(start, end + step, step))
+        try:
+            return [int(text)]
+        except ValueError as e:
+            raise ValueError(f"无法解析称量槽位 '{text}'，请使用整数或 x-y 区间") from e
+
+    @not_action
+    def _flatten_slot_tokens(self, value) -> list:
+        """把槽位入参展开成 token 列表，支持 '1-3, 5' 和嵌套列表。"""
+        if value is None:
+            raise ValueError("称量槽位不能为空")
+        if isinstance(value, (bytes, bool)):
+            raise ValueError("称量槽位必须是整数、区间字符串或列表")
+        if isinstance(value, (int, float)):
+            return [int(value)]
+        if isinstance(value, str):
+            parts = [part.strip() for part in value.replace("，", ",").split(",") if part.strip()]
+            if not parts:
+                raise ValueError("称量槽位不能为空")
+            return parts
+        if isinstance(value, Sequence):
+            tokens = []
+            for item in value:
+                tokens.extend(self._flatten_slot_tokens(item))
+            if not tokens:
+                raise ValueError("称量槽位列表不能为空")
+            return tokens
+        raise ValueError("称量槽位必须是整数、区间字符串或列表")
+
+    @not_action
+    def _parse_slot_spec(self, value) -> list[int]:
+        """解析称量槽位。支持 1、[1, 3]、'1-3, 5'（1 到 3，再加 5）。"""
+        slots: list[int] = []
+        seen: set[int] = set()
+        for token in self._flatten_slot_tokens(value):
+            for slot in self._expand_slot_token(token):
+                if slot in seen:
+                    continue
+                seen.add(slot)
+                slots.append(slot)
+        if not slots:
+            raise ValueError("称量槽位不能为空")
+        return slots
+
+    @not_action
+    def _align_solid_weighing_doses(
+        self,
+        weights: list[int],
+        tolerances: list[int],
+        slots: list[int],
+    ) -> list[tuple[int, int, int]]:
+        """按最长列表对齐质量/误差/槽位；长度为 1 的参数广播到全部加样。"""
+        total = max(len(weights), len(tolerances), len(slots))
+
+        def align(seq: list[int], name: str) -> list[int]:
+            if len(seq) == total:
+                return seq
+            if len(seq) == 1:
+                return seq * total
+            raise ValueError(
+                f"固体称量参数长度不一致：质量 {len(weights)}、误差 {len(tolerances)}、槽位 {len(slots)}。"
+                f"{name} 必须与最长列表等长，或只填 1 个值以应用到全部加样。"
+            )
+
+        aligned_weights = align(weights, "质量")
+        aligned_tolerances = align(tolerances, "误差")
+        aligned_slots = align(slots, "槽位")
+        return list(zip(aligned_weights, aligned_tolerances, aligned_slots))
+
+    @not_action
+    def _execute_one_solid_weighing(
+        self,
+        weight_raw: int,
+        tolerance: int,
+        slot: int,
+        index: int,
+        total: int,
+    ) -> None:
+        """下发一组固体称量参数并等待本轮加工完成。
+
+        对外与 OPC UA 写入值均为 0.1 mg 整数（1 = 0.1 mg），不做换算。
+        """
+        weight_mg = weight_raw * SOLID_WEIGHING_WEIGHT_UNIT_MG
+        logger.info(
+            f"固体称量第 {index}/{total} 次：质量={weight_raw} (0.1mg) = {weight_mg} mg，"
+            f"误差={tolerance} (0.1mg)，槽位={slot}"
+        )
+        self.set_node_value("Solid_Weighing_Weight_in_Grams", weight_raw)
+        self.set_node_value("Solid_Weighing_Error", tolerance)
+        self.set_node_value("Solid_Weighing_Slot_Position", slot)
+        self.set_node_value("Solid_Weighing_Processing_Allowed", True)
+        desc = f"固体称重第 {index}/{total} 次完成"
+        if not self._wait_until_true("Solid_Weighing_Processing_Complete", description=desc):
+            raise ValueError(f"固体称重第 {index}/{total} 次失败，动作超时")
+        self.set_node_value("Solid_Weighing_Processing_Allowed", False)
+        if not self._wait_until_false("Solid_Weighing_Processing_Complete", description=desc):
+            raise ValueError(f"固体称重第 {index}/{total} 次失败，完成复位超时")
+        logger.info(f"固体称量第 {index}/{total} 次完成")
+
     @action(
         auto_prefix=True,
-        description="步骤8：触发固体称量",
+        description="步骤8：触发固体称量（支持同一节点连续多次加样）",
         handles=[
             ActionInputHandle(
-                key="solid_weighing_gram",
-                data_type="ai4c_solid_weighing_gram",
-                label="称重目标值",
-                data_key="gram",
+                key="solid_weighing_weight",
+                data_type="ai4c_solid_weighing_weight",
+                label="称重目标值(0.1mg)",
+                data_key="weight",
                 data_source=DataSource.HANDLE,
-                description="固体称量目标值",
+                description="固体称量目标质量，单位 0.1mg。填 10 表示 1.0 mg；多次填 10,15",
             ),
             ActionInputHandle(
                 key="solid_weighing_tolerance",
                 data_type="ai4c_solid_weighing_tolerance",
-                label="称重误差",
+                label="称重误差(0.1mg)",
                 data_key="tolerance",
                 data_source=DataSource.HANDLE,
-                description="固体称量允许误差",
+                description="固体称量允许误差，单位 0.1mg。单个值填 1，多次填 1,1",
             ),
             ActionInputHandle(
                 key="solid_weighing_slot",
@@ -1349,50 +1500,69 @@ class AI4CDevice(OpcUaClientWithSubscription):
                 label="称量槽位",
                 data_key="slot",
                 data_source=DataSource.HANDLE,
-                description="固体称量槽位",
+                description="固体称量槽位。支持 1、1-8 或 1-8,10（从 1 到 8，再加 10）",
             ),
         ],
     )
-    def trigger_solid_weighing(self, gram: int = 10, tolerance: int = 1, slot: int = 1) -> dict:
+    def trigger_solid_weighing(
+        self,
+        weight: str = "10",
+        tolerance: str = "1",
+        slot: str = "1",
+    ) -> dict:
         """
-        触发固体称重：
+        触发固体称重，支持一个动作节点连续多次加样：
         - 检查固态称重是否已占位
         - 检查固态称重粉桶位置已占位
-        - 设置固体称重参数
-        - 触发固体称重
-        - 等待固体称重完成
+        - 按顺序对每组（质量、误差、槽位）下发参数并等待完成
         - 返回成功
 
+        质量单位为 0.1 mg（写入 OPC UA 的整数 1 = 0.1 mg，填 10 即 1.0 mg）。
+        参数使用字符串，以便节点面板正确渲染。
+        单次加样：weight="10", slot="1"。
+        连续穴位：slot="1-8,10" 表示 1 到 8，再加 10。
+        多次不同质量：weight="10,15", slot="1,2"。
+        某一项只填单个值时，会广播到全部加样次数。
+
         Args:
-            gram (int): 称重目标值
-            tolerance (int): 称重误差
-            slot (int): 称重器位置
+            weight[称重目标值(0.1mg)]: 称重目标质量，单位 0.1mg。例如 10（=1.0 mg）或 10,15。
+            tolerance[称重误差(0.1mg)]: 称重允许误差，单位 0.1mg。例如 1 或 1,1。
+            slot[称量槽位]: 称重器穴位。支持 1、1-8 或 1-8,10。
 
         Returns:
             dict: 包含 success 和 message
         """
-        logger.info("触发固体称重...")
+        weights = self._normalize_int_sequence(weight, "称重目标值(0.1mg)")
+        tolerances = self._normalize_int_sequence(tolerance, "称重误差(0.1mg)")
+        slots = self._parse_slot_spec(slot)
+        doses = self._align_solid_weighing_doses(weights, tolerances, slots)
+        total = len(doses)
+
+        logger.info(f"触发固体称重，共 {total} 次加样：{doses}")
         self._wait_occupancy(lambda: self.is_solid_weighing_occupied(), True, "固态称重位置没有孔板")
+        self._wait_occupancy(
+            lambda: self.is_powder_position_in_solid_weighing_occupied(),
+            True,
+            "固态称重位置没有粉桶",
+        )
 
-        self._wait_occupancy(lambda: self.is_powder_position_in_solid_weighing_occupied(), True, "固态称重位置没有粉桶")
+        for index, (dose_weight, dose_tolerance, dose_slot) in enumerate(doses, start=1):
+            self._execute_one_solid_weighing(dose_weight, dose_tolerance, dose_slot, index, total)
 
-        self.set_node_value("Solid_Weighing_Weight_in_Grams", gram) # 设置称重目标值
-        self.set_node_value("Solid_Weighing_Error", tolerance) # 设置称重误差
-        self.set_node_value("Solid_Weighing_Slot_Position", slot) # 设置称重器穴位
-        self.set_node_value("Solid_Weighing_Processing_Allowed", True) # 设置允许加工
-        # 等待加工完成
-        if self._wait_until_true("Solid_Weighing_Processing_Complete", description="固体称重完成"):
-            self.set_node_value("Solid_Weighing_Processing_Allowed", False) # 复位允许加工
-            if (self._wait_until_false("Solid_Weighing_Processing_Complete", description="固体称重完成")):
-                logger.info("固体称重完成")
-                return {
-                    "success": True,
-                    "message": "固体称重完成",
+        return {
+            "success": True,
+            "message": f"固体称重完成，共 {total} 次加样",
+            "count": total,
+            "doses": [
+                {
+                    "weight": w,
+                    "weight_mg": w * SOLID_WEIGHING_WEIGHT_UNIT_MG,
+                    "tolerance": t,
+                    "slot": s,
                 }
-            else:
-                raise ValueError("固体称重失败，完成复位超时")
-        else:
-            raise ValueError("固体称重失败，动作超时")
+                for w, t, s in doses
+            ],
+        }
         
     @action(
         auto_prefix=True,
@@ -1940,7 +2110,7 @@ class AI4CDevice(OpcUaClientWithSubscription):
 if __name__ == '__main__':
     # 调试用法
     A4 = AI4CDevice(
-        url="opc.tcp://jdht1471820.bohrium.tech:50003",
+        url="opc.tcp://192.168.1.88:4840",
         csv_path=os.path.dirname(os.path.abspath(__file__)) + "/ai4c_sim_updated.csv"
     )
 
@@ -1997,7 +2167,7 @@ if __name__ == '__main__':
         print("13 放置孔板到HPLC")
         print("14 从HPLC抓取孔板")
         print("15 放置孔板到下料架")
-        print("16 进行固态称量")
+        print("16 进行固态称量  （单位 0.1mg，示例：16 10 1 1  或  16 10 1 1-3,5）")
         print("17 进行磁力搅拌")
         print("18 进行移液动作")
         print("19 进行HPLC动作")
@@ -2048,10 +2218,11 @@ if __name__ == '__main__':
                 rack_pos = int(choice.split(" ")[1])
                 A4.place_well_plate_to_unloading_rack(rack_pos)
             elif choice.startswith("16 "):
-                gram = int(choice.split(" ")[1])
-                tolerance = int(choice.split(" ")[2])
-                slot = int(choice.split(" ")[3])
-                A4.trigger_solid_weighing(gram, tolerance, slot)
+                parts = choice.split(" ")
+                weight = parts[1]
+                tolerance = parts[2]
+                slot = " ".join(parts[3:])
+                A4.trigger_solid_weighing(weight, tolerance, slot)
             elif choice.startswith("17 "):
                 speed = int(choice.split(" ")[1])
                 temperature = int(choice.split(" ")[2])

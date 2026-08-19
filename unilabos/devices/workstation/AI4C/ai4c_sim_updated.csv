@@ -105,6 +105,7 @@ HPLC加工完成,HPLC_Processing_Complete,VARIABLE,BOOLEAN,Chinese,ns=4;s=UniLab
 固体粉末仪开门完成,Solid_Weighing_Open_Door_Complete,VARIABLE,BOOLEAN,Chinese,ns=4;s=UniLab|固体粉末仪开门完成
 固体粉末仪关门完成,Solid_Weighing_Close_Door_Complete,VARIABLE,BOOLEAN,Chinese,ns=4;s=UniLab|固体粉末仪关门完成
 心跳,Heart_Beat,VARIABLE,BOOLEAN,Chinese,ns=4;s=UniLab|心跳
+移液站占位[0],Pipetting_Station_Occupied[0],VARIABLE,BOOLEAN,Chinese,ns=4;s=UniLab|移液站占位[0]
 移液站占位[1],Pipetting_Station_Occupied[1],VARIABLE,BOOLEAN,Chinese,ns=4;s=UniLab|移液站占位[1]
 移液站占位[2],Pipetting_Station_Occupied[2],VARIABLE,BOOLEAN,Chinese,ns=4;s=UniLab|移液站占位[2]
 移液站占位[3],Pipetting_Station_Occupied[3],VARIABLE,BOOLEAN,Chinese,ns=4;s=UniLab|移液站占位[3]
@@ -120,4 +121,3 @@ HPLC加工完成,HPLC_Processing_Complete,VARIABLE,BOOLEAN,Chinese,ns=4;s=UniLab
 移液站占位[13],Pipetting_Station_Occupied[13],VARIABLE,BOOLEAN,Chinese,ns=4;s=UniLab|移液站占位[13]
 移液站占位[14],Pipetting_Station_Occupied[14],VARIABLE,BOOLEAN,Chinese,ns=4;s=UniLab|移液站占位[14]
 移液站占位[15],Pipetting_Station_Occupied[15],VARIABLE,BOOLEAN,Chinese,ns=4;s=UniLab|移液站占位[15]
-移液站占位[16],Pipetting_Station_Occupied[16],VARIABLE,BOOLEAN,Chinese,ns=4;s=UniLab|移液站占位[16]
