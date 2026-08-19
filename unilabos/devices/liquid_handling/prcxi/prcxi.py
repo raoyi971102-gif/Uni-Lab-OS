@@ -2679,7 +2679,7 @@ class PRCXI9300Backend(LiquidHandlerBackend):
 class PRCXI9300Api:
     def __init__(
         self,
-        host: str = "127.0.0.1",
+        host: str = "192.168.1.111",
         port: int = 9999,
         timeout: float = 10.0,
         axis="Left",

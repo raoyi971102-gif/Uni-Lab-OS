@@ -121,7 +121,7 @@
                     "_resource_type": "unilabos.devices.liquid_handling.prcxi.prcxi:PRCXI9300Deck",
                     "_resource_child_name": "PRCXI_Deck"
                 },
-                "host": "192.168.1.123",
+                "host": "192.168.1.111",
                 "port": 9999,
                 "debug": false,
                 "setup": true,
