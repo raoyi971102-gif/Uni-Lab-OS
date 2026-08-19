@@ -4,6 +4,7 @@ import json
 import threading
 import time
 import traceback
+import uuid as uuid_module
 
 from unilabos.utils.tools import fast_dumps_str as _fast_dumps_str, fast_loads as _fast_loads
 from typing import (
@@ -36,7 +37,12 @@ from unilabos_msgs.action import SendCmd
 from unilabos_msgs.srv._serial_command import SerialCommand_Request, SerialCommand_Response
 
 from unilabos.config.config import BasicConfig
-from unilabos.registry.decorators import get_topic_config
+from unilabos.registry.decorators import (
+    get_action_error_policy,
+    get_action_timeout,
+    get_topic_config,
+    is_exception_handling_enabled,
+)
 from unilabos.utils.decorator import get_all_subscriptions
 
 from unilabos.resources.container import RegularContainer
@@ -74,6 +80,12 @@ from rclpy.task import Task, Future
 from unilabos.utils.import_manager import default_manager
 from unilabos.utils.log import info, debug, warning, error, critical, logger, trace
 from unilabos.utils.type_check import get_type_class, TypeEncoder, get_result_info_str
+from unilabos.utils.action_decision import PendingDecisionRegistry, SkippedActionResult, run_action_with_decisions
+from unilabos.utils.exception import (
+    DeviceActionError,
+    DeviceException,
+    apply_builtin_error_policy_to_alarm,
+)
 
 if TYPE_CHECKING:
     from pylabrobot.resources import Resource as ResourcePLR
@@ -414,6 +426,9 @@ class BaseROS2DeviceNode(Node, Generic[T]):
         self._action_value_mappings = action_value_mappings
         self._hardware_interface = hardware_interface
         self._print_publish = print_publish
+        self._decision_registry = PendingDecisionRegistry()
+        self._job_task_ids: Dict[str, str] = {}
+        self._job_task_ids_lock = threading.Lock()
 
         # 创建属性发布者
         for attr_name, msg_type in self._status_types.items():
@@ -1555,6 +1570,224 @@ class BaseROS2DeviceNode(Node, Generic[T]):
             obj = getattr(instance, attr_name)
             return obj, get_type_hints(obj)
 
+    def register_job_context(self, task_id: str, job_id: str) -> None:
+        """记录 ROS goal UUID 对应的任务，供异常 alarm 建立稳定关联。"""
+
+        if not task_id or not job_id:
+            return
+        with self._job_task_ids_lock:
+            self._job_task_ids[job_id] = task_id
+
+    def _take_job_context(self, goal_handle: ServerGoalHandle) -> Tuple[str, str]:
+        """从 ROS goal UUID 还原 job_id，并一次性取出 task_id。"""
+
+        try:
+            job_id = str(uuid_module.UUID(bytes=bytes(goal_handle.goal_id.uuid)))
+        except (AttributeError, TypeError, ValueError):
+            self.lab_logger().warning("无法从 ROS goal 提取 job_id，异常处理将无法启用")
+            return "", ""
+        with self._job_task_ids_lock:
+            task_id = self._job_task_ids.pop(job_id, "")
+        return task_id, job_id
+
+    def _get_ws_client(self):
+        from unilabos.app.communication import CommunicationClientFactory
+
+        return CommunicationClientFactory.get_client()
+
+    async def _publish_and_wait_for_decision(
+        self,
+        *,
+        alarm_data: dict,
+        task_id: str,
+        job_id: str,
+        timeout: Optional[float] = None,
+        default_action: str = "abort",
+    ) -> dict:
+        """上报异常并等待首个有效决策；暂不作为设备驱动公开 API。"""
+
+        client = self._get_ws_client()
+
+        def publish() -> None:
+            if not client.publish_device_exception_alarm(alarm_data):
+                raise ConnectionError("设备异常上报失败：WebSocket 未连接")
+
+        def report_timeout_decision(decision: dict) -> None:
+            reported = client.publish_device_exception_decision_applied(
+                {
+                    "task_id": task_id,
+                    "job_id": job_id,
+                    "device_id": self.device_id,
+                    "action": decision["action"],
+                    "reason": decision["reason"],
+                }
+            )
+            if not reported:
+                self.lab_logger().warning(
+                    f"动作 {alarm_data.get('action_name', '')} 的超时默认决策未能同步到 Backend"
+                )
+
+        return await self._decision_registry.publish_and_wait(
+            task_id=task_id,
+            job_id=job_id,
+            device_id=self.device_id,
+            publish=publish,
+            timeout=timeout,
+            default_action=default_action,
+            on_timeout=report_timeout_decision,
+        )
+
+    def handle_device_exception_decision(
+        self,
+        *,
+        task_id: str,
+        job_id: str,
+        device_id: str,
+        decision: dict,
+    ) -> bool:
+        """由通信层投递 Backend 返回的异常处理决策。"""
+
+        return self._decision_registry.resolve(
+            task_id=task_id,
+            job_id=job_id,
+            device_id=device_id,
+            decision=decision,
+        )
+
+    async def _run_action_with_decision_loop(
+        self,
+        *,
+        action_func,
+        action_name: str,
+        task_id: str,
+        job_id: str,
+        action_kwargs: dict,
+        max_iterations: int = 10,
+        error_policy: Optional[Dict[str, Any]] = None,
+    ) -> Any:
+        """执行 Action，并仅处理框架内置的 retry / skip / abort。"""
+
+        if not task_id or not job_id:
+            raise RuntimeError(f"动作 {action_name} 缺少 task_id 或 job_id，无法进入异常决策回环")
+
+        policy = error_policy or {}
+        max_retries = policy.get("max_retries")
+        decision_timeout = policy.get("decision_timeout_seconds")
+        default_on_timeout = policy.get("default_on_decision_timeout", "abort")
+
+        async def invoke():
+            return await action_func(**action_kwargs)
+
+        async def decide(exc: Exception, can_retry: bool) -> dict:
+            traceback_text = "".join(
+                traceback.format_exception(type(exc), exc, exc.__traceback__)
+            )
+            if isinstance(exc, DeviceException):
+                alarm_data = exc.to_alarm_dict(
+                    device_id=self.device_id,
+                    device_uuid=self.uuid,
+                    action_name=action_name,
+                    task_id=task_id,
+                    job_id=job_id,
+                    traceback_text=traceback_text,
+                )
+            else:
+                actions = DeviceException(str(exc)).suggested_actions
+                alarm_data = {
+                    "device_id": self.device_id,
+                    "device_uuid": self.uuid,
+                    "action_name": action_name,
+                    "task_id": task_id,
+                    "job_id": job_id,
+                    "exception_type": type(exc).__name__,
+                    "category": "unknown",
+                    "severity": "error",
+                    "error_message": f"{type(exc).__name__}: {exc}",
+                    "suggested_actions": [
+                        {
+                            "action": action.action,
+                            "label": action.label,
+                            "description": action.description,
+                        }
+                        for action in actions
+                    ],
+                    "device_snapshot": {},
+                    "traceback": traceback_text,
+                    "require_confirmation": True,
+                }
+
+            alarm_data = apply_builtin_error_policy_to_alarm(alarm_data, error_policy)
+            if not can_retry:
+                max_attempts = max_iterations if max_retries is None else max_retries + 1
+                alarm_data = dict(alarm_data)
+                alarm_data["suggested_actions"] = [
+                    item
+                    for item in alarm_data.get("suggested_actions", [])
+                    if item.get("action") != "retry"
+                ]
+                exhaustion_message = f"达到最大尝试次数（共 {max_attempts} 次）"
+                error_message = alarm_data.get("error_message", "")
+                alarm_data["error_message"] = (
+                    f"{error_message}\n{exhaustion_message}" if error_message else exhaustion_message
+                )
+
+            self.lab_logger().error(f"动作 {action_name} 抛出 {type(exc).__name__}: {exc}")
+            wait_kwargs = {
+                "alarm_data": alarm_data,
+                "task_id": task_id,
+                "job_id": job_id,
+            }
+            if decision_timeout is not None:
+                wait_kwargs["timeout"] = decision_timeout
+                wait_kwargs["default_action"] = default_on_timeout
+            return await self._publish_and_wait_for_decision(
+                **wait_kwargs,
+            )
+
+        return await run_action_with_decisions(
+            invoke=invoke,
+            decide=decide,
+            max_iterations=max_iterations,
+            max_retries=max_retries,
+        )
+
+    async def _invoke_action(self, action_func, action_kwargs: dict) -> Any:
+        """在标准 asyncio loop 中统一执行同步或异步 Action。"""
+
+        if asyncio.iscoroutinefunction(action_func):
+            return await action_func(**action_kwargs)
+
+        loop = asyncio.get_running_loop()
+        pending = loop.run_in_executor(self._executor, lambda: action_func(**action_kwargs))
+        timeout = get_action_timeout(action_func)
+        if timeout is None:
+            return await pending
+        try:
+            return await asyncio.wait_for(pending, timeout=timeout)
+        except asyncio.TimeoutError as exc:
+            from unilabos.utils.exception import TimeoutException
+
+            raise TimeoutException(
+                f"动作 {action_func.__name__} 执行超时 (>{timeout}s)",
+                cause=exc,
+            ) from exc
+
+    async def _await_threadsafe_future(self, future) -> Any:
+        """让 rclpy Task 等待标准 asyncio loop 中的 concurrent Future。"""
+
+        wake_future = Future()
+
+        def wake(_):
+            async def set_wake_result():
+                if not wake_future.done():
+                    wake_future.set_result(None)
+
+            rclpy.get_global_executor().create_task(set_wake_result())
+
+        future.add_done_callback(wake)
+        await wake_future
+        return future.result()
+
     def _create_execute_callback(self, action_name, action_value_mapping):
         """创建动作执行回调函数"""
 
@@ -1563,6 +1796,7 @@ class BaseROS2DeviceNode(Node, Generic[T]):
             execution_error = ""
             execution_success = False
             action_return_value = None
+            task_id, job_id = self._take_job_context(goal_handle)
 
             #####    self.lab_logger().info(f"执行动作: {action_name}")
             goal = goal_handle.request
@@ -1659,7 +1893,42 @@ class BaseROS2DeviceNode(Node, Generic[T]):
             time_start = time.time()
             time_overall = 100
             future = None
-            if not error_skip:
+            use_exception_handling = (
+                not error_skip
+                and is_exception_handling_enabled(ACTION)
+                and bool(task_id)
+                and bool(job_id)
+            )
+            if use_exception_handling:
+                target_loop = ROS2DeviceNode.get_asyncio_loop()
+                if target_loop is None or not target_loop.is_running():
+                    execution_error = "设备异常处理 asyncio loop 未运行"
+                    self.lab_logger().error(execution_error)
+                else:
+                    future = asyncio.run_coroutine_threadsafe(
+                        self._run_action_with_decision_loop(
+                            action_func=lambda **kwargs: self._invoke_action(ACTION, kwargs),
+                            action_name=ACTION.__name__,
+                            task_id=task_id,
+                            job_id=job_id,
+                            action_kwargs=action_kwargs,
+                            error_policy=get_action_error_policy(ACTION),
+                        ),
+                        target_loop,
+                    )
+
+                    def _handle_decision_future(fut):
+                        nonlocal execution_error, execution_success, action_return_value
+                        try:
+                            action_return_value = fut.result()
+                            execution_success = True
+                        except Exception:
+                            execution_error = traceback.format_exc()
+                            execution_success = False
+                            error(f"动作 {ACTION.__name__} 异常处理后失败\n{execution_error}")
+
+                    future.add_done_callback(_handle_decision_future)
+            elif not error_skip:
                 # 将阻塞操作放入线程池执行
                 if asyncio.iscoroutinefunction(ACTION):
                     try:
@@ -1857,10 +2126,18 @@ class BaseROS2DeviceNode(Node, Generic[T]):
                 if attr_name in ["success", "reached_goal"]:
                     setattr(result_msg, attr_name, execution_success)
                 elif attr_name == "return_info":
+                    suc_type = None
+                    if isinstance(action_return_value, SkippedActionResult):
+                        suc_type = "user_bypass_error"
                     setattr(
                         result_msg,
                         attr_name,
-                        get_result_info_str(execution_error, execution_success, action_return_value),
+                        get_result_info_str(
+                            execution_error,
+                            execution_success,
+                            action_return_value,
+                            suc_type=suc_type,
+                        ),
                     )
 
             self.lab_logger().trace(f"动作 {action_name} 完成并返回结果")
@@ -1970,6 +2247,25 @@ class BaseROS2DeviceNode(Node, Generic[T]):
                                         f"转换ResourceSlot列表参数 {arg_name} 失败（含回退）: {e}\n{traceback.format_exc()}"
                                     )
                                     raise JsonCommandInitError(f"ResourceSlot列表参数转换失败: {arg_name}")
+
+            if is_exception_handling_enabled(function):
+                task_id = unilabos_param.get("task_id", "")
+                job_id = unilabos_param.get("job_id", "")
+                target_loop = ROS2DeviceNode.get_asyncio_loop()
+                if target_loop is None or not target_loop.is_running():
+                    raise RuntimeError("设备异常处理 asyncio loop 未运行")
+                decision_future = asyncio.run_coroutine_threadsafe(
+                    self._run_action_with_decision_loop(
+                        action_func=lambda **kwargs: self._invoke_action(function, kwargs),
+                        action_name=function_name,
+                        task_id=task_id,
+                        job_id=job_id,
+                        action_kwargs=function_args,
+                        error_policy=get_action_error_policy(function),
+                    ),
+                    target_loop,
+                )
+                return decision_future.result()
 
             # todo: 默认反报送
             return function(**function_args)
@@ -2134,6 +2430,25 @@ class BaseROS2DeviceNode(Node, Generic[T]):
                                     f"转换ResourceSlot列表参数 {arg_name} 失败: {e}\n{traceback.format_exc()}"
                                 )
                                 raise JsonCommandInitError(f"ResourceSlot列表参数转换失败: {arg_name}")
+
+            if is_exception_handling_enabled(function):
+                task_id = unilabos_param.get("task_id", "")
+                job_id = unilabos_param.get("job_id", "")
+                target_loop = ROS2DeviceNode.get_asyncio_loop()
+                if target_loop is None or not target_loop.is_running():
+                    raise RuntimeError("设备异常处理 asyncio loop 未运行")
+                decision_future = asyncio.run_coroutine_threadsafe(
+                    self._run_action_with_decision_loop(
+                        action_func=lambda **kwargs: self._invoke_action(function, kwargs),
+                        action_name=function_name,
+                        task_id=task_id,
+                        job_id=job_id,
+                        action_kwargs=function_args,
+                        error_policy=get_action_error_policy(function),
+                    ),
+                    target_loop,
+                )
+                return await self._await_threadsafe_future(decision_future)
 
             return await function(**function_args)
         except KeyError as ex:

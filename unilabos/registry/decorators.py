@@ -47,6 +47,7 @@ Usage:
 
 from enum import Enum
 from functools import wraps
+import math
 import re
 from typing import Any, Callable, Dict, List, Optional, TypeVar
 
@@ -341,6 +342,47 @@ def device(
 _ACTION_TYPE_UNSET = object()
 
 
+def _normalize_builtin_error_policy(error_policy: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """归一化框架内置的 Action Recovery 策略。"""
+    if error_policy is None:
+        return None
+
+    supported_keys = {
+        "allow_retry",
+        "allow_skip",
+        "max_retries",
+        "decision_timeout_seconds",
+        "default_on_decision_timeout",
+    }
+    unsupported_keys = set(error_policy) - supported_keys
+    if unsupported_keys:
+        raise ValueError(f"第一阶段不支持 error_policy 配置: {sorted(unsupported_keys)}")
+
+    normalized: Dict[str, Any] = {
+        "allow_retry": bool(error_policy.get("allow_retry", True)),
+        "allow_skip": bool(error_policy.get("allow_skip", True)),
+    }
+    if "max_retries" in error_policy:
+        max_retries = error_policy["max_retries"]
+        if isinstance(max_retries, bool) or not isinstance(max_retries, int) or max_retries < 0:
+            raise ValueError("error_policy.max_retries 必须是大于等于 0 的整数")
+        normalized["max_retries"] = max_retries
+    if "decision_timeout_seconds" in error_policy:
+        decision_timeout = error_policy["decision_timeout_seconds"]
+        if isinstance(decision_timeout, bool) or not isinstance(decision_timeout, (int, float)):
+            raise ValueError("error_policy.decision_timeout_seconds 必须是大于 0 的有限数字")
+        normalized_timeout = float(decision_timeout)
+        if normalized_timeout <= 0 or not math.isfinite(normalized_timeout):
+            raise ValueError("error_policy.decision_timeout_seconds 必须是大于 0 的有限数字")
+        normalized["decision_timeout_seconds"] = normalized_timeout
+    if "default_on_decision_timeout" in error_policy:
+        default_action = error_policy["default_on_decision_timeout"]
+        if default_action not in {"retry", "skip", "abort"}:
+            raise ValueError("error_policy.default_on_decision_timeout 仅支持 retry / skip / abort")
+        normalized["default_on_decision_timeout"] = default_action
+    return normalized
+
+
 # noinspection PyShadowingNames
 def action(
     action_type: Any = _ACTION_TYPE_UNSET,
@@ -357,6 +399,9 @@ def action(
     parent: bool = False,
     node_type: Optional["NodeType"] = None,
     feedback_interval: Optional[float] = None,
+    timeout: Optional[float] = None,
+    exception_handling: bool = True,
+    error_policy: Optional[Dict[str, Any]] = None,
 ):
     """
     动作方法装饰器
@@ -389,15 +434,41 @@ def action(
         parent: 若为 True，当方法参数为空 (*args, **kwargs) 时，通过 MRO 从父类获取真实方法参数
         node_type: 动作的节点类型 (NodeType.ILAB / NodeType.MANUAL_CONFIRM)。
                    不填写时不写入注册表。
+        timeout: 动作执行超时秒数。超时后进入异常处理流程；None 表示不限时。
+        exception_handling: 是否启用异常上报和用户决策回环，默认启用。
+        error_policy: 框架内置 retry / skip / abort 的恢复策略。支持
+                      allow_retry、allow_skip、max_retries、
+                      decision_timeout_seconds、default_on_decision_timeout。
+                      max_retries 表示首次执行后的额外重试次数；未配置
+                      decision_timeout_seconds 时无限等待用户决策。
     """
 
     def decorator(func: F) -> F:
         import asyncio as _asyncio
 
+        normalized_error_policy = _normalize_builtin_error_policy(error_policy)
+
         if _asyncio.iscoroutinefunction(func):
             @wraps(func)
             async def wrapper(*args, **kwargs):
-                return await func(*args, **kwargs)
+                if timeout is None:
+                    return await func(*args, **kwargs)
+                try:
+                    return await _asyncio.wait_for(func(*args, **kwargs), timeout=timeout)
+                except _asyncio.TimeoutError as exc:
+                    from unilabos.utils.exception import TimeoutException
+
+                    snapshot = {}
+                    if args and hasattr(args[0], "_get_device_snapshot"):
+                        try:
+                            snapshot = args[0]._get_device_snapshot()
+                        except Exception:
+                            pass
+                    raise TimeoutException(
+                        f"动作 {func.__name__} 执行超时 (>{timeout}s)",
+                        device_snapshot=snapshot,
+                        cause=exc,
+                    ) from exc
         else:
             @wraps(func)
             def wrapper(*args, **kwargs):
@@ -424,7 +495,16 @@ def action(
             meta["feedback_interval"] = feedback_interval
         if node_type is not None:
             meta["node_type"] = node_type.value if isinstance(node_type, NodeType) else str(node_type)
+        if timeout is not None:
+            meta["timeout"] = timeout
+        if exception_handling is not True:
+            meta["exception_handling"] = exception_handling
+        if normalized_error_policy is not None:
+            meta["error_policy"] = normalized_error_policy
         wrapper._action_registry_meta = meta  # type: ignore[attr-defined]
+        wrapper._action_timeout = timeout  # type: ignore[attr-defined]
+        wrapper._exception_handling = exception_handling  # type: ignore[attr-defined]
+        wrapper._action_error_policy = normalized_error_policy  # type: ignore[attr-defined]
 
         # 设置 _is_always_free 保持与旧 @always_free 装饰器兼容
         if always_free:
@@ -443,6 +523,23 @@ def get_action_meta(func) -> Optional[Dict[str, Any]]:
 def has_action_decorator(func) -> bool:
     """检查函数是否带有 @action 装饰器"""
     return hasattr(func, "_action_registry_meta")
+
+
+def get_action_timeout(func) -> Optional[float]:
+    """获取动作超时秒数。"""
+
+    return getattr(func, "_action_timeout", None)
+
+
+def get_action_error_policy(func) -> Optional[Dict[str, Any]]:
+    """获取 Action 的内置错误处理策略。"""
+    return getattr(func, "_action_error_policy", None)
+
+
+def is_exception_handling_enabled(func) -> bool:
+    """检查动作是否启用异常决策回环。"""
+
+    return getattr(func, "_exception_handling", False)
 
 
 # ---------------------------------------------------------------------------

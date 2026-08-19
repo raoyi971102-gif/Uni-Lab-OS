@@ -986,6 +986,8 @@ class HostNode(BaseROS2DeviceNode):
                 "function_args": action_kwargs,
                 JSON_UNILABOS_PARAM: {
                     PARAM_SAMPLE_UUIDS: sample_material,
+                    "task_id": item.task_id,
+                    "job_id": item.job_id,
                 },
             }
             action_kwargs = {"string": json.dumps(json_command)}
@@ -1000,6 +1002,11 @@ class HostNode(BaseROS2DeviceNode):
 
         action_client: ActionClient = self._action_clients[action_id]
         goal_msg = convert_to_ros_msg(action_client._action_type.Goal(), action_kwargs)
+
+        target_wrapper = self.devices_instances.get(device_id)
+        target_node = getattr(target_wrapper, "_ros_node", None)
+        if target_node is not None and hasattr(target_node, "register_job_context"):
+            target_node.register_job_context(item.task_id, item.job_id)
 
         # self.lab_logger().trace(f"[Host Node] Sending goal for {action_id}: {str(goal_msg)[:1000]}")
         self.lab_logger().trace(f"[Host Node] Sending goal for {action_id}: {action_kwargs}")
@@ -1105,6 +1112,14 @@ class HostNode(BaseROS2DeviceNode):
                         return_info = json.loads(return_info_str)
                         # 适配后端的一些额外处理
                         return_value = return_info.get("return_value")
+                        suc = return_info.get("suc", False)
+                        if (
+                            suc
+                            and return_info.get("suc_type") == "user_bypass_error"
+                            and isinstance(return_value, dict)
+                            and return_value.get("status") == "skipped"
+                        ):
+                            status = "skipped"
                         if isinstance(return_value, dict):
                             unilabos_samples = return_value.pop(RETURN_UNILABOS_SAMPLES, None)
                             if isinstance(unilabos_samples, list) and unilabos_samples:
@@ -1114,9 +1129,12 @@ class HostNode(BaseROS2DeviceNode):
                                     f"{'...' if len(unilabos_samples) > 5 else ''}"
                                 )
                                 return_info["samples"] = unilabos_samples
-                        suc = return_info.get("suc", False)
-                        if not suc:
+                        if not suc and status == "success":
                             status = "failed"
+                        if return_info.get("suc_type") == "user_bypass_error":
+                            self.lab_logger().warning(
+                                f"[Host Node] Job {job_id[:8]} ({action_id}) 用户跳过异常继续"
+                            )
                     except json.JSONDecodeError:
                         status = "failed"
                         return_info = serialize_result_info("", False, result_data)
