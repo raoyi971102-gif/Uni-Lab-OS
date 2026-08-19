@@ -56,6 +56,10 @@ class JobStatus(Enum):
     ENDED = "ended"  # 已结束
 
 
+TERMINAL_JOB_RESULT_STATUSES = frozenset({"success", "failed", "skipped"})
+NON_ERROR_TERMINAL_JOB_RESULT_STATUSES = frozenset({"success", "skipped"})
+
+
 @dataclass
 class QueueItem:
     """队列项数据结构"""
@@ -781,6 +785,8 @@ class MessageProcessor:
                 await self._handle_device_manage(message_data, "remove")
             elif message_type == "request_restart":
                 await self._handle_request_restart(message_data)
+            elif message_type == "device_exception_decision":
+                await self._handle_device_exception_decision(message_data)
             else:
                 logger.debug(f"[MessageProcessor] Unknown message type: {message_type}")
 
@@ -793,6 +799,44 @@ class MessageProcessor:
         host_node = HostNode.get_instance(0)
         if host_node:
             host_node.handle_pong_response(pong_data)
+
+    async def _handle_device_exception_decision(self, data: Dict[str, Any]) -> None:
+        """按 task_id + job_id 将 Backend 决策路由到对应设备节点。"""
+
+        task_id = data.get("task_id", "")
+        job_id = data.get("job_id", "")
+        device_id = data.get("device_id", "")
+        action = data.get("action", "")
+        if not task_id or not job_id or not device_id or not action:
+            logger.warning(f"[MessageProcessor] Invalid device_exception_decision: {data}")
+            return
+
+        host_node = HostNode.get_instance(0)
+        wrapper = host_node.devices_instances.get(device_id) if host_node is not None else None
+        base_node = getattr(wrapper, "_ros_node", None) if wrapper is not None else None
+        if base_node is None or not hasattr(base_node, "handle_device_exception_decision"):
+            logger.warning(
+                f"[MessageProcessor] Device node not found for exception decision: "
+                f"task_id={task_id}, job_id={job_id}, device_id={device_id}"
+            )
+            return
+
+        decision = {
+            "action": action,
+            "reason": data.get("reason", ""),
+            "extra": data.get("extra", {}),
+        }
+        accepted = base_node.handle_device_exception_decision(
+            task_id=task_id,
+            job_id=job_id,
+            device_id=device_id,
+            decision=decision,
+        )
+        if not accepted:
+            logger.warning(
+                f"[MessageProcessor] Ignored duplicate or stale exception decision: "
+                f"task_id={task_id}, job_id={job_id}, device_id={device_id}"
+            )
 
     def _check_action_always_free(self, device_id: str, action_name: str) -> bool:
         """检查该action是否标记为always_free，通过HostNode统一的_action_value_mappings查找"""
@@ -1339,6 +1383,37 @@ class MessageProcessor:
         except Exception:
             logger.warning("[MessageProcessor] Send queue full, dropping message")
 
+    def enqueue_action_state(
+        self,
+        device_id: str,
+        action_name: str,
+        task_id: str,
+        job_id: str,
+        typ: str,
+        free: bool,
+        need_more: int,
+        notebook_id: str = "",
+    ) -> None:
+        """从非协程线程将动作状态放入发送队列。"""
+        message = {
+            "action": "report_action_state",
+            "data": {
+                "type": typ,
+                "device_id": device_id,
+                "action_name": action_name,
+                "task_id": task_id,
+                "job_id": job_id,
+                "notebook_id": notebook_id,
+                "free": free,
+                "need_more": need_more + 1,
+            },
+        }
+
+        try:
+            self.send_queue.put_nowait(message)
+        except Exception:
+            logger.warning("[MessageProcessor] Send queue full, dropping keepalive message")
+
     def send_message(self, message: Dict[str, Any]) -> bool:
         """发送消息到队列"""
         try:
@@ -1368,6 +1443,10 @@ class QueueProcessor:
         # 事件通知机制
         self.queue_update_event = threading.Event()
 
+        # 周期续期 Backend 的 Job 等待窗口，间隔必须小于 Backend 初始窗口。
+        self.keepalive_interval_s: float = 8.0
+        self.keepalive_need_more_s: int = 20
+        self._last_keepalive_ts: float = 0.0
         logger.trace("[QueueProcessor] Initialized")
 
     def set_websocket_client(self, websocket_client: "WebSocketClient"):
@@ -1404,6 +1483,8 @@ class QueueProcessor:
 
         while self.is_running:
             try:
+                self._send_running_keepalives()
+
                 # 检查READY状态超时的任务
                 timeout_jobs = self.device_manager.check_ready_timeouts(
                     is_connected=self.message_processor.is_connected()
@@ -1451,8 +1532,8 @@ class QueueProcessor:
                     self._send_busy_status()  # 排队任务的 busy 状态
                     last_broadcast = now
 
-                # 等待一个周期或被事件提前唤醒（事件仅用于尽快做超时检查）。
-                self.queue_update_event.wait(timeout=broadcast_interval)
+                # 事件驱动为主；定时唤醒同时保证 Job 续期和周期状态对齐。
+                self.queue_update_event.wait(timeout=self.keepalive_interval_s)
                 self.queue_update_event.clear()  # 清除事件
 
             except Exception as e:
@@ -1461,6 +1542,32 @@ class QueueProcessor:
                 time.sleep(1)
 
         logger.debug("[QueueProcessor] Queue processor stopped")
+
+    def _send_running_keepalives(self) -> None:
+        """按固定间隔为所有 STARTED Job 上报 need_more。"""
+        now = time.monotonic()
+        if now - self._last_keepalive_ts < self.keepalive_interval_s:
+            return
+        if not self.message_processor.is_connected():
+            return
+
+        self._last_keepalive_ts = now
+
+        # 校验状态和入队必须与 end_job 串行，避免终态消息之后出现迟到的 free=false。
+        with self.device_manager.lock:
+            for job in self.device_manager.get_active_jobs():
+                if self.device_manager.all_jobs.get(job.job_id) is not job or job.status != JobStatus.STARTED:
+                    continue
+                self.message_processor.enqueue_action_state(
+                    device_id=job.device_id,
+                    action_name=job.action_name,
+                    task_id=job.task_id,
+                    job_id=job.job_id,
+                    typ="job_call_back_status",
+                    free=False,
+                    need_more=self.keepalive_need_more_s,
+                    notebook_id=job.notebook_id or "",
+                )
 
     def notify_queue_update(self):
         """通知队列有更新，触发立即检查"""
@@ -1898,7 +2005,7 @@ class WebSocketClient(BaseCommunicationClient):
         job_log = format_job_log(item.job_id, item.task_id, item.device_id, item.action_name)
 
         # 拦截最终结果状态，与原版本逻辑一致
-        if status in ["success", "failed"]:
+        if status in TERMINAL_JOB_RESULT_STATUSES:
             self._job_running_last_sent.pop(item.job_id, None)
 
             host_node = HostNode.get_instance(0)
@@ -1911,10 +2018,10 @@ class WebSocketClient(BaseCommunicationClient):
             self.queue_processor.handle_job_completed(item.job_id, status)
 
             cached_status = self.get_cached_job_start_response_status(item.job_id, item.task_id)
-            if cached_status in ["success", "failed"]:
+            if cached_status in TERMINAL_JOB_RESULT_STATUSES:
                 # 断线重连时，旧 READY 占位可能在结果已回放后触发 timeout failed。
-                # 已有终态时不允许重复终态覆盖缓存或再次发送，success 也不允许被 failed 降级。
-                if cached_status == "success" or cached_status == status:
+                # 已有非错误终态时不允许迟到失败覆盖缓存或再次发送。
+                if cached_status in NON_ERROR_TERMINAL_JOB_RESULT_STATUSES or cached_status == status:
                     logger.warning(
                         f"[WebSocketClient] Skipped duplicate terminal job status for {job_log}: "
                         f"cached={cached_status}, incoming={status}"
@@ -1955,6 +2062,51 @@ class WebSocketClient(BaseCommunicationClient):
         self.message_processor.send_message(message)
 
         logger.trace(f"[WebSocketClient] Job status published: {job_log} - {status}")
+
+    def publish_device_exception_alarm(self, alarm_data: dict) -> bool:
+        """上报需要用户处理的设备异常。"""
+
+        if self.is_disabled or not self.is_connected():
+            logger.warning(
+                f"[WebSocketClient] Not connected, cannot publish device exception: "
+                f"{alarm_data.get('device_id')} - {alarm_data.get('action_name')}"
+            )
+            return False
+
+        self.message_processor.send_message(
+            {"action": "device_exception_alarm", "data": alarm_data}
+        )
+        logger.info(
+            f"[WebSocketClient] device_exception_alarm: "
+            f"task_id={alarm_data.get('task_id')}, job_id={alarm_data.get('job_id')}, "
+            f"device_id={alarm_data.get('device_id')}"
+        )
+        return True
+
+    def publish_device_exception_decision_applied(self, decision_data: dict) -> bool:
+        """上报因用户决策超时而由框架执行的默认动作。"""
+
+        if self.is_disabled or not self.is_connected():
+            logger.warning(
+                f"[WebSocketClient] Not connected, cannot publish automatic device exception decision: "
+                f"task_id={decision_data.get('task_id')}, job_id={decision_data.get('job_id')}"
+            )
+            return False
+
+        queued = self.message_processor.send_message(
+            {
+                "action": "device_exception_decision_applied",
+                "data": decision_data,
+            }
+        )
+        if not queued:
+            return False
+        logger.info(
+            f"[WebSocketClient] device_exception_decision_applied: "
+            f"task_id={decision_data.get('task_id')}, job_id={decision_data.get('job_id')}, "
+            f"action={decision_data.get('action')}"
+        )
+        return True
 
     def send_ping(self, ping_id: str, timestamp: float) -> None:
         """发送ping消息"""
