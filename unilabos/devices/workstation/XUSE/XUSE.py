@@ -469,6 +469,49 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Add_Sample_Initialize", False)
             raise ValueError("加样单元初始化失败")
 
+    # 马弗炉单独初始化
+    @action(description="马弗炉单独初始化（选择 1~6 号炉，触发初始化并等待完成）")
+    def trigger_muffle_furnace_init(self, muffle_furnace_position: int) -> dict:
+        """单独初始化指定马弗炉，不影响工站及其它模块。
+
+        Args:
+            muffle_furnace_position[马弗炉位置]: 马弗炉编号，范围 1~6。
+
+        Returns:
+            dict: 包含 success 和 message。
+        """
+        min_position = 1
+        max_position = 6
+        if not min_position <= muffle_furnace_position <= max_position:
+            error_msg = f"马弗炉位置{muffle_furnace_position}不在有效范围内"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        initialize_node = f"Muffle_Furnace_Initialize_{muffle_furnace_position}"
+        complete_node = f"Muffle_Furnace_Initialize_Complete_{muffle_furnace_position}"
+        description = f"马弗炉{muffle_furnace_position}初始化"
+
+        logger.info(f"开始{description}...")
+        # 先复位触发和完成标志，确保本次使用新的上升沿。
+        self.set_node_value(initialize_node, False)
+        self.set_node_value(complete_node, False)
+        time.sleep(1.0)
+        self.set_node_value(initialize_node, True)
+        time.sleep(1.0)
+
+        if self._wait_until_true(complete_node, description=description):
+            self.set_node_value(initialize_node, False)
+            logger.info(f"{description}成功")
+            return {
+                "success": True,
+                "message": f"{description}成功",
+            }
+
+        self.set_node_value(initialize_node, False)
+        error_msg = f"{description}失败"
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+
     def is_robotic_arm_idle(self, arm_id: int) -> bool:
         """
         检查机械臂是否空闲
@@ -2676,15 +2719,22 @@ class XUSEDevice(OpcUaClientWithSubscription):
 
 
     @action()
-    def muffle_furnace_sintering(self, muffle_furnace_position: int) -> dict:
-        """
-        马弗炉烧结
-        - 检查马弗炉是否占位
+    def muffle_furnace_sintering(
+        self,
+        muffle_furnace_position: int,
+        check_can_occupied: bool = True,
+    ) -> dict:
+        """马弗炉烧结（加热）。
+
+        - 可选择是否检查马弗炉占位
         - 设置开始烧结
         - 等待烧结完成
-        - 返回成功
+
+        Args:
+            muffle_furnace_position[马弗炉位置]: 马弗炉编号，范围 1~6。
+            check_can_occupied[是否检查坩埚占位]: True=烧结前检查占位；False=跳过占位检查。
         """
-        logger.info(f"开始马弗炉{muffle_furnace_position}烧结")
+        logger.info(f"开始马弗炉{muffle_furnace_position}烧结（check_can_occupied={check_can_occupied}）")
         MIN_MUFFLE_FURNACE_POSITION = 1
         MAX_MUFFLE_FURNACE_POSITION = 6
         if muffle_furnace_position < MIN_MUFFLE_FURNACE_POSITION or muffle_furnace_position > MAX_MUFFLE_FURNACE_POSITION:
@@ -2692,10 +2742,13 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
         
-        if not self._wait_condition(lambda: self.is_muffle_furnace_occupied(muffle_furnace_position)):
-            error_msg = f"马弗炉位置{muffle_furnace_position}未占位，无法烧结"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
+        if check_can_occupied:
+            if not self._wait_condition(lambda: self.is_muffle_furnace_occupied(muffle_furnace_position)):
+                error_msg = f"马弗炉位置{muffle_furnace_position}未占位，无法烧结"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            logger.info(f"跳过马弗炉{muffle_furnace_position}占位检查，直接等待烧结请求...")
         
         if self._wait_until_true(f"Muffle_Furnace_Request_Process_{muffle_furnace_position}", description=f"马弗炉{muffle_furnace_position}开始请求"):
             self.set_node_value(f"Muffle_Furnace_Start_Process_{muffle_furnace_position}", True) # 设置开始烧结
