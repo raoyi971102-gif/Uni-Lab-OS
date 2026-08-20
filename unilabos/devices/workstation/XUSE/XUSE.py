@@ -411,7 +411,32 @@ class XUSEDevice(OpcUaClientWithSubscription):
                 return False
             time.sleep(interval)
 
-    # 初始化工站
+    @not_action
+    def _execute_station_init(self) -> dict:
+        """执行工站初始化的 PLC 操作，供人工确认和直接初始化动作共用。"""
+        logger.info("停止机械臂触发...")
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", False)
+        self.set_node_value("Robotic_Arm_Action_Trigger_2", False)
+        self.set_node_value("Robotic_Arm_Action_Trigger_3", False)
+
+        logger.info("进行初始化...")
+        self.set_node_value("Station_Initialize_Complete", False)
+        time.sleep(1.0)
+        self.set_node_value("Station_Initialize", True)
+        time.sleep(1.0)
+        if self._wait_until_true("Station_Initialize_Complete", description="初始化工站"):
+            logger.info("初始化工站成功")
+            self.set_node_value("Station_Initialize", False)
+            return {
+                "success": True,
+                "message": "初始化工站成功",
+            }
+
+        logger.error("初始化工站失败")
+        self.set_node_value("Station_Initialize", False)
+        raise ValueError("初始化工站失败")
+
+    # 初始化工站（人工确认）
     @action(
         always_free=True,
         node_type=NodeType.MANUAL_CONFIRM,
@@ -439,27 +464,16 @@ class XUSEDevice(OpcUaClientWithSubscription):
         Returns:
             dict: 包含 success 和 message
         """
-        logger.info("停止机械臂触发...")
-        self.set_node_value("Robotic_Arm_Action_Trigger_1", False)
-        self.set_node_value("Robotic_Arm_Action_Trigger_2", False)
-        self.set_node_value("Robotic_Arm_Action_Trigger_3", False)
+        return self._execute_station_init()
 
-        logger.info("进行初始化...")
-        self.set_node_value("Station_Initialize_Complete", False)
-        time.sleep(1.0) 
-        self.set_node_value("Station_Initialize", True) 
-        time.sleep(1.0)
-        if self._wait_until_true("Station_Initialize_Complete", description="初始化工站"):
-            logger.info("初始化工站成功")
-            self.set_node_value("Station_Initialize", False)
-            return {
-                "success": True,
-                "message": "初始化工站成功",
-            }
-        else:
-            logger.error("初始化工站失败")
-            self.set_node_value("Station_Initialize", False)
-            raise ValueError("初始化工站失败")
+    # 初始化工站（无需人工确认）
+    @action(
+        always_free=True,
+        description="工站初始化（无需人工确认：直接停止机械臂触发，触发工站初始化并等待完成）",
+    )
+    def trigger_init_without_confirmation(self) -> dict:
+        """直接初始化工站，不创建人工确认任务。"""
+        return self._execute_station_init()
 
     # 加样单元初始化
     @action(description="加样单元初始化（触发 Add_Sample_Initialize，等待 Add_Sample_Initialize_Complete）")
