@@ -251,4 +251,14 @@ ros-humble-unilabos-msgs-0.9.13-h6403a04_5.tar.bz2
 *.bz2
 test_config.py
 
+# Uni-Lab runtime snapshots/cache generated when working_dir is the repository root
+/registry_cache.pkl
+/req_device_registry_upload.json
+/req_resource_registry_upload.json
+/req_resource_tree_add.json
+/res_device_registry_upload.json
+/res_resource_registry_upload.json
+/res_resource_tree_add.json
+/startup_config.json
+
 

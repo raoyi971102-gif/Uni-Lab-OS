@@ -4,8 +4,10 @@ XUSE 厦大固态实验设备驱动
 """
 
 import json
+import math
 import time
 import traceback
+from pathlib import Path
 from typing import Optional
 import os
 import threading
@@ -19,6 +21,9 @@ from unilabos.registry.decorators import (
     device,
     not_action,
     topic_config,
+    ActionInputHandle,
+    ActionOutputHandle,
+    DataSource,
     NodeType,
 )
 
@@ -54,6 +59,27 @@ class XUSEDevice(OpcUaClientWithSubscription):
 
     # 动作 -> 机械臂编号 映射（定义见 XUSE_CONSTS.ARM_LOCK_MAP）。
     _ARM_LOCK_MAP = ARM_LOCK_MAP
+    _BALL_MILL_CAN_MIN = 1
+    _BALL_MILL_CAN_MAX = 32
+    _DEFAULT_POWDER_PARAMS_DIR = "unilabos/devices/workstation/XUSE/powder_params"
+
+    @classmethod
+    def _validate_ball_mill_can_number(cls, can_number: int) -> int:
+        """规范化球磨罐号，并限制为罐架支持的 1~32。"""
+        if isinstance(can_number, bool):
+            raise ValueError("球磨罐号必须是 1~32 的整数")
+        try:
+            normalized = int(can_number)
+        except (TypeError, ValueError) as e:
+            raise ValueError("球磨罐号必须是 1~32 的整数") from e
+        if str(can_number).strip() not in {str(normalized), f"{normalized}.0"}:
+            raise ValueError("球磨罐号必须是 1~32 的整数")
+        if not cls._BALL_MILL_CAN_MIN <= normalized <= cls._BALL_MILL_CAN_MAX:
+            raise ValueError(
+                f"球磨罐号超出范围: {normalized}，必须为 "
+                f"{cls._BALL_MILL_CAN_MIN}~{cls._BALL_MILL_CAN_MAX}"
+            )
+        return normalized
 
     def __init__(
         self, 
@@ -752,7 +778,17 @@ class XUSEDevice(OpcUaClientWithSubscription):
         """
         return self.get_node_value("Lower_Product_Rack_Occupied")
     
-    @action()
+    @action(
+        handles=[
+            ActionOutputHandle(
+                key="ball_mill_can_number_output",
+                data_type="xuse_ball_mill_can_number",
+                label="球磨罐号",
+                data_key="can_number",
+                data_source=DataSource.EXECUTOR,
+            ),
+        ],
+    )
     def pick_can_from_can_rack(self, rack_position: int) -> dict:
         """
         从罐架区取球磨罐
@@ -767,6 +803,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         Returns:
             dict: 包含 success 和 message
         """
+        rack_position = self._validate_ball_mill_can_number(rack_position)
         logger.info(f"从罐架区取球磨罐，位置：{rack_position}")
         MIN_RACK_POSITION = 1
         MAX_RACK_POSITION = RoboticArmPickPlaceCode_1.PICK_CAN_RACK_END - RoboticArmPickPlaceCode_1.PICK_CAN_RACK_START + 1
@@ -796,6 +833,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
                 self._pick_carrier_from_warehouse_at("球磨罐仓库", self._can_rack_site_key(rack_position), arm_id=1)
                 return {
                     "success": True,
+                    "can_number": rack_position,
                     "message": f"从罐架区位置{rack_position}取球磨罐完成",
                 }
             else:
@@ -807,8 +845,27 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
         
-    @action()
-    def place_empty_can_to_open_can_position(self) -> dict:
+    @action(
+        handles=[
+            ActionInputHandle(
+                key="ball_mill_can_number_input",
+                data_type="xuse_ball_mill_can_number",
+                label="球磨罐号",
+                data_key="can_number",
+                data_source=DataSource.HANDLE,
+            ),
+            ActionOutputHandle(
+                key="ball_mill_can_number_output",
+                data_type="xuse_ball_mill_can_number",
+                label="球磨罐号",
+                data_key="can_number",
+                data_source=DataSource.EXECUTOR,
+            ),
+        ],
+    )
+    def place_empty_can_to_open_can_position(
+        self, can_number: Optional[int] = None
+    ) -> dict:
         """
         将空罐放置到开盖区
         - 检查机械臂1是否空闲
@@ -817,7 +874,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
         - 等待将开盖罐磨罐放置到开盖区完成
         - 返回成功
         """
-        logger.info("将空球磨罐放置到开盖区...")
+        can_number = self._validate_ball_mill_can_number(can_number)
+        logger.info(f"将 {can_number} 号空球磨罐放置到开盖区...")
         self._wait_until_true("Robotic_Arm_Idle_1", description="等待机械臂1空闲")
 
         if not self._wait_condition(lambda: not (self.is_open_can_upper_lid_occupied() or self.is_open_can_body_occupied())):
@@ -839,6 +897,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
                 self._place_carrier_to_warehouse("开盖区", arm_id=1)
                 return {
                     "success": True,
+                    "can_number": can_number,
                     "message": "将球磨罐放置到开盖区完成",
                 }
             else:
@@ -895,8 +954,27 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
         
         
-    @action()
-    def pick_empty_can_from_open_can_position(self) -> dict:
+    @action(
+        handles=[
+            ActionInputHandle(
+                key="ball_mill_can_number_input",
+                data_type="xuse_ball_mill_can_number",
+                label="球磨罐号",
+                data_key="can_number",
+                data_source=DataSource.HANDLE,
+            ),
+            ActionOutputHandle(
+                key="ball_mill_can_number_output",
+                data_type="xuse_ball_mill_can_number",
+                label="球磨罐号",
+                data_key="can_number",
+                data_source=DataSource.EXECUTOR,
+            ),
+        ],
+    )
+    def pick_empty_can_from_open_can_position(
+        self, can_number: Optional[int] = None
+    ) -> dict:
         """
         从开盖区抓取空罐
         - 检查机械臂1是否空闲
@@ -905,7 +983,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
         - 等待从开盖区抓取空罐完成
         - 返回成功
         """
-        logger.info("从开盖区抓取空罐...")
+        can_number = self._validate_ball_mill_can_number(can_number)
+        logger.info(f"从开盖区抓取 {can_number} 号空罐...")
         self._wait_until_true("Robotic_Arm_Idle_1", description="等待机械臂1空闲")
         
         if not self._wait_condition(lambda: self.is_open_can_body_occupied()):
@@ -927,6 +1006,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
                 self._pick_carrier_from_warehouse("开盖区", arm_id=1)
                 return {
                     "success": True,
+                    "can_number": can_number,
                     "message": "从开盖区抓取球磨罐完成",
                 }
             else:
@@ -938,8 +1018,27 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
 
-    @action()
-    def place_can_to_add_powder_position(self) -> dict:
+    @action(
+        handles=[
+            ActionInputHandle(
+                key="ball_mill_can_number_input",
+                data_type="xuse_ball_mill_can_number",
+                label="球磨罐号",
+                data_key="can_number",
+                data_source=DataSource.HANDLE,
+            ),
+            ActionOutputHandle(
+                key="ball_mill_can_number_output",
+                data_type="xuse_ball_mill_can_number",
+                label="球磨罐号",
+                data_key="can_number",
+                data_source=DataSource.EXECUTOR,
+            ),
+        ],
+    )
+    def place_can_to_add_powder_position(
+        self, can_number: Optional[int] = None
+    ) -> dict:
         """
         将罐体放置到加粉区
         - 检查机械臂1是否空闲
@@ -947,7 +1046,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
         - 等待放置到加粉区完成
         - 返回成功
         """
-        logger.info("将罐体放置到加粉区...")
+        can_number = self._validate_ball_mill_can_number(can_number)
+        logger.info(f"将 {can_number} 号罐体放置到加粉区...")
         self._wait_until_true("Robotic_Arm_Idle_1", description="等待机械臂1空闲")
         
         if not self._wait_condition(lambda: not (self.is_add_sample_occupied())):
@@ -969,6 +1069,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
                 self._place_carrier_to_warehouse("加样区", arm_id=1)
                 return {
                     "success": True,
+                    "can_number": can_number,
                     "message": "将罐体放置到加粉区完成",
                 }
             else:
@@ -1029,112 +1130,284 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
 
-    @action()
+    @action(
+        handles=[
+            ActionInputHandle(
+                key="ball_mill_can_number_input",
+                data_type="xuse_ball_mill_can_number",
+                label="球磨罐号",
+                data_key="can_number",
+                data_source=DataSource.HANDLE,
+            ),
+            ActionOutputHandle(
+                key="ball_mill_can_number_output",
+                data_type="xuse_ball_mill_can_number",
+                label="球磨罐号",
+                data_key="can_number",
+                data_source=DataSource.EXECUTOR,
+            ),
+        ],
+    )
     def add_powder_multiple_times(
         self,
-        param_dir: str = "",
+        can_number: Optional[int] = None,
+        plan_file: str = "",
+        powder_params_dir: str = "unilabos/devices/workstation/XUSE/powder_params",
         record_dir: str = "",
         check_can_occupied: bool = True,
     ) -> dict:
-        """按目录中的参数文件依次执行多次加粉。
+        """按球磨罐号读取独立加粉清单，并依次执行多种加粉。
 
-        仅读取 ``param_dir`` 目录第一层的 Excel(.xlsx) 文件，忽略 Office 临时文件
-        （文件名以 ``~$`` 开头），并按文件名自然排序，例如 2.xlsx 会排在 10.xlsx 前。
-        每个文件严格按以下顺序执行：
-          1) 调用 set_add_powder_params 下发该文件中的参数；
-          2) 参数实际写入后，调用 add_powder 执行一次加粉；
-          3) 当前加粉完成并复位后，再处理下一个文件。
+        ``plan_file`` 每个 sheet 对应一个球磨罐，sheet 名为 ``1``~``32``。
+        表头至少包含“加粉名称”和“重量”两列，后续每行代表一次加粉，执行顺序
+        与表格行顺序一致。
 
-        任一文件下发或加粉失败时会立即停止，防止后续文件使用错误或残留参数继续加工。
+        加粉名称会在仓库相对目录 ``powder_params_dir`` 内递归匹配旧版加样参数
+        xlsx。优先匹配文件名（不含扩展名），找不到时匹配参数文件“单值参数”
+        sheet 中的“粉末名称”。每次下发时，仅用清单中的加粉名称和重量覆盖旧版
+        参数文件里的“粉末名称”“加样_重量”，其余工艺参数保持原值。
+
+        所有清单行和配方文件会在首次 PLC 写入前完成校验。任一轮参数下发或
+        加粉失败会立即停止，避免后续加粉继续使用残留参数。
 
         Args:
-            param_dir[加样参数目录]: 参数文件所在目录；仅处理目录第一层的 .xlsx 文件。
-            record_dir[档案保存目录]: 每次参数下发档案的保存目录（可选；留空 = 本模块下的 records/）。
-            check_can_occupied[是否检查罐体占位]: True=每次下发和加粉前检查罐体占位；False=跳过占位检查。
+            can_number[球磨罐号]: 由上游动作 handle 传入的罐号，范围 1~32。
+            plan_file[多种加粉清单]: 独立清单 xlsx；绝对路径或仓库根目录相对路径。
+            powder_params_dir[粉末参数相对目录]: 旧版加样参数 xlsx 所在的仓库相对目录。
+            record_dir[档案保存目录]: 每次参数下发档案的保存目录（可选）。
+            check_can_occupied[是否检查罐体占位]: True=每次下发和加粉前检查；False=跳过。
         """
-        import re
+        import openpyxl
 
-        cleaned_dir = str(param_dir or "").strip().strip('"').strip("'")
-        if not cleaned_dir:
-            error_msg = "未提供加样参数目录"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
+        can_number = self._validate_ball_mill_can_number(can_number)
+        repo_root = Path(__file__).resolve().parents[4]
 
-        absolute_dir = os.path.abspath(os.path.expanduser(cleaned_dir))
-        if not os.path.isdir(absolute_dir):
-            error_msg = f"加样参数目录不存在或不是目录: {absolute_dir}"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
+        cleaned_plan = str(plan_file or "").strip().strip('"').strip("'")
+        if not cleaned_plan:
+            raise ValueError("未提供多种加粉清单文件")
+        plan_path = Path(cleaned_plan).expanduser()
+        if not plan_path.is_absolute():
+            plan_path = repo_root / plan_path
+        plan_path = plan_path.resolve()
+        if not plan_path.is_file() or plan_path.suffix.casefold() != ".xlsx":
+            raise ValueError(f"多种加粉清单不存在或不是 .xlsx 文件: {plan_path}")
 
-        def _natural_sort_key(path: str) -> tuple:
-            """生成不区分大小写的自然排序键，使数字片段按数值排序。"""
-            parts = re.split(r"(\d+)", os.path.basename(path).casefold())
-            return tuple((0, int(part)) if part.isdigit() else (1, part) for part in parts)
+        cleaned_params_dir = str(powder_params_dir or "").strip().strip('"').strip("'")
+        # AST 注册表扫描不会求值类变量，旧注册数据可能把默认值保存为变量名文本。
+        # 接受该文本可让已生成的任务在注册表刷新前也正常使用默认目录。
+        if cleaned_params_dir == "_DEFAULT_POWDER_PARAMS_DIR":
+            cleaned_params_dir = self._DEFAULT_POWDER_PARAMS_DIR
+        if not cleaned_params_dir:
+            raise ValueError("未提供粉末参数相对目录")
+        relative_params_dir = Path(cleaned_params_dir)
+        if relative_params_dir.is_absolute():
+            raise ValueError("粉末参数目录必须使用仓库根目录下的相对路径")
+        params_root = (repo_root / relative_params_dir).resolve()
+        try:
+            params_root.relative_to(repo_root)
+        except ValueError as e:
+            raise ValueError("粉末参数目录不能超出仓库根目录") from e
+        if not params_root.is_dir():
+            raise ValueError(f"粉末参数目录不存在或不是目录: {params_root}")
 
         try:
-            with os.scandir(absolute_dir) as entries:
-                param_files = sorted(
-                    [
-                        entry.path
-                        for entry in entries
-                        if entry.is_file()
-                        and entry.name.lower().endswith(".xlsx")
-                        and not entry.name.startswith("~$")
-                    ],
-                    key=_natural_sort_key,
+            plan_wb = openpyxl.load_workbook(plan_path, read_only=True, data_only=True)
+        except Exception as e:
+            raise ValueError(f"无法打开多种加粉清单 {plan_path}: {e}") from e
+
+        sheet_aliases = {
+            str(can_number),
+            f"{can_number}号",
+            f"罐{can_number}",
+            f"{can_number}号罐",
+            f"球磨罐{can_number}",
+            f"{can_number}号球磨罐",
+        }
+        matching_sheets = [
+            sheet for sheet in plan_wb.worksheets if str(sheet.title).strip() in sheet_aliases
+        ]
+        if len(matching_sheets) != 1:
+            plan_wb.close()
+            if not matching_sheets:
+                raise ValueError(f"多种加粉清单中没有 {can_number} 号球磨罐对应的 sheet")
+            raise ValueError(f"多种加粉清单中 {can_number} 号球磨罐对应了多个 sheet")
+
+        sheet = matching_sheets[0]
+        rows = list(sheet.iter_rows(values_only=True))
+        plan_wb.close()
+        header_index = next(
+            (idx for idx, row in enumerate(rows) if row and any(value not in (None, "") for value in row)),
+            None,
+        )
+        if header_index is None:
+            raise ValueError(f"{sheet.title} sheet 为空")
+
+        def _normalize_header(value) -> str:
+            return str(value or "").strip().replace(" ", "").replace("_", "")
+
+        headers = [_normalize_header(value) for value in rows[header_index]]
+        powder_header_aliases = {"加粉名称", "粉末名称", "名称"}
+        weight_header_aliases = {"重量", "对应重量", "目标重量", "加粉重量", "加样重量"}
+        powder_columns = [idx for idx, value in enumerate(headers) if value in powder_header_aliases]
+        weight_columns = [idx for idx, value in enumerate(headers) if value in weight_header_aliases]
+        if len(powder_columns) != 1 or len(weight_columns) != 1:
+            raise ValueError(
+                f"{sheet.title} sheet 表头必须各包含一列‘加粉名称’和‘重量’"
+            )
+        powder_column = powder_columns[0]
+        weight_column = weight_columns[0]
+
+        additions = []
+        for row_number, row in enumerate(rows[header_index + 1 :], start=header_index + 2):
+            powder_value = row[powder_column] if powder_column < len(row) else None
+            weight_value = row[weight_column] if weight_column < len(row) else None
+            if powder_value in (None, "") and weight_value in (None, ""):
+                continue
+            powder_name = str(powder_value or "").strip()
+            if not powder_name:
+                raise ValueError(f"{sheet.title} sheet 第 {row_number} 行缺少加粉名称")
+            if weight_value is None or str(weight_value).strip() == "":
+                raise ValueError(f"{sheet.title} sheet 第 {row_number} 行缺少重量")
+            try:
+                weight = float(weight_value)
+            except (TypeError, ValueError) as e:
+                raise ValueError(
+                    f"{sheet.title} sheet 第 {row_number} 行重量不是数字: {weight_value!r}"
+                ) from e
+            if not math.isfinite(weight) or weight <= 0:
+                raise ValueError(
+                    f"{sheet.title} sheet 第 {row_number} 行重量必须是大于 0 的有限数字"
                 )
-        except OSError as e:
-            error_msg = f"无法读取加样参数目录 {absolute_dir}: {e}"
-            logger.error(error_msg)
-            raise ValueError(error_msg) from e
+            additions.append(
+                {"row": row_number, "powder_name": powder_name, "weight": weight}
+            )
+        if not additions:
+            raise ValueError(f"{sheet.title} sheet 中没有可执行的加粉记录")
 
-        if not param_files:
-            error_msg = f"加样参数目录中没有可用的 .xlsx 文件: {absolute_dir}"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
+        recipe_files = sorted(
+            (
+                path
+                for path in params_root.rglob("*")
+                if path.is_file()
+                and path.suffix.casefold() == ".xlsx"
+                and not path.name.startswith("~$")
+            ),
+            key=lambda path: str(path.relative_to(params_root)).casefold(),
+        )
+        if not recipe_files:
+            raise ValueError(f"粉末参数目录中没有可用的 .xlsx 文件: {params_root}")
 
-        total = len(param_files)
-        results: list = []
-        logger.info(f"开始多次加粉，共发现 {total} 个参数文件: {absolute_dir}")
+        stem_index = {}
+        internal_name_index = {}
+        for recipe_path in recipe_files:
+            stem_index.setdefault(recipe_path.stem.strip().casefold(), []).append(recipe_path)
+            try:
+                recipe_wb = openpyxl.load_workbook(recipe_path, read_only=True, data_only=True)
+                if "单值参数" in recipe_wb.sheetnames:
+                    for row in recipe_wb["单值参数"].iter_rows(values_only=True):
+                        if row and str(row[0] or "").strip() == "粉末名称":
+                            internal_name = str(row[1] or "").strip() if len(row) > 1 else ""
+                            if internal_name:
+                                internal_name_index.setdefault(
+                                    internal_name.casefold(), []
+                                ).append(recipe_path)
+                            break
+                recipe_wb.close()
+            except Exception:
+                # 文件名仍可参与匹配；真正被清单引用时会在下面给出明确的文件错误。
+                continue
 
-        for index, param_file in enumerate(param_files, start=1):
-            filename = os.path.basename(param_file)
-            logger.info(f"[多次加粉 {index}/{total}] 下发参数: {filename}")
+        resolved_additions = []
+        for addition in additions:
+            lookup_key = addition["powder_name"].casefold()
+            candidates = stem_index.get(lookup_key, [])
+            match_kind = "文件名"
+            if not candidates:
+                candidates = internal_name_index.get(lookup_key, [])
+                match_kind = "粉末名称"
+            if not candidates:
+                raise ValueError(
+                    f"找不到加粉名称‘{addition['powder_name']}’对应的旧版参数文件 "
+                    f"(清单第 {addition['row']} 行，目录 {params_root})"
+                )
+            if len(candidates) != 1:
+                relative_candidates = [str(path.relative_to(params_root)) for path in candidates]
+                raise ValueError(
+                    f"加粉名称‘{addition['powder_name']}’按{match_kind}匹配到多个参数文件: "
+                    f"{relative_candidates}"
+                )
+            recipe_path = candidates[0]
+            try:
+                recipe_wb = openpyxl.load_workbook(recipe_path, read_only=True, data_only=True)
+            except Exception as e:
+                raise ValueError(f"无法打开粉末参数文件 {recipe_path}: {e}") from e
+            if "单值参数" not in recipe_wb.sheetnames:
+                recipe_wb.close()
+                raise ValueError(f"粉末参数文件缺少‘单值参数’ sheet: {recipe_path}")
+            single_names = {
+                str(row[0] or "").strip()
+                for row in recipe_wb["单值参数"].iter_rows(values_only=True)
+                if row
+            }
+            recipe_wb.close()
+            missing_names = {"粉末名称", "加样_重量"} - single_names
+            if missing_names:
+                raise ValueError(
+                    f"粉末参数文件缺少待覆盖参数 {sorted(missing_names)}: {recipe_path}"
+                )
+            resolved_additions.append({**addition, "param_file": recipe_path})
+
+        total = len(resolved_additions)
+        results = []
+        logger.info(f"开始为 {can_number} 号球磨罐执行多种加粉，共 {total} 种")
+        for index, addition in enumerate(resolved_additions, start=1):
+            powder_name = addition["powder_name"]
+            weight = addition["weight"]
+            param_file = addition["param_file"]
+            logger.info(
+                f"[多种加粉 {index}/{total}] {powder_name}，重量={weight}，参数={param_file.name}"
+            )
             try:
                 params_result = self.set_add_powder_params(
-                    param_file=param_file,
+                    param_file=str(param_file),
                     record_dir=record_dir,
                     check_can_occupied=check_can_occupied,
+                    powder_name_override=powder_name,
+                    weight_override=weight,
                 )
                 written = int(params_result.get("data", {}).get("written", 0))
                 if not params_result.get("success", False) or written <= 0:
-                    raise ValueError(f"参数文件未写入任何加样参数: {filename}")
-
-                logger.info(f"[多次加粉 {index}/{total}] 执行加粉: {filename}")
+                    raise ValueError("参数文件未写入任何加样参数")
                 powder_result = self.add_powder(check_can_occupied=check_can_occupied)
                 if not powder_result.get("success", False):
-                    raise ValueError(f"加粉动作返回失败: {filename}")
-
+                    raise ValueError("加粉动作返回失败")
                 results.append(
                     {
                         "index": index,
-                        "param_file": param_file,
+                        "plan_row": addition["row"],
+                        "powder_name": powder_name,
+                        "weight": weight,
+                        "param_file": str(param_file),
                         "params": params_result,
                         "add_powder": powder_result,
                     }
                 )
-                logger.info(f"[多次加粉 {index}/{total}] 完成: {filename}")
             except Exception as e:
-                error_msg = f"多次加粉在第 {index}/{total} 个文件失败（{filename}）: {e}"
+                error_msg = (
+                    f"{can_number} 号球磨罐多种加粉在第 {index}/{total} 种失败"
+                    f"（{powder_name}，{weight}）: {e}"
+                )
                 logger.error(error_msg)
                 raise ValueError(error_msg) from e
 
-        logger.info(f"多次加粉全部完成，共处理 {total} 个参数文件")
         return {
             "success": True,
-            "message": f"多次加粉全部完成，共处理 {total} 个参数文件",
+            "can_number": can_number,
+            "message": f"{can_number} 号球磨罐多种加粉全部完成，共处理 {total} 种粉末",
             "data": {
-                "param_dir": absolute_dir,
+                "can_number": can_number,
+                "plan_file": str(plan_path),
+                "powder_params_dir": str(relative_params_dir),
                 "total": total,
                 "completed": len(results),
                 "results": results,
@@ -3381,12 +3654,15 @@ class XUSEDevice(OpcUaClientWithSubscription):
         param_file: str = "",
         record_dir: str = "",
         check_can_occupied: bool = True,
+        powder_name_override: Optional[str] = None,
+        weight_override: Optional[float] = None,
     ) -> dict:
         """
         设置加样参数（一次性从 xlsx 下发所有参数）。
 
         本动作把加样所需的**全部**参数（单值参数 + 数组参数）
-        统一从一份 Excel(.xlsx) 文件读取并下发到 PLC；不再接收任何参数入参。
+        统一从一份 Excel(.xlsx) 文件读取并下发到 PLC。多种加粉流程可通过覆盖参数
+        临时替换粉末名称和目标重量，其余工艺参数仍取自原 xlsx。
 
         xlsx 结构（sheet 名严格如下）:
           - "单值参数"    ：3 列 [参数名 | 参数值 | 数据类型]，行支持 6 项：
@@ -3415,6 +3691,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             param_file[加样参数文件]: 加样参数 Excel(.xlsx) 文件绝对路径（留空 = 不下发任何参数）。
             record_dir[档案保存目录]: 本次下发档案 xlsx 的保存目录（可选; 留空 = 本模块下的 records/）。
             check_can_occupied[是否检查罐体占位]: True=下发前等待并校验罐体占位；False=跳过占位检查。
+            powder_name_override[粉末名称覆盖]: 可选；多种加粉时用清单中的名称覆盖 xlsx 值。
+            weight_override[加样重量覆盖]: 可选；多种加粉时用清单中的重量覆盖 xlsx 值。
         """
         import re
         import openpyxl
@@ -3449,12 +3727,51 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
 
+        normalized_powder_name = None
+        if powder_name_override is not None:
+            normalized_powder_name = str(powder_name_override).strip()
+            if not normalized_powder_name:
+                wb.close()
+                raise ValueError("粉末名称覆盖值不能为空")
+
+        normalized_weight = None
+        if weight_override is not None:
+            try:
+                normalized_weight = float(weight_override)
+            except (TypeError, ValueError) as e:
+                wb.close()
+                raise ValueError(f"加样重量覆盖值不是数字: {weight_override!r}") from e
+            if not math.isfinite(normalized_weight) or normalized_weight <= 0:
+                wb.close()
+                raise ValueError("加样重量覆盖值必须是大于 0 的有限数字")
+
+        required_override_names = set()
+        if normalized_powder_name is not None:
+            required_override_names.add("粉末名称")
+        if normalized_weight is not None:
+            required_override_names.add("加样_重量")
+        if required_override_names:
+            if "单值参数" not in wb.sheetnames:
+                wb.close()
+                raise ValueError("加样参数文件缺少‘单值参数’ sheet，无法应用覆盖值")
+            present_names = {
+                str(row[0] or "").strip()
+                for row in wb["单值参数"].iter_rows(values_only=True)
+                if row
+            }
+            missing_names = required_override_names - present_names
+            if missing_names:
+                wb.close()
+                raise ValueError(f"加样参数文件缺少待覆盖参数: {sorted(missing_names)}")
+
         # 每个 sheet 按名字分派
         single_sheet_specs = self._ADD_POWDER_SINGLE_SHEETS
         array_bases = {name: (dtype, caster) for name, dtype, caster in self._ADD_POWDER_ARRAY_BASES}
 
         # ---- 预扫：xlsx 是否有任何可识别 sheet 的非空目标参数值 ----
         def _has_any_nonempty_target():
+            if normalized_powder_name is not None or normalized_weight is not None:
+                return True
             for _sheet in wb.worksheets:
                 _title = str(_sheet.title).strip()
                 if not _title or _title.startswith("_"):
@@ -3509,6 +3826,10 @@ class XUSEDevice(OpcUaClientWithSubscription):
                         continue
                     node_name = str(row[0]).strip()
                     value = row[1] if len(row) > 1 else None
+                    if node_name == "粉末名称" and normalized_powder_name is not None:
+                        value = normalized_powder_name
+                    elif node_name == "加样_重量" and normalized_weight is not None:
+                        value = normalized_weight
                     if value is None or str(value).strip() == "":
                         continue
                     spec = spec_by_name.get(node_name)

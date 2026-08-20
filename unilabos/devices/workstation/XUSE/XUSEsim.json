@@ -22,8 +22,8 @@
                 }
             },
             "config": {
-                "url": "opc.tcp://127.0.0.1:49320",
-                "csv_path": "XUSE_variables_sim.csv",
+                "url": "opc.tcp://127.0.0.1:4855",
+                "csv_path": "XUSE_variables.csv",
                 "deck": {
                     "data": {
                         "_resource_child_name": "XUSE_deck",
