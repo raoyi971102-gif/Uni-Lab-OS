@@ -874,6 +874,7 @@ class ResourceTreeSet(object):
                 plr_resource = sub_cls.deserialize(plr_dict, allow_marshal=True)
                 from pylabrobot.resources import Coordinate
                 from pylabrobot.serializer import deserialize
+                from unilabos.resources.plr_naming import retarget_itemized_child_names
 
                 location = cast(Coordinate, deserialize(plr_dict["location"]))
                 plr_resource.location = location
@@ -886,6 +887,9 @@ class ResourceTreeSet(object):
                     tracker,
                     f"0:{tree.root_node.res_content.name}",
                 )
+                # 云端树可能只改了板名、孔名仍是类名前缀；反序列化后立刻对齐，
+                # 避免挂到 deck 时撞 ``already assigned to deck``。
+                retarget_itemized_child_names(plr_resource)
                 plr_resources.append(plr_resource)
 
             except Exception as e:

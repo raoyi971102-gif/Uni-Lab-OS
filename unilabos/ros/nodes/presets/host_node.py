@@ -1189,14 +1189,6 @@ class HostNode(BaseROS2DeviceNode):
 
         resource_response = http_client.resource_tree_get(uuid_list, with_children)
         response.response = json.dumps(resource_response)
-        # #region agent log
-        try:
-            import time as _t
-            with open(r"d:\Download\Uni-Lab-OS\debug-8f6ad7.log", "a", encoding="utf-8") as _f:
-                _f.write(json.dumps({"sessionId":"8f6ad7","hypothesisId":"C","location":"host_node.py:get_callback:ok","message":"resource get success","data":{"uuids":uuid_list,"nodes":len(resource_response) if isinstance(resource_response, list) else -1,"resp_len":len(response.response or "")},"timestamp":int(_t.time()*1000)}, ensure_ascii=False)+"\n")
-        except Exception:
-            pass
-        # #endregion
         self.lab_logger().trace(f"[Host Node-Resource] Resource tree get request callback {response.response}")
 
     async def _resource_tree_action_remove_callback(self, data: dict, response: SerialCommand_Response):
@@ -1224,6 +1216,9 @@ class HostNode(BaseROS2DeviceNode):
         for tree in resource_tree_set.trees:
             uuid_to_trees[tree.root_node.res_content.parent_uuid].append(tree)
 
+        merged_uuid_mapping: Dict[str, str] = {}
+        overall_success = True
+
         for uid, trees in uuid_to_trees.items():
             new_tree_set = ResourceTreeSet(trees)
             resource_start_time = time.time()
@@ -1231,16 +1226,18 @@ class HostNode(BaseROS2DeviceNode):
                 f"[Host Node-Resource] 物料 {[root_node.res_content.id for root_node in new_tree_set.root_nodes]} {uid} 挂载 {trees[0].root_node.res_content.parent_uuid} 请求更新上传"
             )
             uuid_mapping = http_client.resource_tree_add(new_tree_set, uid, False)
-            success = bool(uuid_mapping)
+            batch_success = bool(uuid_mapping)
+            overall_success = overall_success and batch_success
             resource_end_time = time.time()
             self.lab_logger().info(
                 f"[Host Node-Resource] 物料更新上传 {round(resource_end_time - resource_start_time, 5) * 1000} ms"
             )
             if uuid_mapping:
                 self.lab_logger().info(f"[Host Node-Resource] UUID映射: {len(uuid_mapping)} 个节点")
+                merged_uuid_mapping.update(uuid_mapping)
             # 还需要加入到资源图中，暂不实现，考虑资源图新的获取方式
-            response.response = json.dumps(uuid_mapping)
-            self.lab_logger().info(f"[Host Node-Resource] Resource tree update completed, success: {success}")
+        response.response = json.dumps(merged_uuid_mapping)
+        self.lab_logger().info(f"[Host Node-Resource] Resource tree update completed, success: {overall_success}")
 
     async def _resource_tree_update_callback(self, request: SerialCommand_Request, response: SerialCommand_Response):
         """
@@ -1289,7 +1286,7 @@ class HostNode(BaseROS2DeviceNode):
             # 且本地降级路径永远接不到「远端空结果」语义。
             _action = locals().get("action")
             if _action == "get":
-                response.response = "[]"
+                response.response = f"ERROR: {str(e)}"
             else:
                 response.response = f"ERROR: {str(e)}"
             # #region agent log

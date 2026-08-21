@@ -46,6 +46,7 @@ Centrifuge_InnerZPosSet,Centrifuge_InnerZPosSet,VARIABLE,INT16,English,ns=4;s=|v
 Centrifuge_RPM,Centrifuge_RPM,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Centrifuge_RPM,离心机转速,
 Centrifuge_Time,Centrifuge_Time,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Centrifuge_Time,离心机时间,
 Centrifuge_PlateNo,Centrifuge_PlateNo,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Centrifuge_PlateNo,"离心机里板位号(1,2,3,4)",
+Centrifuge_Temperature_feedback,Centrifuge_Temperature_feedback,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Centrifuge_Temperature_feedback,离心机温度反馈,
 iTemperature,iTemperature,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.iTemperature,离心机温度设置,
 Centrifuge_YSpeed,Centrifuge_YSpeed,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Centrifuge_YSpeed,Y速度,
 Centrifuge_ZSpeed,Centrifuge_ZSpeed,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Centrifuge_ZSpeed,Z速度,
@@ -168,6 +169,7 @@ Solid_MaterialZSpeed,Solid_MaterialZSpeed,VARIABLE,INT16,English,ns=4;s=|var|Ino
 Solid_GripperZSpeed,Solid_GripperZSpeed,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Solid_GripperZSpeed,夹爪Z速度,
 Solid_DoorSpeed,Solid_DoorSpeed,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Solid_DoorSpeed,D速度,
 Solid_CmdType,Solid_CmdType,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Solid_CmdType,指令类型,固体加样: 1=X向左;2=X向右;3=Y向里;4=Y向外;5=夹爪Z向上;6=夹爪Z向下;7=D开门;8=D关门;9=取料筒时Y轴向里;10=取料筒时Y轴向外;11=加料;12=夹爪夹料;13=夹爪放料;14=天枰去皮;15=天枰称重;16=料筒Z向上;17=料筒Z向下;18=放料筒时Y轴向里;19=放料筒时Y轴向外;20=复位;21=夹爪夹紧;22=夹爪松开;23=xyz回原点
+Remove_static,Remove_static,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Remove_static,除静电,
 Solid_CmdTrig,Solid_CmdTrig,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Solid_CmdTrig,指令触发,
 System_ResetCompleteFB,System_ResetCompleteFB,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.System_ResetCompleteFB,复位完成反馈,
 System_ResetTrig,System_ResetTrig,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.System_ResetTrig,复位触发,

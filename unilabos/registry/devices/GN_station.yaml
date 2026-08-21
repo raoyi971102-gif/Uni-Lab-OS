@@ -3231,11 +3231,30 @@ gn_vacuum_oven:
         type: UniLabJsonCommand
         goal:
           cmd_type: cmd_type
-          segment: segment
-          temperature: temperature
-          minutes: minutes
-          vacuum_high: vacuum_high
-          vacuum_low: vacuum_low
+          temperature_1: temperature_1
+          minutes_1: minutes_1
+          vacuum_high_1: vacuum_high_1
+          vacuum_low_1: vacuum_low_1
+          temperature_2: temperature_2
+          minutes_2: minutes_2
+          vacuum_high_2: vacuum_high_2
+          vacuum_low_2: vacuum_low_2
+          temperature_3: temperature_3
+          minutes_3: minutes_3
+          vacuum_high_3: vacuum_high_3
+          vacuum_low_3: vacuum_low_3
+          temperature_4: temperature_4
+          minutes_4: minutes_4
+          vacuum_high_4: vacuum_high_4
+          vacuum_low_4: vacuum_low_4
+          temperature_5: temperature_5
+          minutes_5: minutes_5
+          vacuum_high_5: vacuum_high_5
+          vacuum_low_5: vacuum_low_5
+          temperature_6: temperature_6
+          minutes_6: minutes_6
+          vacuum_high_6: vacuum_high_6
+          vacuum_low_6: vacuum_low_6
           wait: wait
           timeout: timeout
         feedback: {}
@@ -3251,27 +3270,103 @@ gn_vacuum_oven:
                 cmd_type:
                   type: integer
                   title: cmd_type
-                  description: ''
-                segment:
+                  description: 1=启动 2=复位 100=开门 101=关门
+                temperature_1:
                   type: integer
-                  title: segment
-                  description: ''
-                temperature:
+                  title: temperature_1
+                  description: 第1段温度(℃)，对应 VacuumOven_TempSet_1
+                minutes_1:
                   type: integer
-                  title: temperature
-                  description: ''
-                minutes:
+                  title: minutes_1
+                  description: 第1段时间(min)，对应 VacuumOven_TimeSet_1
+                vacuum_high_1:
                   type: integer
-                  title: minutes
-                  description: ''
-                vacuum_high:
+                  title: vacuum_high_1
+                  description: 第1段真空上限，对应 VacuumOven_VacuumHigh_1
+                vacuum_low_1:
                   type: integer
-                  title: vacuum_high
-                  description: ''
-                vacuum_low:
+                  title: vacuum_low_1
+                  description: 第1段真空下限，对应 VacuumOven_VacuumLow_1
+                temperature_2:
                   type: integer
-                  title: vacuum_low
-                  description: ''
+                  title: temperature_2
+                  description: 第2段温度(℃)
+                minutes_2:
+                  type: integer
+                  title: minutes_2
+                  description: 第2段时间(min)
+                vacuum_high_2:
+                  type: integer
+                  title: vacuum_high_2
+                  description: 第2段真空上限
+                vacuum_low_2:
+                  type: integer
+                  title: vacuum_low_2
+                  description: 第2段真空下限
+                temperature_3:
+                  type: integer
+                  title: temperature_3
+                  description: 第3段温度(℃)
+                minutes_3:
+                  type: integer
+                  title: minutes_3
+                  description: 第3段时间(min)
+                vacuum_high_3:
+                  type: integer
+                  title: vacuum_high_3
+                  description: 第3段真空上限
+                vacuum_low_3:
+                  type: integer
+                  title: vacuum_low_3
+                  description: 第3段真空下限
+                temperature_4:
+                  type: integer
+                  title: temperature_4
+                  description: 第4段温度(℃)
+                minutes_4:
+                  type: integer
+                  title: minutes_4
+                  description: 第4段时间(min)
+                vacuum_high_4:
+                  type: integer
+                  title: vacuum_high_4
+                  description: 第4段真空上限
+                vacuum_low_4:
+                  type: integer
+                  title: vacuum_low_4
+                  description: 第4段真空下限
+                temperature_5:
+                  type: integer
+                  title: temperature_5
+                  description: 第5段温度(℃)
+                minutes_5:
+                  type: integer
+                  title: minutes_5
+                  description: 第5段时间(min)
+                vacuum_high_5:
+                  type: integer
+                  title: vacuum_high_5
+                  description: 第5段真空上限
+                vacuum_low_5:
+                  type: integer
+                  title: vacuum_low_5
+                  description: 第5段真空下限
+                temperature_6:
+                  type: integer
+                  title: temperature_6
+                  description: 第6段温度(℃)
+                minutes_6:
+                  type: integer
+                  title: minutes_6
+                  description: 第6段时间(min)
+                vacuum_high_6:
+                  type: integer
+                  title: vacuum_high_6
+                  description: 第6段真空上限
+                vacuum_low_6:
+                  type: integer
+                  title: vacuum_low_6
+                  description: 第6段真空下限
                 wait:
                   type: boolean
                   default: true
@@ -3290,11 +3385,30 @@ gn_vacuum_oven:
           - goal
         goal_default:
           cmd_type: 0
-          segment: 0
-          temperature: 0
-          minutes: 0
-          vacuum_high: 0
-          vacuum_low: 0
+          temperature_1: 0
+          minutes_1: 0
+          vacuum_high_1: 0
+          vacuum_low_1: 0
+          temperature_2: 0
+          minutes_2: 0
+          vacuum_high_2: 0
+          vacuum_low_2: 0
+          temperature_3: 0
+          minutes_3: 0
+          vacuum_high_3: 0
+          vacuum_low_3: 0
+          temperature_4: 0
+          minutes_4: 0
+          vacuum_high_4: 0
+          vacuum_low_4: 0
+          temperature_5: 0
+          minutes_5: 0
+          vacuum_high_5: 0
+          vacuum_low_5: 0
+          temperature_6: 0
+          minutes_6: 0
+          vacuum_high_6: 0
+          vacuum_low_6: 0
           wait: true
           timeout: 0.0
         handles: {}

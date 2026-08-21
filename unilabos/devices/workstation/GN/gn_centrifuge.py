@@ -1,7 +1,7 @@
 """
 离心机 设备驱动
 
-协议：opcua_gn1.3.6.csv「离心机」（前缀 Centrifuge_）。
+协议：opcua_gn1.3.7.csv「离心机」（前缀 Centrifuge_）。
 
 对外仅暴露 execute_command（Centrifuge_CmdType + 写参）；测试流程 yaml 预设供本地调试。
 
@@ -19,6 +19,7 @@ YAML 字段 → CSV 节点映射：
     YSpeed → Centrifuge_YSpeed
     ZSpeed → Centrifuge_ZSpeed
     PlateNo→ Centrifuge_PlateNo
+    Temperature → iTemperature（1.3.7 新增）
 """
 
 import os
@@ -32,7 +33,7 @@ from unilabos.utils.log import logger
 from unilabos.registry.decorators import action, device, not_action
 from unilabos.devices.workstation.GN.gn_station_base import GNStationClient
 
-DEFAULT_CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "opcua_gn1.3.6.csv")
+DEFAULT_CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "opcua_gn1.3.7.csv")
 
 # Centrifuge_CmdType（与 CSV 表头一致）
 CENTRIFUGE_CMD_LABELS = {
@@ -85,7 +86,7 @@ _EXECUTE_CMD_DOC = (
     "按 Centrifuge_CmdType 执行 OPC 指令。"
     "1=Y左 2=Y右 3=Z左 4=Z右 5=放入物料 6=运行离心机 7=取出物料 "
     "8=复位 9=夹爪张开 10=夹爪夹紧。"
-    "写 y_pos/z_pos/inner_z_pos/rpm/time_minutes/y_speed/z_speed/plate_no。"
+    "写 y_pos/z_pos/inner_z_pos/rpm/time_minutes/y_speed/z_speed/plate_no/temperature。"
 )
 
 
@@ -104,6 +105,7 @@ class CentrifugeDevice(GNStationClient):
     CMD_TYPE_NODE = "Centrifuge_CmdType"
     CMD_TRIG_NODE = "Centrifuge_CmdTrig"
     COMPLETE_NODE = "Centrifuge_CompleteFB"
+    TEMPERATURE_SET_NODE = "iTemperature"
 
     def __init__(
         self,
@@ -142,6 +144,7 @@ class CentrifugeDevice(GNStationClient):
         y_speed: Optional[int] = None,
         z_speed: Optional[int] = None,
         plate_no: Optional[int] = None,
+        temperature: Optional[int] = None,
         timeout: float = 120.0,
     ) -> dict:
         """唯一注册动作：清 CompleteFB → 写参 → CmdType → CmdTrig → 等 CompleteFB。
@@ -163,6 +166,7 @@ class CentrifugeDevice(GNStationClient):
             y_pos=y_pos, z_pos=z_pos, inner_z_pos=inner_z_pos,
             rpm=rpm, time_minutes=time_minutes,
             y_speed=y_speed, z_speed=z_speed, plate_no=plate_no,
+            temperature=temperature,
         )
         label = CENTRIFUGE_CMD_LABELS.get(cmd, f"CmdType={cmd}")
         result = self._run(cmd, label, setpoints, timeout=effective_timeout)
@@ -178,6 +182,7 @@ class CentrifugeDevice(GNStationClient):
         rpm: int = 1000,
         minutes: int = 10,
         plate_no: int = 2,
+        temperature: Optional[int] = None,
         timeout: float = 120.0,
     ) -> dict:
         return self.execute_command(
@@ -185,6 +190,7 @@ class CentrifugeDevice(GNStationClient):
             rpm=rpm,
             time_minutes=minutes,
             plate_no=plate_no,
+            temperature=temperature,
             timeout=timeout,
         )
 
@@ -199,6 +205,7 @@ class CentrifugeDevice(GNStationClient):
         y_speed: Optional[int] = None,
         z_speed: Optional[int] = None,
         plate_no: Optional[int] = None,
+        temperature: Optional[int] = None,
     ) -> dict:
         mapping = {
             "Centrifuge_YPosSet": y_pos,
@@ -209,6 +216,7 @@ class CentrifugeDevice(GNStationClient):
             "Centrifuge_YSpeed": y_speed,
             "Centrifuge_ZSpeed": z_speed,
             "Centrifuge_PlateNo": plate_no,
+            self.TEMPERATURE_SET_NODE: temperature,
         }
         return {node: val for node, val in mapping.items() if val is not None}
 

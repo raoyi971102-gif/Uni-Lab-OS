@@ -86,7 +86,7 @@ STATIONS: dict = {
     "centrifuge":    Station(4,  -8582,  -8582,  "Robot_Centrifuge"),
     "nine9320":      Station(6,  -3926,  -3926,  "Robot_9320"),
     "tube":          Station(7,  -1326,  874,    "Robot_Centrifuge_tube_liquid_handling"),
-    "stack":         Station(8,  3274,   2473,   "Robot_Stack", rotary=True),
+    "stack":         Station(8,  3270,   2473,   "Robot_Stack", rotary=True),
     "solid":         Station(9,  6318,   5971,   "Robot_Add_solid_sample"),
     "oven":          Station(1,  -13278, -13278, "Robot_Oven"),
     "vacuum_oven":   Station(5,  -6726,  -6726,  "Robot_Vacuum_oven"),

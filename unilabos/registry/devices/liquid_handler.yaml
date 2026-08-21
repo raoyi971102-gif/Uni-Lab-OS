@@ -1407,6 +1407,7 @@ liquid_handler.prcxi:
           destination_offset: destination_offset
           drop_direction: drop_direction
           force: force
+          from: from
           get_direction: get_direction
           hierarchy: hierarchy
           intermediate_locations: intermediate_locations
@@ -1426,6 +1427,7 @@ liquid_handler.prcxi:
             z: 0.0
           drop_direction: ''
           force: 5
+          from: 0
           get_direction: ''
           hierarchy: 1
           intermediate_locations: []
@@ -1487,6 +1489,12 @@ liquid_handler.prcxi:
                   maximum: 2147483647
                   minimum: -2147483648
                   title: force
+                  type: integer
+                from:
+                  description: 取板源 slot 号；None/0 时从 plate 当前位置反推，非 0 时直接使用该 slot
+                  maximum: 9223372036854775807
+                  minimum: -9223372036854775808
+                  title: from
                   type: integer
                 get_direction:
                   type: string

@@ -6,6 +6,7 @@ HTTP客户端模块
 import gzip
 import json
 import os
+import time
 from typing import List, Dict, Any, Optional
 
 from unilabos.utils.tools import fast_dumps as _fast_dumps, fast_dumps_pretty as _fast_dumps_pretty
@@ -129,33 +130,43 @@ class HTTPClient:
 
     def resource_tree_get(self, uuid_list: List[str], with_children: bool) -> List[Dict[str, Any]]:
         """
-        添加资源
-
-        Args:
-            uuid_list: List[str]
-        Returns:
-            Dict[str, str]: 旧UUID到新UUID的映射关系 {old_uuid: new_uuid}
+        按 UUID 批量查询物料树（含重试，避免偶发断连返回空列表）。
         """
         with open(os.path.join(BasicConfig.working_dir, "req_resource_tree_get.json"), "w", encoding="utf-8") as f:
             f.write(json.dumps({"uuids": uuid_list, "with_children": with_children}, indent=4))
-        response = self._session.post(
-            f"{self.remote_addr}/edge/material/query",
-            json={"uuids": uuid_list, "with_children": with_children},
-            headers={"Authorization": f"Lab {self.auth}"},
-            timeout=100,
-        )
-        with open(os.path.join(BasicConfig.working_dir, "res_resource_tree_get.json"), "w", encoding="utf-8") as f:
-            f.write(f"{response.status_code}" + "\n" + response.text)
-        if response.status_code == 200:
-            res = response.json()
-            if "code" in res and res["code"] != 0:
+
+        last_error: Optional[Exception] = None
+        for attempt in range(3):
+            try:
+                response = self._session.post(
+                    f"{self.remote_addr}/edge/material/query",
+                    json={"uuids": uuid_list, "with_children": with_children},
+                    headers={"Authorization": f"Lab {self.auth}"},
+                    timeout=100,
+                )
+                with open(
+                    os.path.join(BasicConfig.working_dir, "res_resource_tree_get.json"), "w", encoding="utf-8"
+                ) as f:
+                    f.write(f"{response.status_code}" + "\n" + response.text)
+                if response.status_code == 200:
+                    res = response.json()
+                    if "code" in res and res["code"] != 0:
+                        logger.error(f"查询物料失败: {response.text}")
+                        return []
+                    data = res["data"]["nodes"]
+                    logger.trace(f"resource_tree_get查询到物料: {data}")
+                    return data
                 logger.error(f"查询物料失败: {response.text}")
-            else:
-                data = res["data"]["nodes"]
-                logger.trace(f"resource_tree_get查询到物料: {data}")
-                return data
-        else:
-            logger.error(f"查询物料失败: {response.text}")
+                return []
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
+                last_error = exc
+                logger.warning(
+                    f"查询物料网络异常 (attempt {attempt + 1}/3): {exc}"
+                )
+                if attempt < 2:
+                    time.sleep(0.5 * (attempt + 1))
+        if last_error is not None:
+            raise last_error
         return []
 
     def resource_add(self, resources: List[Dict[str, Any]]) -> requests.Response:

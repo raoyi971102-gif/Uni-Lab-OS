@@ -991,7 +991,7 @@ class LiquidHandlerMiddleware(LiquidHandler):
         self,
         resource: Union[TipRack, Trash],
         offset: Coordinate = Coordinate.zero(),
-        allow_nonzero_volume: bool = False,
+        allow_nonzero_volume: bool = True,
         **backend_kwargs,
     ):
         if self._simulator:

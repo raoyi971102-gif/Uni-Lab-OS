@@ -61,6 +61,7 @@ from unilabos_msgs.srv import (
 )  # type: ignore
 from unilabos_msgs.msg import Resource  # type: ignore
 
+from unilabos.resources.plr_naming import retarget_itemized_child_names
 from unilabos.resources.resource_tracker import (
     DeviceNodeResourceTracker,
     ResourceDictType,
@@ -760,13 +761,90 @@ class BaseROS2DeviceNode(Node, Generic[T]):
     async def create_task(cls, func, trace_error=True, **kwargs) -> Task:
         return ROS2DeviceNode.run_async_func(func, trace_error, **kwargs)
 
+    def _resolve_upload_parent_uuid(
+        self,
+        plr_resource: Optional["ResourcePLR"],
+        fallback_parent_uuid: Optional[str] = None,
+    ) -> Optional[str]:
+        """上传前解析 parent_uuid：PLR parent 链优先，其次 fallback，避免 orphan 误挂设备根。"""
+        if plr_resource is not None:
+            parent = getattr(plr_resource, "parent", None)
+            if parent is not None:
+                uid = getattr(parent, "unilabos_uuid", None)
+                if uid:
+                    return uid
+            tracked = self.resource_tracker.uuid_to_resources.get(
+                getattr(plr_resource, "unilabos_uuid", "")
+            )
+            if tracked is not None:
+                parent = getattr(tracked, "parent", None)
+                if parent is not None:
+                    uid = getattr(parent, "unilabos_uuid", None)
+                    if uid:
+                        return uid
+        if fallback_parent_uuid:
+            return fallback_parent_uuid
+        return None
+
+    def _resolve_assign_spot(self, parent_resource: "ResourcePLR", site: Any) -> Optional[int]:
+        """将 update_resource_site / site 参数解析为 assign_child_resource(spot=...) 的下标。"""
+        if site is None:
+            return None
+        spec = inspect.signature(parent_resource.assign_child_resource)
+        if "spot" not in spec.parameters:
+            return None
+
+        slot_index_fn = getattr(parent_resource, "slot_index", None)
+
+        if isinstance(site, int):
+            if callable(slot_index_fn):
+                idx = slot_index_fn(site)
+                if idx is not None:
+                    return idx
+            return site
+
+        site_str = str(site).strip()
+        if site_str.isdigit():
+            n = int(site_str)
+            if callable(slot_index_fn):
+                idx = slot_index_fn(n)
+                if idx is not None:
+                    return idx
+            return n
+
+        if callable(slot_index_fn):
+            idx = slot_index_fn(site_str)
+            if idx is not None:
+                return idx
+
+        ordering_dict: Dict[str, Any] = getattr(parent_resource, "_ordering", None) or {}
+        if ordering_dict and site_str in ordering_dict:
+            return list(ordering_dict.keys()).index(site_str)
+
+        raise ValueError(
+            f"无法解析 slot/site={site!r}（parent={getattr(parent_resource, 'name', '?')}）"
+        )
+
     async def update_resource(self, resources: List["ResourcePLR"]):
         r = SerialCommand.Request()
         tree_set = ResourceTreeSet.from_plr_resources(resources)
+        uuid_to_plr = {
+            getattr(res, "unilabos_uuid", None): res for res in resources if getattr(res, "unilabos_uuid", None)
+        }
         for tree in tree_set.trees:
             root_node = tree.root_node
-            if not root_node.res_content.uuid_parent:
-                logger.warning(f"更新无父节点物料{root_node}，自动以当前设备作为根节点")
+            if root_node.res_content.uuid_parent:
+                continue
+            plr_match = uuid_to_plr.get(root_node.res_content.uuid)
+            resolved = self._resolve_upload_parent_uuid(
+                plr_match, fallback_parent_uuid=root_node.res_content.parent_uuid
+            )
+            if resolved:
+                root_node.res_content.parent_uuid = resolved
+            elif self.node_name != "host_node":
+                logger.warning(
+                    f"更新无父节点物料{root_node}，自动以当前设备作为根节点"
+                )
                 root_node.res_content.parent_uuid = self.uuid
         r.command = json.dumps({"data": {"data": tree_set.dump()}, "action": "update"})
         response: SerialCommand_Response = await self._resource_clients["c2s_update_resource_tree"].call_async(r)  # type: ignore
@@ -799,19 +877,14 @@ class BaseROS2DeviceNode(Node, Generic[T]):
                 )
             )
         )  # type: ignore
-        # #region agent log
-        try:
-            import time as _t
-            _raw = response.response or ""
-            with open(r"d:\Download\Uni-Lab-OS\debug-8f6ad7.log", "a", encoding="utf-8") as _f:
-                _f.write(json.dumps({"sessionId":"8f6ad7","runId":"post-fix","hypothesisId":"C","location":"base_device_node.py:get_resource","message":"got resource_tree response","data":{"uuids":resources_uuid,"resp_len":len(_raw),"resp_head":_raw[:200],"looks_json":_raw[:1] in ("[","{")},"timestamp":int(_t.time()*1000)}, ensure_ascii=False)+"\n")
-        except Exception:
-            pass
-        # #endregion
         raw = (response.response or "").strip()
         if not raw or raw.startswith("ERROR"):
             raise ValueError(f"资源树查询失败（远端未返回有效 JSON）: {raw[:200]!r}")
         raw_nodes = json.loads(raw)
+        if resources_uuid and not raw_nodes:
+            raise ValueError(
+                f"远端物料查询返回空结果 uuids={resources_uuid}（可能网络中断，请重试）"
+            )
         tree_set = ResourceTreeSet.from_raw_dict_list(raw_nodes)
         self.lab_logger().trace(f"获取资源结果: {len(tree_set.trees)} 个资源树 {tree_set.root_nodes}")
         return tree_set
@@ -879,57 +952,55 @@ class BaseROS2DeviceNode(Node, Generic[T]):
             return None
         parent_resource: ResourcePLR = self.resource_tracker.uuid_to_resources.get(parent_uuid)
         if parent_resource is None:
-            self.lab_logger().warning(
+            raise ValueError(
                 f"物料{plr_resource}请求挂载{tree.root_node.res_content.name}的父节点{parent_uuid}不存在"
             )
-        else:
-            try:
-                # 特殊兼容所有plr的物料的assign方法，和create_resource append_resource后期同步
-                additional_params = {}
-                extra = getattr(plr_resource, "unilabos_extra", {})
-                if len(extra):
-                    self.lab_logger().info(f"发现物料{plr_resource}额外参数: " + str(extra))
-                if "update_resource_site" in extra:
-                    additional_add_params["site"] = extra["update_resource_site"]
-                site = additional_add_params.get("site", None)
-                spec = inspect.signature(parent_resource.assign_child_resource)
-                if "spot" in spec.parameters:
-                    ordering_dict: Dict[str, Any] = getattr(parent_resource, "_ordering")
-                    if ordering_dict:
-                        site = list(ordering_dict.keys()).index(site)
-                    additional_params["spot"] = site
-                old_parent = plr_resource.parent
-                if old_parent is not None:
-                    # plr并不支持同一个deck的加载和卸载
-                    self.lab_logger().warning(f"物料{plr_resource}请求从{old_parent}卸载")
-                    old_parent.unassign_child_resource(plr_resource)
-                self.lab_logger().warning(
-                    f"物料{plr_resource}请求挂载到{parent_resource}，额外参数：{additional_params}"
-                )
+        try:
+            # 特殊兼容所有plr的物料的assign方法，和create_resource append_resource后期同步
+            additional_params = {}
+            extra = getattr(plr_resource, "unilabos_extra", {})
+            if len(extra):
+                self.lab_logger().info(f"发现物料{plr_resource}额外参数: " + str(extra))
+            if "update_resource_site" in extra:
+                additional_add_params["site"] = extra["update_resource_site"]
+            site = additional_add_params.get("site", None)
+            if "spot" in inspect.signature(parent_resource.assign_child_resource).parameters:
+                spot = self._resolve_assign_spot(parent_resource, site)
+                if spot is not None:
+                    additional_params["spot"] = spot
+            old_parent = plr_resource.parent
+            if old_parent is not None:
+                # plr并不支持同一个deck的加载和卸载
+                self.lab_logger().warning(f"物料{plr_resource}请求从{old_parent}卸载")
+                old_parent.unassign_child_resource(plr_resource)
+            self.lab_logger().warning(
+                f"物料{plr_resource}请求挂载到{parent_resource}，额外参数：{additional_params}"
+            )
 
-                # ⭐ assign 之前，需要从 resources 列表中移除
-                # 因为资源将不再是顶级资源，而是成为 parent_resource 的子资源
-                # 如果不移除，figure_resource 会找到两次：一次在 resources，一次在 parent 的 children
-                resource_id = id(plr_resource)
-                for i, r in enumerate(self.resource_tracker.resources):
-                    if id(r) == resource_id:
-                        self.resource_tracker.resources.pop(i)
-                        self.lab_logger().debug(
-                            f"从顶级资源列表中移除 {plr_resource.name}（即将成为 {parent_resource.name} 的子资源）"
-                        )
-                        break
+            # ⭐ assign 之前，需要从 resources 列表中移除
+            # 因为资源将不再是顶级资源，而是成为 parent_resource 的子资源
+            # 如果不移除，figure_resource 会找到两次：一次在 resources，一次在 parent 的 children
+            resource_id = id(plr_resource)
+            for i, r in enumerate(self.resource_tracker.resources):
+                if id(r) == resource_id:
+                    self.resource_tracker.resources.pop(i)
+                    self.lab_logger().debug(
+                        f"从顶级资源列表中移除 {plr_resource.name}（即将成为 {parent_resource.name} 的子资源）"
+                    )
+                    break
 
-                parent_resource.assign_child_resource(plr_resource, location=None, **additional_params)
+            parent_resource.assign_child_resource(plr_resource, location=None, **additional_params)
 
-                func = getattr(self.driver_instance, "resource_tree_transfer", None)
-                if callable(func):
-                    # 分别是 物料的原来父节点，当前物料的状态，物料的新父节点（此时物料已经重新assign了）
-                    func(old_parent, plr_resource, parent_resource)
-                return parent_resource
-            except Exception as e:
-                self.lab_logger().warning(
-                    f"物料{plr_resource}请求挂载{tree.root_node.res_content.name}的父节点{parent_resource}[{parent_uuid}]失败！\n{traceback.format_exc()}"
-                )
+            func = getattr(self.driver_instance, "resource_tree_transfer", None)
+            if callable(func):
+                # 分别是 物料的原来父节点，当前物料的状态，物料的新父节点（此时物料已经重新assign了）
+                func(old_parent, plr_resource, parent_resource)
+            return parent_resource
+        except Exception:
+            self.lab_logger().warning(
+                f"物料{plr_resource}请求挂载{tree.root_node.res_content.name}的父节点{parent_resource}[{parent_uuid}]失败！\n{traceback.format_exc()}"
+            )
+            raise
 
     async def s2c_resource_tree(self, req: SerialCommand_Request, res: SerialCommand_Response):
         """
@@ -1045,21 +1116,27 @@ class BaseROS2DeviceNode(Node, Generic[T]):
                 original_parent_resource = original_instance.parent
                 original_parent_resource_uuid = getattr(original_parent_resource, "unilabos_uuid", None)
                 target_parent_resource_uuid = tree.root_node.res_content.uuid_parent
-                not_same_parent = (
-                    original_parent_resource_uuid != target_parent_resource_uuid
-                    and original_parent_resource is not None
+                needs_reparent = bool(
+                    target_parent_resource_uuid
+                    and target_parent_resource_uuid != self.uuid
+                    and (
+                        original_parent_resource is None
+                        or original_parent_resource_uuid != target_parent_resource_uuid
+                    )
                 )
                 old_name = original_instance.name
                 new_name = plr_resource.name
                 parent_appended = False
 
                 # Update操作中包含改名：需要先remove再add，这里更新父节点即可
-                if not not_same_parent and old_name != new_name:
+                if old_name != new_name and not needs_reparent:
                     self.lab_logger().info(f"物料改名操作：{old_name} -> {new_name}")
 
                     # 收集所有相关的uuid（包括子节点）
                     _handle_remove([original_instance.unilabos_uuid])
                     original_instance.name = new_name
+                    # 板名改了必须同步孔名，否则多块同类板会共用 PRCXI_96_DeepWell_well_A1。
+                    retarget_itemized_child_names(original_instance)
                     _handle_add([original_instance], tree_set, additional_add_params)
 
                     self.lab_logger().info(f"物料改名完成：{old_name} -> {new_name}")
@@ -1077,10 +1154,11 @@ class BaseROS2DeviceNode(Node, Generic[T]):
                     original_instance.unilabos_extra = getattr(plr_resource, "unilabos_extra")  # type: ignore  # noqa: E501
 
                 # 如果父节点变化，需要重新挂载
-                if not_same_parent:
+                if needs_reparent:
                     parent = self.transfer_to_new_resource(original_instance, tree, additional_add_params)
-                    original_instances.append(parent)
-                    parent_appended = True
+                    if parent is not None:
+                        original_instances.append(parent)
+                        parent_appended = True
                 else:
                     # 判断是否变更了resource_site，重新登记
                     target_site = original_instance.unilabos_extra.get("update_resource_site")
@@ -1166,29 +1244,7 @@ class BaseROS2DeviceNode(Node, Generic[T]):
                             raise ValueError("tree_set不能为None")
                         plr_resources = tree_set.to_plr_resources()
                         result, parents = _handle_add(plr_resources, tree_set, additional_add_params)
-                        parents: List[Optional["ResourcePLR"]] = [i for i in parents if i is not None]
-                        # de_dupe_parents = list(set(parents))
-                        # Fix unhashable type error for WareHouse
-                        de_dupe_parents = []
-                        _seen_ids = set()
-                        for p in parents:
-                            if id(p) not in _seen_ids:
-                                _seen_ids.add(id(p))
-                                de_dupe_parents.append(p)
-                        new_tree_set = ResourceTreeSet.from_plr_resources(de_dupe_parents)  # 去重
-                        for tree in new_tree_set.trees:
-                            if tree.root_node.res_content.uuid_parent is None and self.node_name != "host_node":
-                                tree.root_node.res_content.parent_uuid = self.uuid
-                        r = SerialCommand.Request()
-                        r.command = json.dumps(
-                            {"data": {"data": new_tree_set.dump()}, "action": "update"}
-                        )  # 和Update Resource一致
-                        response: SerialCommand_Response = await self._resource_clients[
-                            "c2s_update_resource_tree"
-                        ].call_async(
-                            r
-                        )  # type: ignore
-                        self.lab_logger().trace(f"确认资源云端 Add 结果: {response.response}")
+                        # 云端 s2c add 仅本地应用，不回写 PUT（避免错误 parent 覆盖云端树）
                         results.append(result)
                     elif action == "update":
                         if tree_set is None:
@@ -1200,21 +1256,7 @@ class BaseROS2DeviceNode(Node, Generic[T]):
                             else:
                                 plr_resources.append(ResourceTreeSet([tree]).to_plr_resources()[0])
                         result, original_instances = _handle_update(plr_resources, tree_set, additional_add_params)
-                        if not BasicConfig.no_update_feedback:
-                            new_tree_set = ResourceTreeSet.from_plr_resources(original_instances)  # 去重
-                            for tree in new_tree_set.trees:
-                                if tree.root_node.res_content.uuid_parent is None and self.node_name != "host_node":
-                                    tree.root_node.res_content.parent_uuid = self.uuid
-                            r = SerialCommand.Request()
-                            r.command = json.dumps(
-                                {"data": {"data": new_tree_set.dump()}, "action": "update"}
-                            )  # 和Update Resource一致
-                            response: SerialCommand_Response = await self._resource_clients[
-                                "c2s_update_resource_tree"
-                            ].call_async(
-                                r
-                            )  # type: ignore
-                            self.lab_logger().trace(f"确认资源云端 Update 结果: {response.response}")
+                        # 云端 s2c update 仅本地应用，不回写 PUT（设备主动 update_resource 仍会上传）
                         results.append(result)
                     elif action == "remove":
                         result = _handle_remove(resources_uuid)
@@ -2042,15 +2084,24 @@ class BaseROS2DeviceNode(Node, Generic[T]):
                                         plr_resource.unilabos_extra[EXTRA_SAMPLE_UUID] = resource_data["sample_id"]
                                     queried_resources[idx] = plr_resource
                                 else:
-                                    uuid_indices.append((idx, unilabos_uuid, resource_data))
+                                    local = self._get_local_plr_by_uuid(unilabos_uuid)
+                                    if local is not None:
+                                        if "sample_id" in resource_data:
+                                            local.unilabos_extra[EXTRA_SAMPLE_UUID] = resource_data["sample_id"]
+                                        queried_resources[idx] = local
+                                    else:
+                                        uuid_indices.append((idx, unilabos_uuid, resource_data))
 
                             # 第二遍：批量查询有uuid的资源
                             if uuid_indices:
                                 uuids = [item[1] for item in uuid_indices]
                                 resource_tree = await self.get_resource(uuids)
-                                plr_resources = resource_tree.to_plr_resources()
-                                for i, (idx, _, resource_data) in enumerate(uuid_indices):
-                                    plr_resource = plr_resources[i]
+                                plr_resources = resource_tree.to_plr_resources(requested_uuids=uuids)
+                                uuid_to_plr = {getattr(r, "unilabos_uuid", None): r for r in plr_resources}
+                                for idx, unilabos_uuid, resource_data in uuid_indices:
+                                    plr_resource = uuid_to_plr.get(unilabos_uuid)
+                                    if plr_resource is None:
+                                        raise ValueError(f"通过 uuid={unilabos_uuid} 查询资源为空")
                                     if "sample_id" in resource_data:
                                         plr_resource.unilabos_extra[EXTRA_SAMPLE_UUID] = resource_data["sample_id"]
                                     queried_resources[idx] = plr_resource
@@ -2538,32 +2589,80 @@ class BaseROS2DeviceNode(Node, Generic[T]):
                 f"执行动作时JSON缺少function_name或function_args: {ex}\n原JSON: {string}\n{traceback.format_exc()}"
             )
 
+    def _get_local_plr_by_uuid(self, unilabos_uuid: str) -> Optional["ResourcePLR"]:
+        """从本地 resource_tracker 按 uuid 查找 PLR 实例。"""
+        if not unilabos_uuid or self.resource_tracker is None:
+            return None
+        local = self.resource_tracker.uuid_to_resources.get(unilabos_uuid)
+        if local is not None:
+            return local
+        found = self.resource_tracker.figure_resource({"uuid": unilabos_uuid}, try_mode=True)
+        if isinstance(found, list) and len(found) == 1:
+            return found[0]
+        return None
+
+    def _get_local_plr_by_name(self, name: str) -> Optional["ResourcePLR"]:
+        if not name or self.resource_tracker is None:
+            return None
+        found = self.resource_tracker.figure_resource({"name": name}, try_mode=True)
+        if isinstance(found, list) and len(found) == 1:
+            return found[0]
+        return None
+
+    async def _fetch_plr_from_cloud_by_uuid(
+        self, unilabos_uuid: str, with_children: bool = True
+    ) -> "ResourcePLR":
+        resource_tree = await self.get_resource([unilabos_uuid], with_children=with_children)
+        if not resource_tree.trees:
+            raise ValueError(f"通过 uuid={unilabos_uuid} 查询资源为空（远端未返回节点）")
+        plr_resources = resource_tree.to_plr_resources(requested_uuids=[unilabos_uuid])
+        if not plr_resources:
+            raise ValueError(f"通过 uuid={unilabos_uuid} 查询资源为空（PLR 转换失败）")
+        return plr_resources[0]
+
+    def _merge_plr_with_local_tracker(self, plr_resource: "ResourcePLR") -> "ResourcePLR":
+        """将远端/新建 PLR 与本地 tracker 对齐，优先返回已存在的本地实例。"""
+        res = self.resource_tracker.figure_resource(plr_resource, try_mode=True)
+        if isinstance(res, list):
+            if len(res) == 0:
+                self.lab_logger().warning(
+                    f"资源 {getattr(plr_resource, 'name', '?')} 未在本地索引，使用远端实例"
+                )
+                return plr_resource
+            if len(res) == 1:
+                return res[0]
+            raise ValueError(f"资源转换得到多个实例: {res}")
+        return res
+
     async def _convert_resource_async(self, resource_data: "ResourceDictType"):
-        """异步转换 ResourceDictType 为 PLR 实例，优先用 uuid 查询"""
-        unilabos_uuid = resource_data.get("uuid")
+        """异步转换 ResourceDictType 为 PLR 实例：本地 uuid 优先，远端查询失败时回退 name/id。"""
+        unilabos_uuid = resource_data.get("uuid") or resource_data.get("unilabos_uuid")
+        res_id = resource_data.get("id") or resource_data.get("name", "")
 
         if unilabos_uuid:
-            resource_tree = await self.get_resource([unilabos_uuid], with_children=True)
-            plr_resources = resource_tree.to_plr_resources()
-            if plr_resources:
-                plr_resource = plr_resources[0]
-            else:
-                raise ValueError(f"通过 uuid={unilabos_uuid} 查询资源为空")
-        else:
-            res_id = resource_data.get("id") or resource_data.get("name", "")
-            if not res_id:
-                raise ValueError(f"资源数据缺少 uuid 和 id: {list(resource_data.keys())}")
+            local = self._get_local_plr_by_uuid(unilabos_uuid)
+            if local is not None:
+                return local
+            try:
+                plr_resource = await self._fetch_plr_from_cloud_by_uuid(unilabos_uuid, with_children=True)
+            except ValueError as exc:
+                if res_id:
+                    fallback = self._get_local_plr_by_name(res_id)
+                    if fallback is not None:
+                        self.lab_logger().warning(
+                            f"uuid={unilabos_uuid} 远端查询失败({exc})，回退本地资源 name={res_id}"
+                        )
+                        return fallback
+                raise
+        elif res_id:
+            local = self._get_local_plr_by_name(res_id)
+            if local is not None:
+                return local
             plr_resource = await self.get_resource_with_dir(resource_id=res_id, with_children=True)
-
-        # 通过资源跟踪器获取本地实例
-        res = self.resource_tracker.figure_resource(plr_resource, try_mode=True)
-        if len(res) == 0:
-            self.lab_logger().warning(f"资源转换未能索引到实例: {resource_data.get('id', '?')}，返回新建实例")
-            return plr_resource
-        elif len(res) == 1:
-            return res[0]
         else:
-            raise ValueError(f"资源转换得到多个实例: {res}")
+            raise ValueError(f"资源数据缺少 uuid 和 id: {list(resource_data.keys())}")
+
+        return self._merge_plr_with_local_tracker(plr_resource)
 
     # 异步上下文管理方法
     async def __aenter__(self):
