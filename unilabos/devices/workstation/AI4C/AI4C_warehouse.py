@@ -6,6 +6,26 @@ from pylabrobot.resources.carrier import ResourceHolder, create_homogeneous_reso
 from unilabos.resources.itemized_carrier import ItemizedCarrier, ResourcePLR
 from unilabos.resources.resource_tracker import EXTRA_CLASS
 
+# 与 PRCXI9300Deck._DEFAULT_CONTENT_TYPE 对齐，并保留 AI4C 粉桶/载架类型。
+PRCXI_COMPAT_CONTENT_TYPE = [
+    "plate",
+    "tip_rack",
+    "plates",
+    "tip_racks",
+    "tube_rack",
+    "adaptor",
+    "plateadapter",
+    "module",
+    "trash",
+]
+AI4C_WAREHOUSE_CONTENT_TYPE = [
+    "bottle",
+    "container",
+    "tube",
+    "bottle_carrier",
+    *PRCXI_COMPAT_CONTENT_TYPE,
+]
+
 
 def set_resource_class(resource, class_id: str) -> None:
     """写入 unilabos_resource_class，供前端按注册表 id 解析 icon。"""
@@ -39,6 +59,7 @@ def warehouse_factory(
     custom_keys: Optional[List[Union[str, int]]] = None,
     naming_mode: str = "continuous_number",
     reverse_col_order: bool = False,
+    content_type: Optional[List[str]] = None,
 ):
     """创建 AI4C 仓库槽位，槽位顺序与机械臂位置编号保持一致。"""
     locations = []
@@ -99,6 +120,7 @@ def warehouse_factory(
         sites=sites,
         category=category,
         model=model,
+        content_type=list(content_type) if content_type is not None else list(AI4C_WAREHOUSE_CONTENT_TYPE),
     )
     if model:
         set_resource_class(warehouse, model)
@@ -122,8 +144,11 @@ class WareHouse(ItemizedCarrier):
         category: str = "warehouse",
         model: Optional[str] = None,
         ordering_layout: str = "row-major",
+        content_type: Optional[List[str]] = None,
         **kwargs,
     ):
+        if content_type is None:
+            content_type = kwargs.pop("content_type", None)
         super().__init__(
             name=name,
             size_x=size_x,
@@ -136,6 +161,7 @@ class WareHouse(ItemizedCarrier):
             sites=sites,
             category=category,
             model=model,
+            content_type=list(content_type) if content_type else list(AI4C_WAREHOUSE_CONTENT_TYPE),
         )
         self.ordering_layout = ordering_layout
 

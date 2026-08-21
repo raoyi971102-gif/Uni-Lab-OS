@@ -97,6 +97,8 @@ S = TypeVar("S", bound=ResourceHolder)
 class ItemizedCarrier(ResourcePLR):
   """Base class for all carriers."""
 
+  DEFAULT_CONTENT_TYPE = ["bottle", "container", "tube", "bottle_carrier", "tip_rack"]
+
   def __init__(
     self,
     name: str,
@@ -111,6 +113,7 @@ class ItemizedCarrier(ResourcePLR):
     category: Optional[str] = "carrier",
     model: Optional[str] = None,
     invisible_slots: Optional[str] = None,
+    content_type: Optional[List[str]] = None,
   ):
     super().__init__(
       name=name,
@@ -123,6 +126,7 @@ class ItemizedCarrier(ResourcePLR):
     self.num_items = len(sites)
     self.num_items_x, self.num_items_y, self.num_items_z = num_items_x, num_items_y, num_items_z
     self.invisible_slots = [] if invisible_slots is None else invisible_slots
+    self.content_type = list(content_type) if content_type else list(self.DEFAULT_CONTENT_TYPE)
     self.layout = "z-y" if self.num_items_z > 1 and self.num_items_x == 1 else "x-z" if self.num_items_z > 1 and self.num_items_y == 1 else "x-y"
 
     if isinstance(sites, dict):
@@ -437,12 +441,14 @@ class ItemizedCarrier(ResourcePLR):
     return [spot for spot, resource in self.sites.items() if resource is None]
 
   def serialize(self):
+    content_type = list(getattr(self, "content_type", None) or self.DEFAULT_CONTENT_TYPE)
     return {
       **super().serialize(),
       "num_items_x": self.num_items_x,
       "num_items_y": self.num_items_y,
       "num_items_z": self.num_items_z,
       "layout": self.layout,
+      "content_type": content_type,
       "sites": [{
         "label": str(identifier),
         "visible": False if identifier in self.invisible_slots else True,
@@ -451,7 +457,7 @@ class ItemizedCarrier(ResourcePLR):
                         self[identifier] if isinstance(self[identifier], str) else None,
         "position": {"x": location.x, "y": location.y, "z": location.z},
         "size": self.child_size[identifier],
-        "content_type": ["bottle", "container", "tube", "bottle_carrier", "tip_rack"]
+        "content_type": content_type,
       } for identifier, location in self.child_locations.items()]
     }
 
@@ -480,4 +486,5 @@ class BottleCarrier(ItemizedCarrier):
             category=category,
             model=model,
             invisible_slots=invisible_slots,
+            content_type=kwargs.pop("content_type", None),
         )

@@ -103,6 +103,17 @@ def _get_slot_number(resource) -> Optional[int]:
         digits = "".join(c for c in str(site) if c.isdigit())
         return int(digits) if digits else None
     loc = getattr(resource, "location", None)
+    parent = getattr(resource, "parent", None)
+    sites = getattr(parent, "sites", None) if parent is not None else None
+    if not sites and parent is not None:
+        sites = getattr(getattr(parent, "deck", None), "sites", None)
+    if loc is not None and sites:
+        for i, item in enumerate(sites):
+            pos = item.get("position") if isinstance(item, dict) else None
+            if not isinstance(pos, dict):
+                continue
+            if abs(float(pos.get("x", 0)) - float(loc.x)) < 2 and abs(float(pos.get("y", 0)) - float(loc.y)) < 2:
+                return i + 1
     if loc is not None and loc.x is not None and loc.y is not None:
         col = round((loc.x - 5) / 137.5)
         row = round(3 - (loc.y - 13) / 96)
@@ -132,11 +143,36 @@ class PRCXI9300Deck(Deck):
     _DEFAULT_SITE_SIZE = {"width": 128.0, "height": 86, "depth": 0}
     _DEFAULT_CONTENT_TYPE = ["plate", "tip_rack", "plates", "tip_racks", "tube_rack", "adaptor", "plateadapter", "module", "trash"]
 
+    @staticmethod
+    def _site_y_is_t1_on_top(sites: List[Dict[str, Any]]) -> bool:
+        """T1 行 Y 小于 T13 行 Y 时，已是前端 Y 向下（T1 在画面上方）。"""
+        if len(sites) < 13:
+            return False
+        y1 = float((sites[0].get("position") or {}).get("y", 0))
+        y13 = float((sites[12].get("position") or {}).get("y", 0))
+        return y1 < y13
+
+    def _flip_sites_y(self, size_y: float) -> None:
+        site_h = float(self._DEFAULT_SITE_SIZE["height"])
+        for site in self.sites:
+            pos = site.get("position") or {}
+            h = float((site.get("size") or {}).get("height", site_h))
+            pos["y"] = float(size_y) - float(pos.get("y", 0)) - h
+            site["position"] = pos
+
     def __init__(self, name: str, size_x: float, size_y: float, size_z: float,
-                 sites: Optional[List[Dict[str, Any]]] = None, **kwargs):
+                 sites: Optional[List[Dict[str, Any]]] = None, flip_site_y: bool = False, **kwargs):
         super().__init__( size_x, size_y, size_z, name=name)
+        self.flip_site_y = bool(flip_site_y)
         if sites is not None:
-            self.sites: List[Dict[str, Any]] = [dict(s) for s in sites]
+            self.sites: List[Dict[str, Any]] = []
+            for s in sites:
+                item = dict(s)
+                if isinstance(item.get("position"), dict):
+                    item["position"] = dict(item["position"])
+                if isinstance(item.get("size"), dict):
+                    item["size"] = dict(item["size"])
+                self.sites.append(item)
         else:
             self.sites = []
             for i, (x, y, z) in enumerate(self._DEFAULT_SITE_POSITIONS):
@@ -147,6 +183,9 @@ class PRCXI9300Deck(Deck):
                     "size": dict(self._DEFAULT_SITE_SIZE),
                     "content_type": list(self._DEFAULT_CONTENT_TYPE),
                 })
+        if self.flip_site_y and not self._site_y_is_t1_on_top(self.sites):
+            # 前端 Y 向下：把默认「高 Y = T1 行」翻成「低 Y = T1 行」，T1 显示在画面上方。
+            self._flip_sites_y(size_y)
         # _ordering: label -> None, 用于外部通过 list(keys()).index(site) 将 Tn 转换为 spot index
         self._ordering = collections.OrderedDict(
             (site["label"], None) for site in self.sites
@@ -242,6 +281,7 @@ class PRCXI9300Deck(Deck):
     def serialize(self) -> dict:
         data = super().serialize()
         data["model"] = self.model
+        data["flip_site_y"] = self.flip_site_y
         sites_out = []
         for i, site in enumerate(self.sites):
             occupied = self._get_site_resource(i)

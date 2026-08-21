@@ -253,6 +253,7 @@
                 "size_x": 550,
                 "size_y": 400,
                 "size_z": 17,
+                "flip_site_y": true,
                 "rotation": {
                     "x": 0,
                     "y": 0,
