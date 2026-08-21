@@ -2059,7 +2059,7 @@ class PRCXI9300Backend(LiquidHandlerBackend):
     def __init__(
         self,
         tablets_info: list[WorkTablets],
-        host: str = "127.0.0.1",
+        host: str = "192.168.1.111",
         port: int = 9999,
         timeout: float = 10.0,
         channel_num: int = 8,
@@ -3722,7 +3722,7 @@ if __name__ == "__main__":
                         "_resource_child_name": "PRCXI_Deck",
                         "_resource_type": "unilabos.devices.liquid_handling.prcxi.prcxi:PRCXI9300Deck",
                     },
-                    "host": "192.168.0.121",
+                    "host": "192.168.1.111",
                     "port": 9999,
                     "timeout": 10.0,
                     "axis": "Right",
@@ -3742,7 +3742,7 @@ if __name__ == "__main__":
 
     handler = PRCXI9300Handler(
         deck=deck,
-        host="192.168.1.201",
+        host="192.168.1.111",
         port=9999,
         timeout=10.0,
         setup=True,

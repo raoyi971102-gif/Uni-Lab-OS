@@ -42,6 +42,7 @@
             "parent": "AI4C_station",
             "type": "deck",
             "class": "AI4C_deck",
+            "icon": "AI4C_hydration.webp",
             "position": {
                 "x": 250,
                 "y": 0,

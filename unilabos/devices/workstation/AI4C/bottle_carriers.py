@@ -1,9 +1,12 @@
 from pylabrobot.resources import Coordinate, ResourceHolder, create_homogeneous_resources
 
+from unilabos.devices.workstation.AI4C.AI4C_warehouse import set_resource_class
 from unilabos.devices.workstation.AI4C.bottles import AI4C_Powder_Cylinder, AI4C_Well_Plate
+from unilabos.registry.decorators import resource
 from unilabos.resources.itemized_carrier import BottleCarrier
 
 
+@resource(id="AI4C_PowderCylinderCarrier", category=["bottle_carriers"], description="AI4C 单粉桶载架")
 def AI4C_PowderCylinderCarrier(name: str) -> BottleCarrier:
     """创建 AI4C 单粉桶载架。"""
     carrier_size_x = 80.0
@@ -36,9 +39,11 @@ def AI4C_PowderCylinderCarrier(name: str) -> BottleCarrier:
     carrier.num_items_y = 1
     carrier.num_items_z = 1
     carrier[0] = AI4C_Powder_Cylinder(f"{name}_powder_cylinder_1")
+    set_resource_class(carrier, "AI4C_PowderCylinderCarrier")
     return carrier
 
 
+@resource(id="AI4C_WellPlateCarrier", category=["bottle_carriers"], description="AI4C 单孔板载架")
 def AI4C_WellPlateCarrier(name: str) -> BottleCarrier:
     """创建 AI4C 单孔板载架。"""
     carrier_size_x = 137.0
@@ -64,4 +69,5 @@ def AI4C_WellPlateCarrier(name: str) -> BottleCarrier:
     carrier.num_items_y = 1
     carrier.num_items_z = 1
     carrier[0] = AI4C_Well_Plate(f"{name}_well_plate_1")
+    set_resource_class(carrier, "AI4C_WellPlateCarrier")
     return carrier

@@ -2,14 +2,14 @@
 
 默认编辑同目录下的：
 - AI4C_station.json  图文件设备节点的 position / pose.size
-- AI4C_layout.json   台面整体尺寸与各工位坐标、大小
+- decks.py           台面整体尺寸与各工位 Coordinate
 
 用法：
     python edit_layout.py                  # 打开图形界面
     python edit_layout.py list             # 列出全部设备/工位
     python edit_layout.py get PRCXI
     python edit_layout.py set PRCXI --x 0 --y 240 --width 550 --height 400
-    python edit_layout.py set 移液站 --x 740 --y 950
+    python edit_layout.py set 磁搅 --x 900 --y 1678
     python edit_layout.py preview          # 终端俯视图
     python edit_layout.py --graph AI4C.json gui
 """
@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import difflib
 import json
+import re
 import shutil
 import sys
 from dataclasses import dataclass, replace
@@ -27,10 +28,118 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_GRAPH = HERE / "AI4C_station.json"
-DEFAULT_LAYOUT = HERE / "AI4C_layout.json"
+DEFAULT_LAYOUT = HERE / "decks.py"
 
 PLACEHOLDER_SIZE = 100.0
 NUMERIC_FIELDS = ("x", "y", "z", "width", "height", "depth")
+
+# 工位外框仅用于编辑器俯视图，实际载具尺寸仍由 warehouses.py 工厂函数决定。
+WAREHOUSE_META: Dict[str, Dict[str, Any]] = {
+    "孔板上料架": {"factory": "AI4C_loading_rack_1x8x1", "width": 147.0, "height": 778.0, "depth": 130.0},
+    "孔板下料架": {"factory": "AI4C_unloading_rack_1x8x1", "width": 147.0, "height": 778.0, "depth": 130.0},
+    "固态称量粉桶堆栈": {"factory": "AI4C_powder_stack_5x5x1", "width": 410.0, "height": 410.0, "depth": 130.0},
+    "固态称量": {"factory": "AI4C_solid_weighing_1x1x1", "width": 147.0, "height": 106.0, "depth": 130.0},
+    "固态称量粉桶位": {"factory": "AI4C_solid_weighing_powder_1x1x1", "width": 147.0, "height": 106.0, "depth": 130.0},
+    "磁搅": {"factory": "AI4C_magnetic_stirrer_1x1x1", "width": 147.0, "height": 106.0, "depth": 130.0},
+    "HPLC工站": {"factory": "AI4C_hplc_station_1x1x1", "width": 147.0, "height": 106.0, "depth": 130.0},
+}
+
+_SIZE_DEFAULTS_RE = re.compile(
+    r"(size_x:\s*float\s*=\s*)([0-9.]+)(,\s*\n\s*size_y:\s*float\s*=\s*)([0-9.]+)(,\s*\n\s*size_z:\s*float\s*=\s*)([0-9.]+)",
+)
+_ORIGIN_RE = re.compile(
+    r"(origin:\s*Coordinate\s*=\s*Coordinate\()([^)]+)(\))",
+)
+_LOC_BLOCK_RE = re.compile(
+    r"(self\.warehouse_locations\s*=\s*\{\n)(.*?)(\n        \})",
+    re.DOTALL,
+)
+_COORD_RE = re.compile(
+    r'"([^"]+)":\s*Coordinate\(\s*([^,]+),\s*([^,]+),\s*([^)]+)\)',
+)
+
+
+def _coord_text(x: Any, y: Any, z: Any) -> str:
+    return f"{float(x):.1f}, {float(y):.1f}, {float(z):.1f}"
+
+
+def parse_decks_py(text: str) -> Dict[str, Any]:
+    size_match = _SIZE_DEFAULTS_RE.search(text)
+    origin_match = _ORIGIN_RE.search(text)
+    loc_match = _LOC_BLOCK_RE.search(text)
+    width = _as_float(size_match.group(2), 2784.0) if size_match else 2784.0
+    height = _as_float(size_match.group(4), 2394.0) if size_match else 2394.0
+    depth = _as_float(size_match.group(6), 2670.0) if size_match else 2670.0
+    origin_vals = (0.0, 35.0, 0.0)
+    if origin_match:
+        parts = [p.strip() for p in origin_match.group(2).split(",")]
+        if len(parts) >= 3:
+            origin_vals = (_as_float(parts[0]), _as_float(parts[1]), _as_float(parts[2]))
+    warehouses: Dict[str, Any] = {}
+    if loc_match:
+        for name, x, y, z in _COORD_RE.findall(loc_match.group(2)):
+            meta = WAREHOUSE_META.get(name, {})
+            warehouses[name] = {
+                "factory": meta.get("factory", ""),
+                "x": _as_float(x),
+                "y": _as_float(y),
+                "z": _as_float(z),
+                "width": meta.get("width", 0),
+                "height": meta.get("height", 0),
+                "depth": meta.get("depth", 0),
+            }
+    return {
+        "deck": {
+            "name": "AI4C_deck",
+            "size": {"width": width, "height": height, "depth": depth},
+            "origin": {"x": origin_vals[0], "y": origin_vals[1], "z": origin_vals[2]},
+        },
+        "warehouses": warehouses,
+    }
+
+
+def dump_decks_py(text: str, layout: Dict[str, Any]) -> str:
+    deck_cfg = layout.get("deck") if isinstance(layout.get("deck"), dict) else {}
+    size = deck_cfg.get("size") if isinstance(deck_cfg.get("size"), dict) else {}
+    origin = deck_cfg.get("origin") if isinstance(deck_cfg.get("origin"), dict) else {}
+    warehouses = layout.get("warehouses") if isinstance(layout.get("warehouses"), dict) else {}
+
+    def replace_size(match: re.Match[str]) -> str:
+        return (
+            f"{match.group(1)}{float(size.get('width', match.group(2))):.1f}"
+            f"{match.group(3)}{float(size.get('height', match.group(4))):.1f}"
+            f"{match.group(5)}{float(size.get('depth', match.group(6))):.1f}"
+        )
+
+    updated, size_count = _SIZE_DEFAULTS_RE.subn(replace_size, text, count=1)
+    if size_count != 1:
+        raise ValueError("无法在 decks.py 中定位 size_x/size_y/size_z 默认值")
+
+    origin_text = _coord_text(origin.get("x", 0), origin.get("y", 35), origin.get("z", 0))
+
+    def replace_origin(match: re.Match[str]) -> str:
+        return f"{match.group(1)}{origin_text}{match.group(3)}"
+
+    updated, origin_count = _ORIGIN_RE.subn(replace_origin, updated, count=1)
+    if origin_count != 1:
+        raise ValueError("无法在 decks.py 中定位 origin Coordinate 默认值")
+
+    lines = []
+    for name, data in warehouses.items():
+        if not isinstance(data, dict):
+            continue
+        lines.append(
+            f'            "{name}": Coordinate({_coord_text(data.get("x", 0), data.get("y", 0), data.get("z", 0))}),'
+        )
+    inner = "\n".join(lines)
+
+    def replace_locs(match: re.Match[str]) -> str:
+        return f"{match.group(1)}{inner}{match.group(3)}"
+
+    updated, loc_count = _LOC_BLOCK_RE.subn(replace_locs, updated, count=1)
+    if loc_count != 1:
+        raise ValueError("无法在 decks.py 中定位 warehouse_locations")
+    return updated
 
 
 @dataclass
@@ -213,8 +322,7 @@ class LayoutStore:
         else:
             self.graph_data = {"nodes": [], "links": []}
         if self.layout_path.exists():
-            loaded = load_json(self.layout_path)
-            self.layout_data = loaded if isinstance(loaded, dict) else {}
+            self.layout_data = parse_decks_py(self.layout_path.read_text(encoding="utf-8"))
         else:
             self.layout_data = {"deck": {}, "warehouses": {}}
         self.layout_data.setdefault("deck", {})
@@ -332,7 +440,13 @@ class LayoutStore:
 
     def save(self, backup: bool = True) -> None:
         save_json(self.graph_path, self.graph_data, backup=backup)
-        save_json(self.layout_path, self.layout_data, backup=backup)
+        original = self.layout_path.read_text(encoding="utf-8")
+        updated = dump_decks_py(original, self.layout_data)
+        if backup and self.layout_path.exists():
+            bak = self.layout_path.with_suffix(self.layout_path.suffix + ".bak")
+            if not bak.exists():
+                shutil.copy2(self.layout_path, bak)
+        self.layout_path.write_text(updated, encoding="utf-8", newline="\n")
 
     def deck_size(self) -> Tuple[float, float]:
         for item in self.deck_items():
@@ -386,7 +500,7 @@ def ascii_preview(store: LayoutStore, cols: int = 64, rows: int = 28) -> str:
 
     def to_cell(x: float, y: float) -> Tuple[int, int]:
         col = int(max(0, min(cols - 1, round(x / deck_w * (cols - 1)))))
-        row = int(max(0, min(rows - 1, round((1.0 - y / deck_h) * (rows - 1)))))
+        row = int(max(0, min(rows - 1, round(y / deck_h * (rows - 1)))))
         return col, row
 
     for item in store.deck_items():
@@ -569,7 +683,7 @@ class LayoutEditorApp:
         ttk.Button(btns, text="Nudge +Y 10", command=lambda: self._nudge(0, 10)).pack(side="left", padx=2)
         ttk.Button(btns, text="Nudge -Y 10", command=lambda: self._nudge(0, -10)).pack(side="left", padx=2)
 
-        canvas_frame = ttk.LabelFrame(right, text="俯视图（原点在左下，Y 向上；可拖拽）", padding=4)
+        canvas_frame = ttk.LabelFrame(right, text="俯视图（原点在左上，Y 向下，与前端一致；可拖拽）", padding=4)
         canvas_frame.pack(fill="both", expand=True, pady=6)
         self.canvas = tk.Canvas(canvas_frame, width=self.CANVAS_W, height=self.CANVAS_H, bg="#f4f4f4")
         self.canvas.pack(fill="both", expand=True)
@@ -582,12 +696,12 @@ class LayoutEditorApp:
         self.root.bind("<Control-s>", lambda _e: self._save())
         self.root.bind("<Left>", lambda _e: self._nudge(-1, 0))
         self.root.bind("<Right>", lambda _e: self._nudge(1, 0))
-        self.root.bind("<Up>", lambda _e: self._nudge(0, 1))
-        self.root.bind("<Down>", lambda _e: self._nudge(0, -1))
+        self.root.bind("<Up>", lambda _e: self._nudge(0, -1))
+        self.root.bind("<Down>", lambda _e: self._nudge(0, 1))
         self.root.bind("<Shift-Left>", lambda _e: self._nudge(-10, 0))
         self.root.bind("<Shift-Right>", lambda _e: self._nudge(10, 0))
-        self.root.bind("<Shift-Up>", lambda _e: self._nudge(0, 10))
-        self.root.bind("<Shift-Down>", lambda _e: self._nudge(0, -10))
+        self.root.bind("<Shift-Up>", lambda _e: self._nudge(0, -10))
+        self.root.bind("<Shift-Down>", lambda _e: self._nudge(0, 10))
 
     def _current_items(self) -> List[LayoutItem]:
         if self.source_var.get() == "graph":
@@ -687,25 +801,25 @@ class LayoutEditorApp:
         deck_w, deck_h = self.store.deck_size()
         scale = min((canvas_w - 2 * self.PAD) / deck_w, (canvas_h - 2 * self.PAD) / deck_h)
         origin_x = (canvas_w - deck_w * scale) / 2
-        origin_y = (canvas_h + deck_h * scale) / 2
+        origin_y = (canvas_h - deck_h * scale) / 2
         return origin_x, origin_y, scale, canvas_h
 
     def _world_to_canvas(self, x: float, y: float) -> Tuple[float, float]:
         origin_x, origin_y, scale, _ = self._view_transform()
-        return origin_x + x * scale, origin_y - y * scale
+        return origin_x + x * scale, origin_y + y * scale
 
     def _canvas_to_world(self, cx: float, cy: float) -> Tuple[float, float]:
         origin_x, origin_y, scale, _ = self._view_transform()
-        return (cx - origin_x) / scale, (origin_y - cy) / scale
+        return (cx - origin_x) / scale, (cy - origin_y) / scale
 
     def _redraw_canvas(self) -> None:
         self.canvas.delete("all")
         deck_w, deck_h = self.store.deck_size()
-        x0, y1 = self._world_to_canvas(0, 0)
-        x1, y0 = self._world_to_canvas(deck_w, deck_h)
+        x0, y0 = self._world_to_canvas(0, 0)
+        x1, y1 = self._world_to_canvas(deck_w, deck_h)
         self.canvas.create_rectangle(x0, y0, x1, y1, fill="#ffffff", outline="#333333", width=2)
-        self.canvas.create_text(x0 + 4, y1 - 4, text="(0,0)", anchor="sw", fill="#666666")
-        self.canvas.create_text(x1 - 4, y0 + 4, text=f"{_fmt(deck_w)} x {_fmt(deck_h)}", anchor="ne", fill="#666666")
+        self.canvas.create_text(x0 + 4, y0 + 4, text="(0,0)", anchor="nw", fill="#666666")
+        self.canvas.create_text(x1 - 4, y1 - 4, text=f"{_fmt(deck_w)} x {_fmt(deck_h)}", anchor="se", fill="#666666")
 
         fill = "#8ecae6" if self.source_var.get() == "graph" else "#95d5b2"
         for item in self._canvas_items():
@@ -814,7 +928,7 @@ def build_parser() -> argparse.ArgumentParser:
         epilog="不带子命令时打开图形界面。方向键微移 1mm，Shift+方向键 10mm，Ctrl+S 保存。",
     )
     parser.add_argument("--graph", type=Path, default=DEFAULT_GRAPH, help="图文件路径，默认 AI4C_station.json")
-    parser.add_argument("--layout", type=Path, default=DEFAULT_LAYOUT, help="台面布局 JSON，默认 AI4C_layout.json")
+    parser.add_argument("--layout", type=Path, default=DEFAULT_LAYOUT, help="台面布局源码，默认 decks.py")
     parser.add_argument("--no-backup", action="store_true", help="保存时不写 .bak")
     sub = parser.add_subparsers(dest="command")
 

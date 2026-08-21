@@ -6,7 +6,7 @@ AI4C_deck:
     type: pylabrobot
   description: AI4C_deck
   handles: []
-  icon: ''
+  icon: AI4C_hydration.webp
   init_param_schema: {}
   registry_type: resource
   version: 1.0.0

@@ -9,6 +9,7 @@
             "parent": null,
             "type": "device",
             "class": "AI4C_station",
+            "icon": "AI4C.webp",
             "position": {
                 "x": 250,
                 "y": 0,
@@ -49,6 +50,7 @@
             "parent": "AI4C_station",
             "type": "deck",
             "class": "AI4C_deck",
+            "icon": "AI4C_hydration.webp",
             "position": {
                 "x": 250,
                 "y": 0,
@@ -107,12 +109,18 @@
             "name": "PRCXI",
             "type": "device",
             "class": "liquid_handler.prcxi",
+            "icon": "icon_yiyezhan.webp",
             "parent": "",
             "pose": {
                 "size": {
                     "width": 550,
                     "height": 400,
                     "depth": 0
+                },
+                "position": {
+                    "x": 1300,
+                    "y": 94,
+                    "z": 0
                 }
             },
             "config": {
@@ -223,8 +231,8 @@
             "description": "",
             "model": null,
             "position": {
-                "x": 0,
-                "y": 240,
+                "x": 1300,
+                "y": 94,
                 "z": 0
             }
         },

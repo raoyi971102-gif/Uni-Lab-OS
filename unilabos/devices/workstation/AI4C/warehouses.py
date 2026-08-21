@@ -1,6 +1,8 @@
 from unilabos.devices.workstation.AI4C.AI4C_warehouse import WareHouse, warehouse_factory
+from unilabos.registry.decorators import resource
 
 
+@resource(id="AI4C_loading_rack_1x8x1", category=["warehouse"], description="AI4C 孔板上料架")
 def AI4C_loading_rack_1x8x1(name: str) -> WareHouse:
     """创建 AI4C 孔板上料架，机械臂位置编号 1-8。"""
     return warehouse_factory(
@@ -20,6 +22,7 @@ def AI4C_loading_rack_1x8x1(name: str) -> WareHouse:
     )
 
 
+@resource(id="AI4C_unloading_rack_1x8x1", category=["warehouse"], description="AI4C 孔板下料架")
 def AI4C_unloading_rack_1x8x1(name: str) -> WareHouse:
     """创建 AI4C 孔板下料架，机械臂位置编号 1-8。"""
     return warehouse_factory(
@@ -39,6 +42,7 @@ def AI4C_unloading_rack_1x8x1(name: str) -> WareHouse:
     )
 
 
+@resource(id="AI4C_powder_stack_5x5x1", category=["warehouse"], description="AI4C 固态称量粉桶堆栈")
 def AI4C_powder_stack_5x5x1(name: str) -> WareHouse:
     """创建 AI4C 固态称量粉桶堆栈，机械臂位置编号 1-25。"""
     return warehouse_factory(
@@ -61,6 +65,7 @@ def AI4C_powder_stack_5x5x1(name: str) -> WareHouse:
     )
 
 
+@resource(id="AI4C_solid_weighing_1x1x1", category=["warehouse"], description="AI4C 固态称量位")
 def AI4C_solid_weighing_1x1x1(name: str) -> WareHouse:
     """创建 AI4C 固态称量位。"""
     return warehouse_factory(
@@ -74,6 +79,7 @@ def AI4C_solid_weighing_1x1x1(name: str) -> WareHouse:
     )
 
 
+@resource(id="AI4C_solid_weighing_powder_1x1x1", category=["warehouse"], description="AI4C 固态称量粉桶位")
 def AI4C_solid_weighing_powder_1x1x1(name: str) -> WareHouse:
     """创建 AI4C 固态称量粉桶位。"""
     return warehouse_factory(
@@ -87,6 +93,7 @@ def AI4C_solid_weighing_powder_1x1x1(name: str) -> WareHouse:
     )
 
 
+@resource(id="AI4C_pipetting_station_4x4x1", category=["warehouse"], description="AI4C 移液站板位（逻辑仓，默认不挂到 deck）")
 def AI4C_pipetting_station_4x4x1(name: str) -> WareHouse:
     """创建 AI4C 移液站板位，机械臂位置编号 1-16。"""
     return warehouse_factory(
@@ -106,6 +113,7 @@ def AI4C_pipetting_station_4x4x1(name: str) -> WareHouse:
     )
 
 
+@resource(id="AI4C_magnetic_stirrer_1x1x1", category=["warehouse"], description="AI4C 磁搅位")
 def AI4C_magnetic_stirrer_1x1x1(name: str) -> WareHouse:
     """创建 AI4C 磁搅位。"""
     return warehouse_factory(
@@ -119,6 +127,7 @@ def AI4C_magnetic_stirrer_1x1x1(name: str) -> WareHouse:
     )
 
 
+@resource(id="AI4C_hplc_station_1x1x1", category=["warehouse"], description="AI4C HPLC 工站位")
 def AI4C_hplc_station_1x1x1(name: str) -> WareHouse:
     """创建 AI4C HPLC 工站位。"""
     return warehouse_factory(

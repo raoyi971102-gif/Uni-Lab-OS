@@ -4,6 +4,14 @@ from pylabrobot.resources import Coordinate
 from pylabrobot.resources.carrier import ResourceHolder, create_homogeneous_resources
 
 from unilabos.resources.itemized_carrier import ItemizedCarrier, ResourcePLR
+from unilabos.resources.resource_tracker import EXTRA_CLASS
+
+
+def set_resource_class(resource, class_id: str) -> None:
+    """写入 unilabos_resource_class，供前端按注册表 id 解析 icon。"""
+    extra = dict(getattr(resource, "unilabos_extra", None) or {})
+    extra[EXTRA_CLASS] = class_id
+    resource.unilabos_extra = extra
 
 
 LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -79,7 +87,7 @@ def warehouse_factory(
 
     sites = {key: site for key, site in zip(keys, _sites.values())}
 
-    return WareHouse(
+    warehouse = WareHouse(
         name=name,
         size_x=dx + item_dx * max(num_items_x, 1),
         size_y=dy + item_dy * max(num_items_y, 1),
@@ -92,6 +100,9 @@ def warehouse_factory(
         category=category,
         model=model,
     )
+    if model:
+        set_resource_class(warehouse, model)
+    return warehouse
 
 
 class WareHouse(ItemizedCarrier):

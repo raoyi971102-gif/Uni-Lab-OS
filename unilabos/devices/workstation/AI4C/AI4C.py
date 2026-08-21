@@ -263,6 +263,11 @@ class AI4CDevice(OpcUaClientWithSubscription):
     ) -> None:
         """硬件取料完成后，从源仓位解绑资源并放入机械臂临时持有态。"""
         try:
+            if warehouse_name not in self.deck.warehouses:
+                logger.info(f"{warehouse_name} 不在 AI4C_deck 上（由独立设备管理），按占位资源进入持有态")
+                resource = self._create_placeholder_resource(resource_kind, warehouse_name, site_key)
+                setattr(self, held_attr, resource)
+                return
             warehouse = self.deck.warehouses[warehouse_name]
             site_key = str(site_key)
             resource = self._get_warehouse_resource(warehouse_name, site_key)
@@ -288,6 +293,10 @@ class AI4CDevice(OpcUaClientWithSubscription):
     ) -> None:
         """硬件放料完成后，将机械臂临时持有资源绑定到目标仓位。"""
         try:
+            if warehouse_name not in self.deck.warehouses:
+                logger.info(f"{warehouse_name} 不在 AI4C_deck 上（由独立设备管理），跳过资源树放料")
+                setattr(self, held_attr, None)
+                return
             warehouse = self.deck.warehouses[warehouse_name]
             site_key = str(site_key)
             resource = getattr(self, held_attr, None)
