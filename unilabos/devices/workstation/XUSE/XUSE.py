@@ -2651,7 +2651,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
 
         self._wait_until_true("Robotic_Arm_Idle_2", description="等待机械臂2空闲")
         
-        if self.get_small_crucible_discharge_current_position() != SmallCrucibleDischargePosition.FEEDIFNG:
+        if self.get_small_crucible_discharge_current_position() != SmallCrucibleDischargePosition.FEEDING:
             error_msg = f"当前小坩锅搬运位置不是放料位，无法放到搬运位置"
             logger.error(error_msg)
             raise ValueError(error_msg)
