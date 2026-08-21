@@ -6,64 +6,37 @@
       "parent": null,
       "type": "device",
       "class": "azo_workstation",
-      "children": ["serial_485"],
-      "position": {
-        "x": 0,
-        "y": 0,
-        "z": 0
-      },
+      "children": [
+        "serial_485",
+        "pump_a",
+        "pump_b",
+        "temp_controller",
+        "spectrometer"
+      ],
+      "position": { "x": 0, "y": 0, "z": 0 },
       "config": {
         "protocol_type": [],
-        "simulate": false,
-        "pump_a_address": 5,
-        "pump_b_address": 6,
-        "pump_a_flow_ratio": 1.0,
-        "pump_b_flow_ratio": 1.0,
-        "temp_controller_address": 1,
-        "spectrometer_integration_time": 50.0,
-        "spectrometer_average_count": 3,
+        "pump_a_id": "pump_a",
+        "pump_b_id": "pump_b",
+        "temp_controller_id": "temp_controller",
+        "spectrometer_id": "spectrometer",
         "data_save_dir": "./azo_experiment_data"
       },
       "data": {
+        "status": "Idle",
         "workflow_status": "idle"
-      },
-      "resources": [
-        {
-          "id": "liquid_a",
-          "type": "reagent",
-          "name": "液体A",
-          "properties": {
-            "volume": 1000.0,
-            "unit": "ml",
-            "description": "偶氮反应物A"
-          }
-        },
-        {
-          "id": "liquid_b",
-          "type": "reagent",
-          "name": "液体B",
-          "properties": {
-            "volume": 1000.0,
-            "unit": "ml",
-            "description": "偶氮反应物B"
-          }
-        }
-      ]
+      }
     },
     {
       "id": "serial_485",
       "name": "RS485串口",
       "parent": "azo_workstation_1",
       "type": "device",
-      "class": "azo_raw_serial",
+      "class": "azo_rs485_serial",
       "children": [],
-      "position": {
-        "x": 0,
-        "y": 0,
-        "z": 0
-      },
+      "position": { "x": 0, "y": 80, "z": 0 },
       "config": {
-        "port": "COM6",
+        "port": "COM10",
         "baudrate": 38400,
         "bytesize": 8,
         "parity": "N",
@@ -71,13 +44,109 @@
         "timeout": 1.0
       },
       "data": {}
+    },
+    {
+      "id": "pump_a",
+      "name": "蠕动泵A",
+      "parent": "azo_workstation_1",
+      "type": "device",
+      "class": "azo.peristaltic_pump",
+      "children": [],
+      "position": { "x": -160, "y": 200, "z": 0 },
+      "config": {
+        "port": "serial_485",
+        "address": 5,
+        "volume_per_rev": 1.0,
+        "max_rpm": 600
+      },
+      "data": {
+        "status": "Idle",
+        "speed": 0.0,
+        "rpm": 0
+      }
+    },
+    {
+      "id": "pump_b",
+      "name": "蠕动泵B",
+      "parent": "azo_workstation_1",
+      "type": "device",
+      "class": "azo.peristaltic_pump",
+      "children": [],
+      "position": { "x": 160, "y": 200, "z": 0 },
+      "config": {
+        "port": "serial_485",
+        "address": 6,
+        "volume_per_rev": 1.0,
+        "max_rpm": 600
+      },
+      "data": {
+        "status": "Idle",
+        "speed": 0.0,
+        "rpm": 0
+      }
+    },
+    {
+      "id": "temp_controller",
+      "name": "温控器",
+      "parent": "azo_workstation_1",
+      "type": "device",
+      "class": "azo.temperature_controller",
+      "children": [],
+      "position": { "x": 0, "y": 320, "z": 0 },
+      "config": {
+        "port": "serial_485",
+        "address": 1,
+        "temperature_scale": 100000
+      },
+      "data": {
+        "status": "Idle",
+        "temp": 25.0,
+        "temp_target": 25.0
+      }
+    },
+    {
+      "id": "spectrometer",
+      "name": "光谱仪",
+      "parent": "azo_workstation_1",
+      "type": "device",
+      "class": "azo.spectrometer",
+      "children": [],
+      "position": { "x": 0, "y": 440, "z": 0 },
+      "config": {
+        "device_index": 0,
+        "integration_time": 50.0,
+        "average_count": 3
+      },
+      "data": {
+        "status": "Idle",
+        "connected": false
+      }
     }
   ],
-  "links": [],
+  "links": [
+    {
+      "source": "pump_a",
+      "target": "serial_485",
+      "type": "communication",
+      "port": { "pump_a": "port", "serial_485": "port" }
+    },
+    {
+      "source": "pump_b",
+      "target": "serial_485",
+      "type": "communication",
+      "port": { "pump_b": "port", "serial_485": "port" }
+    },
+    {
+      "source": "temp_controller",
+      "target": "serial_485",
+      "type": "communication",
+      "port": { "temp_controller": "port", "serial_485": "port" }
+    }
+  ],
   "metadata": {
     "name": "偶氮反应工作站配置",
-    "description": "微流控偶氮反应系统，包含2个蠕动泵、1个温控器、1个光谱仪",
-    "version": "1.0",
-    "created": "2026-05-27"
+    "description": "微流控偶氮反应系统：双蠕动泵经Y形接头混合，温控反应后光谱表征。泵与温控共享RS485，光谱仪独享USB。",
+    "version": "2.0",
+    "created": "2026-08-21"
   }
 }

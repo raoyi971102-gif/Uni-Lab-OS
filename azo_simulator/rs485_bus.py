@@ -41,7 +41,7 @@ class SimulatedRS485Bus:
     支持当前驱动用到的最小 Modbus 功能：
     - 泵：功能码 0x06，站号 5/6，寄存器 0x0035，写 int16 rpm。
     - 温控：功能码 0x10，站号 1，寄存器 0x1000，写 int32 目标温度。
-    - 温控：功能码 0x06，站号 1，寄存器 0x1100，写 uint16 输出使能。
+    - 温控：功能码 0x10，站号 1，寄存器 0x1100，写 uint16 输出使能；兼容 0x06。
     - 温控：功能码 0x03，站号 1，寄存器 0x1002，读 int32 实际温度。
     """
 
@@ -140,6 +140,9 @@ class SimulatedRS485Bus:
 
     def _handle_temperature_frame(self, function: int, frame: bytes) -> bytes:
         if function == 0x10:
+            register = (frame[2] << 8) | frame[3] if len(frame) >= 4 else -1
+            if register == 0x1100:
+                return self._write_temperature_output_enable_fc10(frame)
             return self._write_temperature_target(frame)
         if function == 0x06:
             return self._write_temperature_output_enable(frame)
@@ -170,6 +173,18 @@ class SimulatedRS485Bus:
         self._update_temperature()
         self.output_enabled = bool(value)
         return frame[:8]
+
+    def _write_temperature_output_enable_fc10(self, frame: bytes) -> bytes:
+        if len(frame) < 11:
+            return self._exception(self.temperature_address, 0x10, 0x03)
+        count = (frame[4] << 8) | frame[5]
+        byte_count = frame[6]
+        if count != 1 or byte_count != 2:
+            return self._exception(self.temperature_address, 0x10, 0x03)
+        value = (frame[7] << 8) | frame[8]
+        self._update_temperature()
+        self.output_enabled = bool(value)
+        return append_crc(frame[:6])
 
     def _read_temperature(self, frame: bytes) -> bytes:
         if len(frame) < 8:

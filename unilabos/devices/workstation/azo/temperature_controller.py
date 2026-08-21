@@ -1,408 +1,286 @@
-"""
-偶氮工站 - 温控器驱动
-Temperature Controller Driver for Azo Workstation
+"""偶氮工作站温控器驱动。
 
-通过 Modbus 协议控制 TEC107/115 温控器
-支持温度设定和实时温度读取
+TEC107/115，Modbus RTU。目标/实际温度寄存器为 int32，单位 0.00001 °C。
 """
 
-import time
-import struct
-from typing import Dict, Any, Optional
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Dict, Optional
+
+from unilabos.devices.workstation.azo.modbus_rtu import (
+    build_read_holding_registers,
+    build_write_registers_int32,
+    build_write_registers_uint16,
+    build_write_single_register,
+    extract_frame,
+    parse_read_int32,
+)
+from unilabos.registry.decorators import HardwareInterface, action, device, not_action, topic_config
 from unilabos.utils.log import logger
 
+if TYPE_CHECKING:
+    from unilabos.ros.nodes.base_device_node import BaseROS2DeviceNode
 
-class TemperatureController:
-    """温控器驱动类
 
-    通过 Modbus 协议控制温控器，实现温度设定和监测
+@device(
+    id="azo.temperature_controller",
+    category=["temperature"],
+    description="偶氮微流控温控器 TEC107/115，Modbus RTU",
+    display_name="偶氮温控器",
+    hardware_interface=HardwareInterface(
+        name="hardware_interface",
+        read="transact",
+        write="transact",
+    ),
+)
+class AzoTemperatureController:
+    """温控器。与蠕动泵共享 RS485，站号默认为 1。"""
 
-    通信参数：
-    - 波特率: 38400
-    - 数据位: 8
-    - 校验位: N (无校验)
-    - 停止位: 1
-    - Modbus站号: 1
-    - 目标温度寄存器: 4096 (0x1000)，Modbus地址为 40001+4096=44097
-    - 实际温度寄存器: 4098 (0x1002)，Modbus地址为 40001+4098=44099
-    - 数据格式: int32 (大端序)
-    - 单位: /100000 (例如: 2500000 表示 25.00000°C)
-    """
+    _ros_node: "BaseROS2DeviceNode"
+    TARGET_TEMP_REGISTER = 4096  # 0x1000
+    ACTUAL_TEMP_REGISTER = 4098  # 0x1002
+    OUTPUT_ENABLE_REGISTER = 0x1100
+    WRITE_RESPONSE_LENGTH = 8
+    READ_RESPONSE_LENGTH = 9
 
     def __init__(
         self,
-        controller_id: str,
-        modbus_address: int = 1,
-        serial_write_func=None,
-        serial_read_func=None,
-        **kwargs
+        device_id: Optional[str] = None,
+        port: str = "serial_485",
+        address: int = 1,
+        temperature_scale: int = 100000,
+        simulate: bool = False,
+        **kwargs,
     ):
-        """初始化温控器
-
-        Args:
-            controller_id: 温控器的唯一标识符
-            modbus_address: Modbus从站地址 (默认: 1)
-            serial_write_func: 串口写入函数（由workstation注入）
-            serial_read_func: 串口读取函数（由workstation注入）
         """
-        self.controller_id = controller_id
-        self.modbus_address = modbus_address
-
-        # 寄存器地址
-        self.target_temp_register = 4096  # 0x1000 - 目标温度
-        self.actual_temp_register = 4098  # 0x1002 - 实际温度
-        self.output_enable_register = 0x1100  # 输出使能，uint16，0=关闭，1=打开
-        self.temperature_scale = 100000
-        self.read_response_length = 9
-        self.write_response_length = 8
-
-        # 串口通信函数（通过代理模式注入）
-        self.serial_write = serial_write_func
-        self.serial_read = serial_read_func
-
-        # 当前状态
-        self.target_temperature = 25.0  # 目标温度 (°C)
-        self.actual_temperature = 25.0  # 实际温度 (°C)
-        self.is_heating = False
-
-        logger.info(f"温控器 {controller_id} 初始化完成 (Modbus地址={modbus_address})")
-
-    def _temperature_to_raw(self, temp: float) -> int:
-        """将温度值转换为寄存器原始值
-
         Args:
-            temp: 温度 (°C)
-
-        Returns:
-            原始值 (int32, 单位: /100000)
+            device_id[设备ID]: 温控器实例 ID。
+            port[通信设备]: 共享 RS485 通信设备 id。
+            address[Modbus站号]: 温控器从站地址，默认 1。
+            temperature_scale[温度倍率]: 寄存器原始值 / scale = °C，固定为 /100000。
+            simulate[模拟模式]: 为 True 时不发送 Modbus 指令。
         """
-        return int(temp * self.temperature_scale)
+        self.device_id = device_id or "temp_controller"
+        self.hardware_interface = port
+        self.address = int(address)
+        self.temperature_scale = int(temperature_scale)
+        self.simulate = bool(simulate)
+        self.data: Dict[str, Any] = {
+            "status": "Idle",
+            "temp": 25.0,
+            "temp_target": 25.0,
+            "output_enabled": False,
+        }
 
-    def _raw_to_temperature(self, raw: int) -> float:
-        """将寄存器原始值转换为温度值
+    @not_action
+    def post_init(self, ros_node: "BaseROS2DeviceNode") -> None:
+        self._ros_node = ros_node
+        self.device_id = getattr(ros_node, "device_id", self.device_id)
 
-        Args:
-            raw: 原始值 (int32)
+    @not_action
+    def transact(self, command: bytes, expected_length: int = 8) -> bytes:
+        """占位方法，启动后由 serial_485.transact 替换。"""
+        raise RuntimeError(f"温控器 {self.device_id}: RS485 通信代理尚未注入")
 
-        Returns:
-            温度 (°C)
-        """
+    def _temp_to_raw(self, temp: float) -> int:
+        return int(round(temp * self.temperature_scale))
+
+    def _raw_to_temp(self, raw: int) -> float:
         return raw / float(self.temperature_scale)
 
-    def _build_modbus_write_command(self, register: int, value: int) -> bytes:
-        """构建Modbus写入命令 (功能码 0x10 - 写多个寄存器，用于int32)
+    def _write_target_temperature(self, temperature: float) -> Dict[str, Any]:
+        if self.simulate:
+            self.data["temp_target"] = temperature
+            return {"success": True, "message": f"模拟设置目标温度 {temperature}°C"}
 
-        Args:
-            register: 起始寄存器地址
-            value: 要写入的值 (int32)
+        cmd = build_write_registers_int32(
+            self.address, self.TARGET_TEMP_REGISTER, self._temp_to_raw(temperature)
+        )
+        try:
+            response = self.transact(cmd, self.WRITE_RESPONSE_LENGTH)
+        except Exception as exc:
+            self.data["status"] = "Error"
+            logger.error(f"温控器 {self.device_id}: 写目标温度失败 - {exc}")
+            return {"success": False, "error": str(exc), "message": "写目标温度失败"}
 
-        Returns:
-            Modbus RTU命令字节串
+        if not response:
+            self.data["status"] = "Error"
+            return {"success": False, "error": "no_response", "message": "写目标温度无响应"}
+
+        frame = extract_frame(response, self.address, 0x10, self.WRITE_RESPONSE_LENGTH)
+        if frame is None:
+            self.data["status"] = "Error"
+            logger.error(
+                f"温控器 {self.device_id}: 写目标温度应答无效, 命令={cmd.hex()} 响应={response.hex()}"
+            )
+            return {"success": False, "error": "invalid_response", "message": "写目标温度应答无效"}
+
+        self.data["temp_target"] = temperature
+        return {"success": True, "message": f"目标温度已设置为 {temperature}°C", "temp_target": temperature}
+
+    def _write_output_enable(self, enabled: bool) -> Dict[str, Any]:
+        """写输出使能寄存器 0x1100：1=开始控温，0=停止控温。
+
+        优先用功能码 0x10（与目标温度相同），失败再回退 0x06。
         """
-        # Modbus RTU 格式: [从站地址][功能码][起始地址高][起始地址低][寄存器数量高][寄存器数量低][字节数][数据...][CRC低][CRC高]
-        cmd = bytearray()
-        cmd.append(self.modbus_address)  # 从站地址
-        cmd.append(0x10)  # 功能码: 写多个寄存器
-        cmd.append((register >> 8) & 0xFF)  # 起始寄存器地址高字节
-        cmd.append(register & 0xFF)  # 起始寄存器地址低字节
-        cmd.append(0x00)  # 寄存器数量高字节 (2个寄存器用于int32)
-        cmd.append(0x02)  # 寄存器数量低字节
-        cmd.append(0x04)  # 字节数 (4字节 = int32)
+        value = 1 if enabled else 0
+        if self.simulate:
+            self.data["output_enabled"] = enabled
+            return {"success": True, "message": f"模拟输出使能={enabled}", "enabled": enabled}
 
-        # int32数据 (大端序)
-        data_bytes = struct.pack('>i', value)  # 大端序int32
-        cmd.extend(data_bytes)
-
-        # 计算CRC16
-        crc = self._calculate_crc16(cmd)
-        cmd.append(crc & 0xFF)  # CRC低字节
-        cmd.append((crc >> 8) & 0xFF)  # CRC高字节
-
-        return bytes(cmd)
-
-    def _build_modbus_write_uint16_command(self, register: int, value: int) -> bytes:
-        """构建Modbus写单个uint16寄存器命令 (功能码 0x06)。"""
-        if not 0 <= value <= 0xFFFF:
-            raise ValueError(f"uint16寄存器值超出范围: {value}")
-
-        cmd = bytearray()
-        cmd.append(self.modbus_address)
-        cmd.append(0x06)
-        cmd.append((register >> 8) & 0xFF)
-        cmd.append(register & 0xFF)
-        cmd.append((value >> 8) & 0xFF)
-        cmd.append(value & 0xFF)
-
-        crc = self._calculate_crc16(cmd)
-        cmd.append(crc & 0xFF)
-        cmd.append((crc >> 8) & 0xFF)
-
-        return bytes(cmd)
-
-    def _build_modbus_read_command(self, register: int, count: int = 2) -> bytes:
-        """构建Modbus读取命令 (功能码 0x03 - 读保持寄存器)
-
-        Args:
-            register: 起始寄存器地址
-            count: 读取的寄存器数量 (int32需要2个寄存器)
-
-        Returns:
-            Modbus RTU命令字节串
-        """
-        cmd = bytearray()
-        cmd.append(self.modbus_address)  # 从站地址
-        cmd.append(0x03)  # 功能码: 读保持寄存器
-        cmd.append((register >> 8) & 0xFF)  # 起始寄存器地址高字节
-        cmd.append(register & 0xFF)  # 起始寄存器地址低字节
-        cmd.append((count >> 8) & 0xFF)  # 寄存器数量高字节
-        cmd.append(count & 0xFF)  # 寄存器数量低字节
-
-        # 计算CRC16
-        crc = self._calculate_crc16(cmd)
-        cmd.append(crc & 0xFF)  # CRC低字节
-        cmd.append((crc >> 8) & 0xFF)  # CRC高字节
-
-        return bytes(cmd)
-
-    def _calculate_crc16(self, data: bytes | bytearray) -> int:
-        """计算Modbus CRC16校验码"""
-        crc = 0xFFFF
-        for byte in data:
-            crc ^= byte
-            for _ in range(8):
-                if crc & 0x0001:
-                    crc = (crc >> 1) ^ 0xA001
-                else:
-                    crc >>= 1
-        return crc
-
-    def _normalize_response(self, response) -> bytes:
-        """统一串口返回值类型，兼容 bytes、bytearray 和十六进制字符串。"""
-        if response is None:
-            return b""
-        if isinstance(response, bytes):
-            return response
-        if isinstance(response, bytearray):
-            return bytes(response)
-        if isinstance(response, str):
-            text = response.strip().replace(" ", "")
+        attempts = (
+            (build_write_registers_uint16(self.address, self.OUTPUT_ENABLE_REGISTER, value), 0x10),
+            (build_write_single_register(self.address, self.OUTPUT_ENABLE_REGISTER, value), 0x06),
+        )
+        last_error = "写输出使能失败"
+        for cmd, function_code in attempts:
             try:
-                return bytes.fromhex(text)
-            except ValueError:
-                return response.encode("latin1", errors="ignore")
-        return bytes(response)
-
-    def _read_serial_response(self, expected_length: int, timeout: float = 1.0) -> bytes:
-        """读取指定长度的串口响应，兼容 read(size) 和 read() 两种注入形式。"""
-        if self.serial_read is None:
-            return b""
-
-        data = bytearray()
-        deadline = time.time() + timeout
-        while time.time() < deadline and len(data) < expected_length:
-            remaining = expected_length - len(data)
-            try:
-                chunk = self.serial_read(remaining)
-            except TypeError:
-                chunk = self.serial_read()
-
-            chunk_bytes = self._normalize_response(chunk)
-            if chunk_bytes:
-                data.extend(chunk_bytes)
-            else:
-                time.sleep(0.02)
-
-        return bytes(data)
-
-    def _extract_read_frame(self, response: bytes) -> Optional[bytes]:
-        """从串口缓存中提取一个合法的读保持寄存器响应帧。"""
-        if len(response) < self.read_response_length:
-            logger.error(f"温控器 {self.controller_id}: 响应长度不足，实际 {len(response)} 字节")
-            return None
-
-        for start in range(0, len(response) - self.read_response_length + 1):
-            frame = response[start:start + self.read_response_length]
-            if frame[0] != self.modbus_address or frame[1] != 0x03 or frame[2] != 4:
+                response = self.transact(cmd, self.WRITE_RESPONSE_LENGTH)
+            except Exception as exc:
+                last_error = str(exc)
+                logger.error(f"温控器 {self.device_id}: 写输出使能失败(0x{function_code:02X}) - {exc}")
                 continue
 
-            expected_crc = frame[-2] | (frame[-1] << 8)
-            actual_crc = self._calculate_crc16(frame[:-2])
-            if expected_crc == actual_crc:
-                return frame
+            if not response:
+                last_error = "no_response"
+                logger.warning(
+                    f"温控器 {self.device_id}: 写输出使能无响应(0x{function_code:02X}), 命令={cmd.hex()}"
+                )
+                continue
 
-        logger.error(f"温控器 {self.controller_id}: 未找到合法读温响应帧，响应: {response.hex()}")
-        return None
+            frame = extract_frame(response, self.address, function_code, self.WRITE_RESPONSE_LENGTH)
+            if frame is None:
+                last_error = "invalid_response"
+                logger.warning(
+                    f"温控器 {self.device_id}: 写输出使能应答无效(0x{function_code:02X}), "
+                    f"命令={cmd.hex()} 响应={response.hex()}"
+                )
+                continue
 
-    def _read_write_ack(self, timeout: float = 0.3) -> None:
-        """读取并丢弃写寄存器应答，避免残留应答污染下一次读温。"""
-        response = self._read_serial_response(self.write_response_length, timeout=timeout)
-        if response:
-            logger.debug(f"温控器 {self.controller_id}: 写入响应 {response.hex()}")
+            self.data["output_enabled"] = enabled
+            logger.info(
+                f"温控器 {self.device_id}: 输出使能={value} (功能码 0x{function_code:02X})"
+            )
+            return {"success": True, "enabled": enabled, "message": f"输出使能已设置为 {value}"}
 
-    def _parse_read_response(self, response: bytes) -> Optional[int]:
-        """解析Modbus读取响应
+        self.data["status"] = "Error"
+        return {"success": False, "error": last_error, "message": "写输出使能失败"}
 
+    @action(description="只设置目标温度，不改变输出使能")
+    def set_target_temperature(self, temp: float = 25.0) -> Dict[str, Any]:
+        """
         Args:
-            response: 响应字节串
-
-        Returns:
-            解析出的int32值，失败返回None
+            temp[目标温度]: 目标温度 (°C)。
         """
-        response = self._normalize_response(response)
-        frame = self._extract_read_frame(response)
-        if frame is None:
-            return None
+        return self._write_target_temperature(temp)
 
-        # 提取int32数据 (大端序)
-        data_bytes = frame[3:7]
-        value = struct.unpack('>i', data_bytes)[0]
+    @action(description="打开输出使能，开始控温")
+    def enable_output(self) -> Dict[str, Any]:
+        result = self._write_output_enable(True)
+        if result.get("success"):
+            self.data["status"] = "Running"
+            logger.info(f"温控器 {self.device_id}: 已打开输出使能")
+        return result
 
-        return value
+    @action(description="关闭输出使能，停止控温")
+    def disable_output(self) -> Dict[str, Any]:
+        result = self._write_output_enable(False)
+        if result.get("success"):
+            self.data["status"] = "Idle"
+            logger.info(f"温控器 {self.device_id}: 已关闭输出使能")
+        return result
 
-    def _write_target_temperature(self, temperature: float) -> bool:
-        """写入目标温度寄存器。"""
-        if self.serial_write is None:
-            logger.error(f"温控器 {self.controller_id}: 串口写入函数未设置")
-            return False
-
-        # 转换温度值
-        raw_value = self._temperature_to_raw(temperature)
-
-        # 构建Modbus命令
-        cmd = self._build_modbus_write_command(self.target_temp_register, raw_value)
-
-        # 发送命令
-        logger.debug(f"温控器 {self.controller_id}: 设置目标温度 {temperature}°C, 命令: {cmd.hex()}")
-        self.serial_write(cmd)
-        self._read_write_ack()
-        return True
-
-    def _write_output_enable(self, enabled: bool) -> bool:
-        """写入输出使能寄存器。"""
-        if self.serial_write is None:
-            logger.error(f"温控器 {self.controller_id}: 串口写入函数未设置")
-            return False
-
-        value = 1 if enabled else 0
-        cmd = self._build_modbus_write_uint16_command(self.output_enable_register, value)
-        logger.debug(f"温控器 {self.controller_id}: 设置输出使能 {value}, 命令: {cmd.hex()}")
-        self.serial_write(cmd)
-        self._read_write_ack()
-        return True
-
-    def set_target_temperature(self, temperature: float) -> bool:
-        """设置目标温度
-
+    @action(description="设置目标温度并打开输出使能")
+    def set_temperature(self, temp: float = 25.0) -> Dict[str, Any]:
+        """
         Args:
-            temperature: 目标温度 (°C)
-
-        Returns:
-            是否设置成功
+            temp[目标温度]: 目标温度 (°C)。
         """
-        try:
-            if not self._write_target_temperature(temperature):
-                return False
+        return self.start(temp)
 
-            # 更新状态
-            self.target_temperature = temperature
-
-            logger.info(f"温控器 {self.controller_id}: 目标温度设置为 {temperature}°C")
-            return True
-
-        except Exception as e:
-            logger.error(f"温控器 {self.controller_id}: 设置目标温度失败 - {e}")
-            return False
-
-    def start_heating(self, temperature: Optional[float] = None) -> bool:
-        """开始控温的兼容别名，可选地同时设置目标温度。"""
-        return self.start_temperature_control(temperature)
-
-    def start_temperature_control(self, temperature: Optional[float] = None) -> bool:
-        """开始控温，可选地同时设置目标温度。"""
-        logger.info(f"温控器 {self.controller_id}: 开始控温")
-        try:
-            if temperature is None:
-                temperature = self.target_temperature
-
-            if not self.set_target_temperature(temperature):
-                return False
-
-            if not self._write_output_enable(True):
-                return False
-
-            self.is_heating = True
-            logger.info(f"温控器 {self.controller_id}: 输出已使能，开始控温")
-            return True
-
-        except Exception as e:
-            logger.error(f"温控器 {self.controller_id}: 开始控温失败 - {e}")
-            return False
-
-    def read_actual_temperature(self) -> Optional[float]:
-        """读取实际温度
-
-        Returns:
-            实际温度 (°C)，失败返回None
+    @action(description="开始控温：写目标温度并打开输出使能")
+    def start(self, temp: float = 25.0) -> Dict[str, Any]:
         """
-        if self.serial_write is None or self.serial_read is None:
-            logger.error(f"温控器 {self.controller_id}: 串口通信函数未设置")
-            return None
-
-        try:
-            # 构建读取命令
-            cmd = self._build_modbus_read_command(self.actual_temp_register, count=2)
-
-            # 发送命令
-            logger.debug(f"温控器 {self.controller_id}: 读取实际温度, 命令: {cmd.hex()}")
-            self.serial_write(cmd)
-
-            # 等待并读取响应。2个寄存器的RTU响应固定为9字节。
-            response = self._read_serial_response(self.read_response_length, timeout=1.0)
-
-            if response:
-                # 解析响应
-                raw_value = self._parse_read_response(response)
-                if raw_value is not None:
-                    temperature = self._raw_to_temperature(raw_value)
-                    self.actual_temperature = temperature
-                    logger.debug(f"温控器 {self.controller_id}: 实际温度 {temperature}°C")
-                    return temperature
-
-            logger.warning(f"温控器 {self.controller_id}: 读取实际温度失败")
-            return None
-
-        except Exception as e:
-            logger.error(f"温控器 {self.controller_id}: 读取实际温度异常 - {e}")
-            return None
-
-    def stop_heating(self, temperature: float = 25.0) -> bool:
-        """停止控温（关闭输出使能，并将目标温度降到安全温度）。"""
-        logger.info(f"温控器 {self.controller_id}: 停止控温")
-        try:
-            if not self._write_output_enable(False):
-                return False
-
-            if self._write_target_temperature(temperature):
-                self.target_temperature = temperature
-
-            self.is_heating = False
-            logger.info(f"温控器 {self.controller_id}: 输出已关闭，目标温度设置为 {temperature}°C")
-            return True
-
-        except Exception as e:
-            logger.error(f"温控器 {self.controller_id}: 停止控温失败 - {e}")
-            return False
-
-    def get_status(self) -> Dict[str, Any]:
-        """获取温控器当前状态
-
-        Returns:
-            状态字典，包含目标温度、实际温度、加热状态等
+        Args:
+            temp[目标温度]: 目标温度 (°C)。
         """
+        write_result = self._write_target_temperature(temp)
+        if not write_result.get("success"):
+            return write_result
+
+        enable_result = self.enable_output()
+        if not enable_result.get("success"):
+            return enable_result
+
+        logger.info(f"温控器 {self.device_id}: 开始控温 {temp}°C")
         return {
-            "controller_id": self.controller_id,
-            "is_heating": self.is_heating,
-            "target_temperature": self.target_temperature,
-            "actual_temperature": self.actual_temperature,
-            "modbus_address": self.modbus_address,
+            "success": True,
+            "message": f"已开始控温至 {temp}°C",
+            "temp_target": temp,
+            "output_enabled": True,
         }
+
+    @action(description="停止控温：只关闭输出使能，不改目标温度")
+    def stop(self) -> Dict[str, Any]:
+        result = self.disable_output()
+        if not result.get("success"):
+            return result
+        logger.info(f"温控器 {self.device_id}: 已停止控温")
+        return {
+            "success": True,
+            "message": "已关闭输出使能，停止控温",
+            "output_enabled": False,
+            "temp_target": self.data["temp_target"],
+        }
+
+    @action(description="读取实际温度")
+    def read_value(self) -> Dict[str, Any]:
+        if self.simulate:
+            self.data["temp"] = self.data["temp_target"]
+            return {
+                "success": True,
+                "temp": self.data["temp"],
+                "message": f"模拟温度 {self.data['temp']}°C",
+            }
+
+        cmd = build_read_holding_registers(self.address, self.ACTUAL_TEMP_REGISTER, count=2)
+        try:
+            response = self.transact(cmd, self.READ_RESPONSE_LENGTH)
+        except Exception as exc:
+            self.data["status"] = "Error"
+            logger.error(f"温控器 {self.device_id}: 读温度失败 - {exc}")
+            return {"success": False, "error": str(exc), "message": "读温度失败"}
+
+        frame = extract_frame(response, self.address, 0x03, self.READ_RESPONSE_LENGTH)
+        raw = parse_read_int32(frame) if frame is not None else None
+        if raw is None:
+            logger.error(f"温控器 {self.device_id}: 读温度解析失败, 响应={response.hex() if response else ''}")
+            return {"success": False, "error": "parse_error", "message": "读温度解析失败"}
+
+        temperature = self._raw_to_temp(raw)
+        self.data["temp"] = temperature
+        return {
+            "success": True,
+            "temp": temperature,
+            "message": f"实际温度 {temperature}°C",
+        }
+
+    @property
+    @topic_config()
+    def status(self) -> str:
+        return self.data["status"]
+
+    @property
+    @topic_config(period=2.0)
+    def temp(self) -> float:
+        return float(self.data["temp"])
+
+    @property
+    @topic_config(period=2.0)
+    def temp_target(self) -> float:
+        return float(self.data["temp_target"])
+
+    @property
+    @topic_config()
+    def output_enabled(self) -> bool:
+        return bool(self.data.get("output_enabled", False))

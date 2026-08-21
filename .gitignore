@@ -3,6 +3,7 @@ configs/
 temp/
 output/
 unilabos_data/
+azo_experiment_data/
 pyrightconfig.json
 .cursorignore
 device_package*/
