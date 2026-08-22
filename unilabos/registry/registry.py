@@ -54,7 +54,7 @@ from unilabos.registry.utils import (
     SIMPLE_TYPE_MAP,
 )
 from unilabos.resources.graphio import resource_plr_to_ulab, tree_to_list
-from unilabos.resources.resource_tracker import ResourceTreeSet
+from unilabos.resources.resource_tracker import EXTRA_CLASS, ResourceTreeSet
 from unilabos.ros.msgs.message_converter import (
     msg_converter_manager,
     ros_action_to_json_schema,
@@ -1230,7 +1230,7 @@ class Registry:
             return Path(BasicConfig.working_dir) / "registry_cache.pkl"
         return None
 
-    _CACHE_VERSION = 4
+    _CACHE_VERSION = 5  # v5: 空 config_info 视为失败，不再命中缓存
 
     def _load_config_cache(self) -> dict:
         import pickle
@@ -1321,6 +1321,11 @@ class Registry:
                 res_class = import_class(module_str)
                 if callable(res_class) and not isinstance(res_class, type):
                     res_instance = res_class(res_class.__name__)
+                    extra = getattr(res_instance, "unilabos_extra", None)
+                    if not isinstance(extra, dict):
+                        extra = {}
+                    extra[EXTRA_CLASS] = resource_id
+                    res_instance.unilabos_extra = extra
                     tree_set = ResourceTreeSet.from_plr_resources([res_instance], known_newly_created=True, old_size=True)
                     dumped = tree_set.dump(old_position=True)
                     return resource_id, dumped[0] if dumped else []
@@ -1333,7 +1338,8 @@ class Registry:
         for rid, entry in pylabrobot_entries.items():
             module_str = entry["class"]["module"]
             cached = config_cache.get(module_str)
-            if cached and isinstance(cached, dict) and "config_info" in cached:
+            # 空 config_info 是上次实例化失败的结果，不能当成功缓存
+            if cached and isinstance(cached, dict) and cached.get("config_info"):
                 src_hash = self._module_source_hash(module_str)
                 if src_hash is not None and cached.get("src_hash") == src_hash:
                     self.resource_type_registry[rid]["config_info"] = cached["config_info"]

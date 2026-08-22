@@ -613,19 +613,28 @@ class PRCXI9300TubeRack(TubeRack):
             items_to_pass = None
             ordering_param = None
 
-        # 根据情况传递不同的参数
+        # 当前 PyLabRobot TubeRack 只接受 ordered_items / model，不再转发 category / ordering / 额外 kwargs
+        kwargs.pop("layout", None)
+        kwargs.pop("category", None)
         if items_to_pass is not None:
-            super().__init__(
-                name, size_x, size_y, size_z, ordered_items=items_to_pass, category=category, model=model, **kwargs
-            )
+            super().__init__(name, size_x, size_y, size_z, ordered_items=items_to_pass, model=model)
         elif ordering_param is not None:
-            # 传递 ordering 参数，让 TubeRack 自己创建 Tube 对象
-            super().__init__(
-                name, size_x, size_y, size_z, ordering=ordering_param, category=category, model=model, **kwargs
+            from pylabrobot.resources.itemized_resource import ItemizedResource
+
+            ItemizedResource.__init__(
+                self,
+                name,
+                size_x,
+                size_y,
+                size_z,
+                ordering=ordering_param,
+                category=category,
+                model=model,
             )
         else:
-            super().__init__(name, size_x, size_y, size_z, category=category, model=model, **kwargs)
+            super().__init__(name, size_x, size_y, size_z, model=model)
 
+        self.category = category or "tube_rack"
         self._unilabos_state = {}
         if material_info:
             self._unilabos_state["Material"] = material_info

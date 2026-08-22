@@ -124,6 +124,8 @@ def test_resolve_tip_volume_buckets(vol, want):
 
 
 def test_resolve_tube_rack_holes():
+    assert lm.resolve_target_class("prcxi", "tube_rack", 2, None) == "PRCXI_2_ReagentRack"
+    assert lm.resolve_target_class("prcxi", "tube_rack", 8, None) == "PRCXI_8_ReagentRack"
     assert lm.resolve_target_class("prcxi", "tube_rack", 24, None) == "PRCXI_EP_Adapter"
     assert lm.resolve_target_class("prcxi", "tube_rack", 10, None) == "PRCXI_EP_Adapter"
 

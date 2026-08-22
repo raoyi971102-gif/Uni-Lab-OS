@@ -626,6 +626,65 @@ def PRCXI_EP_Adapter(name: str) -> PRCXI9300TubeRack:
             max_volume=1500.0
         )
     )
+def PRCXI_2_ReagentRack(name: str) -> PRCXI9300TubeRack:
+    """
+    对应 JSON Code: zx-004-50 (2孔试剂架)
+    1×2 布局，单孔 50mL。设备 JSON 未给外框/孔径/边距：台面按 SBS 居中，
+    孔径按 50mL 离心管约 29mm 估算，孔距取设备 XSpacing=64mm。
+    """
+    return PRCXI9300TubeRack(
+        name=name,
+        size_x=127.76,
+        size_y=85.48,
+        size_z=115.0,
+        model="PRCXI_2_ReagentRack",
+        category="tube_rack",
+        material_info={"uuid": "094e9130a0a24913bdebb8a2bdcf457a", "Code": "zx-004-50", "Name": "2孔试剂架", "materialEnum": 0, "SupplyType": 1},
+        ordered_items=create_ordered_items_2d(
+            Tube,
+            num_items_x=2,
+            num_items_y=1,
+            dx=17.38,
+            dy=28.24,
+            dz=0.0,
+            item_dx=64.0,
+            item_dy=9.0,
+            size_x=29.0,
+            size_y=29.0,
+            size_z=113.0,
+            max_volume=50000.0
+        )
+    )
+def PRCXI_8_ReagentRack(name: str) -> PRCXI9300TubeRack:
+    """
+    对应 JSON Code: zx-003-10 (8孔试剂架)
+    2×4 布局，单孔 10mL。设备 JSON 未给外框/孔径/边距：台面按 SBS 居中，
+    孔径按 10mL 离心管约 16mm 估算，孔距取设备 XSpacing=42mm / YSpacing=32mm。
+    4 列×42mm 在 SBS 长边上几乎贴边，孔中心仍落在台面内。
+    """
+    return PRCXI9300TubeRack(
+        name=name,
+        size_x=127.76,
+        size_y=85.48,
+        size_z=100.0,
+        model="PRCXI_8_ReagentRack",
+        category="tube_rack",
+        material_info={"uuid": "6086fe7ae1434a0e80fa4194ef3eb0e1", "Code": "zx-003-10", "Name": "8孔试剂架", "materialEnum": 0, "SupplyType": 1},
+        ordered_items=create_ordered_items_2d(
+            Tube,
+            num_items_x=4,
+            num_items_y=2,
+            dx=-7.12,
+            dy=18.74,
+            dz=0.0,
+            item_dx=42.0,
+            item_dy=32.0,
+            size_x=16.0,
+            size_y=16.0,
+            size_z=98.0,
+            max_volume=10000.0
+        )
+    )
 # =========================================================================
 # Plate Adapters
 # =========================================================================
@@ -727,6 +786,8 @@ PRCXI_TEMPLATE_FACTORY_KINDS: List[Tuple[Callable[..., Any], str]] = [
     (PRCXI_trash, "trash"),
     (PRCXI_96_DeepWell, "plate"),
     (PRCXI_EP_Adapter, "tube_rack"),
+    (PRCXI_2_ReagentRack, "tube_rack"),
+    (PRCXI_8_ReagentRack, "tube_rack"),
     (PRCXI_1250uL_Tips, "tip_rack"),
     (PRCXI_10uL_Tips, "tip_rack"),
     (PRCXI_1000uL_Tips, "tip_rack"),

@@ -33,6 +33,44 @@ RETURN_UNILABOS_SAMPLES = "unilabos_samples"
 SampleUUIDsType = Dict[str, Optional["PLRResource"]]
 
 
+def _try_pylabrobot_factory(res_content: "ResourceDict") -> Optional[Any]:
+    """前端拖入未展开的注册表物料时，type 常为泛型 ``resource``，config 为空。
+    此时按 klass / unilabos_resource_class 走 pylabrobot 工厂函数实例化。"""
+    klass_name = (res_content.klass or "").strip()
+    if not klass_name:
+        extra = res_content.extra or {}
+        klass_name = str(extra.get(EXTRA_CLASS) or "").strip()
+    if not klass_name:
+        return None
+    try:
+        from unilabos.registry.registry import lab_registry
+
+        entry = lab_registry.resource_type_registry.get(klass_name)
+        if entry:
+            class_cfg = entry.get("class") or {}
+            if class_cfg.get("type") == "pylabrobot":
+                module_str = class_cfg.get("module") or ""
+                if ":" in module_str:
+                    from unilabos.utils.cls_creator import import_class
+
+                    factory = import_class(module_str)
+                    if callable(factory):
+                        return factory
+    except Exception as e:
+        logger.warning(f"按 klass={klass_name} 查找 pylabrobot 工厂失败: {e}")
+    if klass_name.startswith("PRCXI_"):
+        try:
+            from unilabos.devices.liquid_handling.prcxi import prcxi_labware, prcxi_modules
+
+            for mod in (prcxi_labware, prcxi_modules):
+                fac = getattr(mod, klass_name, None)
+                if callable(fac):
+                    return fac
+        except Exception as e:
+            logger.warning(f"按 klass={klass_name} 回退 PRCXI 工厂失败: {e}")
+    return None
+
+
 def _augment_states_with_liquid_history(
     resource: "PLRResource",
     states: Dict[str, Any],
@@ -497,6 +535,7 @@ class ResourceTreeSet(object):
                 "beaker": "beaker",
                 "module": "module",
                 "carrier": "carrier",
+                "tube_rack": "tube_rack",
             }
             if source in replace_info:
                 return replace_info[source]
@@ -652,6 +691,10 @@ class ResourceTreeSet(object):
             "tip_spot": "TipSpot",
             "module": "PRCXI9300ModuleSite",
             "carrier": "ItemizedCarrier",
+            "tube_rack": "PRCXI9300TubeRack",
+            "tube": "Tube",
+            "tip_rack": "PRCXI9300TipRack",
+            "trash": "PRCXI9300Trash",
         }
 
         def collect_node_data(node: ResourceDictInstance, name_to_uuid: dict, all_states: dict, name_to_extra: dict):
@@ -668,7 +711,7 @@ class ResourceTreeSet(object):
             """转换节点为 PLR 字典格式"""
             res = node.res_content
             plr_type = TYPE_MAP.get(res.type, res.type)
-            if res.type not in TYPE_MAP:
+            if res.type not in TYPE_MAP and res.type not in ("resource", "device"):
                 logger.warning(f"未知类型 {res.type}")
 
             d = {
@@ -773,18 +816,32 @@ class ResourceTreeSet(object):
                 if skip_devices and plr_dict["type"] == "device":
                     logger.info(f"跳过更新 {plr_dict['name']} 设备是class")
                     continue
-                elif sub_cls is None:
-                    raise ValueError(
-                        f"无法找到类型 {plr_dict['type']} 对应的 PLR 资源类。原始信息：{tree.root_node.res_content}"
+                factory = None
+                if sub_cls is None:
+                    factory = _try_pylabrobot_factory(tree.root_node.res_content)
+                    if factory is None:
+                        raise ValueError(
+                            f"无法找到类型 {plr_dict['type']} 对应的 PLR 资源类。原始信息：{tree.root_node.res_content}"
+                        )
+                    logger.info(
+                        f"类型 {plr_dict['type']} 无 PLR 子类，改用注册表工厂 "
+                        f"{tree.root_node.res_content.klass} 实例化"
                     )
-                remove_incompatible_params(plr_dict)
-                plr_resource = sub_cls.deserialize(plr_dict, allow_marshal=True)
+                    plr_resource = factory(tree.root_node.res_content.name)
+                else:
+                    remove_incompatible_params(plr_dict)
+                    plr_resource = sub_cls.deserialize(plr_dict, allow_marshal=True)
                 from pylabrobot.resources import Coordinate
                 from pylabrobot.serializer import deserialize
 
                 location = cast(Coordinate, deserialize(plr_dict["location"]))
                 plr_resource.location = location
-                plr_resource.load_all_state(all_states)
+                try:
+                    plr_resource.load_all_state(all_states)
+                except Exception:
+                    if factory is None:
+                        raise
+                    logger.warning(f"{plr_resource.name} 工厂实例化后加载 state 失败，已忽略")
                 # 使用 DeviceNodeResourceTracker 设置 UUID 和 Extra
                 tracker.loop_set_uuid(plr_resource, name_to_uuid)
                 tracker.loop_set_extra(plr_resource, name_to_extra)

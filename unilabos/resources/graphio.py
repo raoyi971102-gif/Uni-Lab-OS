@@ -637,6 +637,7 @@ def resource_plr_to_ulab(resource_plr: "ResourcePLR", parent_name: str = None, w
             "plate_adapter": "plate_adapter",
             "electrode_sheet": "electrode_sheet",
             "material_hole": "material_hole",
+            "tube_rack": "tube_rack",
         }
         if source in replace_info:
             return replace_info[source]
