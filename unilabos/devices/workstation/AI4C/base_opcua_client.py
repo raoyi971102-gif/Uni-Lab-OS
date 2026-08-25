@@ -247,6 +247,7 @@ class BaseOpcUaClient(UniversalDriver):
             chinese_name = self._name_mapping[name]
             if chinese_name in self._node_registry:
                 node = self._node_registry[chinese_name]
+                logger.debug(f"使用节点: '{name}' -> '{chinese_name}', NodeId: {node.node_id}")
                 return node
             elif chinese_name in self._variables_to_find:
                 logger.warning(f"节点 {chinese_name} (英文名: {name}) 尚未找到，尝试重新查找")
@@ -271,6 +272,7 @@ class BaseOpcUaClient(UniversalDriver):
             logger.error(f"❌ 节点 '{name}' 未注册或未找到。已注册节点: {list(self._node_registry.keys())[:5]}...")
             raise ValueError(f'节点 {name} 未注册或未找到')
         node = self._node_registry[name]
+        logger.debug(f"使用节点: '{name}', NodeId: {node.node_id}")
         return node
 
     def get_node_registry(self) -> Dict[str, OpcUaNodeBase]:

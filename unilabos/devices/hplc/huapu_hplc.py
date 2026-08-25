@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, NoReturn, Optional
 
 import requests
 
@@ -40,9 +40,9 @@ class HuapuHPLC:
         base_url: str = "",
         timeout: float = 10.0,
         default_project_id: int = 0,
-        default_sequence_method_id: int = 0,
-        default_process_method_id: int = 0,
-        default_report_method_id: int = 0,
+        default_sequence_method_name: str = "",
+        default_process_method_name: str = "",
+        default_report_method_name: str = "",
         default_instrument_id: int = 0,
         export_path: str = "D:\\",
         default_seq_tray_num: int = 0,
@@ -63,9 +63,9 @@ class HuapuHPLC:
             base_url[服务地址]: 完整服务地址；为空时按 host 和 port 生成。
             timeout[请求超时(s)]: 单次 HTTP 请求超时时间。
             default_project_id[默认项目ID]: 未显式传入 project_id 时使用。
-            default_sequence_method_id[默认序列方法ID]: 未显式传入 sequence_method_id 时使用。
-            default_process_method_id[默认处理方法ID]: 未显式传入 process_method_id 时使用。
-            default_report_method_id[默认报告方法ID]: 未显式传入 report_method_id 时使用。
+            default_sequence_method_name[默认参考序列方法名称]: 动作未显式传入名称时使用。
+            default_process_method_name[默认处理方法名称]: 动作未显式传入名称时使用。
+            default_report_method_name[默认报告方法名称]: 动作未显式传入名称时使用。
             default_instrument_id[默认仪器ID]: 未显式传入 instrument_id 时使用。
             export_path[报告导出路径]: 运行序列时传给 exportPath。
             default_seq_tray_num[默认序列盘号]: addSequenceMethod 的 seqTrayNum。
@@ -81,9 +81,9 @@ class HuapuHPLC:
         self.base_url = (base_url or f"http://{host}:{self.port}").rstrip("/")
         self.timeout = timeout
         self.default_project_id = int(default_project_id)
-        self.default_sequence_method_id = int(default_sequence_method_id)
-        self.default_process_method_id = int(default_process_method_id)
-        self.default_report_method_id = int(default_report_method_id)
+        self.default_sequence_method_name = str(default_sequence_method_name).strip()
+        self.default_process_method_name = str(default_process_method_name).strip()
+        self.default_report_method_name = str(default_report_method_name).strip()
         self.default_instrument_id = int(default_instrument_id)
         self.export_path = export_path
         self.default_seq_tray_num = int(default_seq_tray_num)
@@ -109,10 +109,11 @@ class HuapuHPLC:
         return {"success": True, "message": message, "data": data, "raw": raw}
 
     @not_action
-    def _make_error(self, message: str, raw: Any = None) -> Dict[str, Any]:
+    def _make_error(self, message: str, raw: Any = None) -> NoReturn:
+        """记录错误并抛出异常，让 ROS2 action 正确进入失败状态。"""
         self.data["status"] = "Error"
         self.data["message"] = message
-        return {"success": False, "message": message, "data": None, "raw": raw}
+        raise ValueError(message)
 
     @not_action
     def _post(self, endpoint: str, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -127,18 +128,20 @@ class HuapuHPLC:
             response.raise_for_status()
             raw = response.json()
         except requests.exceptions.RequestException as exc:
-            return self._make_error(f"HTTP 请求失败: {exc}")
+            self._make_error(f"HTTP 请求失败: {exc}")
         except ValueError as exc:
-            return self._make_error(f"响应不是 JSON: {exc}")
+            self._make_error(f"响应不是 JSON: {exc}")
 
         if isinstance(raw, dict) and "code" in raw:
             code = raw.get("code")
-            success = str(code) == "0"
+            normalized_code = str(code).strip().upper()
+            success = normalized_code in {"0", "CODE0"}
             message = str(raw.get("msg") or "")
             if success:
                 self.data["message"] = message
                 return self._make_success(raw.get("data"), message, raw)
-            return self._make_error(message or f"接口返回失败 code={code}", raw)
+            detail = message or "接口返回失败"
+            self._make_error(f"{detail} (code={code})", raw)
 
         self.data["message"] = ""
         return self._make_success(raw, raw=raw)
@@ -150,6 +153,57 @@ class HuapuHPLC:
     @not_action
     def _resolve_instrument_id(self, instrument_id: int) -> int:
         return int(instrument_id or self.default_instrument_id)
+
+    @not_action
+    def _resolve_method_id(
+        self,
+        project_id: int,
+        method_name: str,
+        default_method_name: str,
+        method_label: str,
+        endpoint: str,
+    ) -> int:
+        """通过项目方法列表将用户输入的方法名称解析为唯一 ID。"""
+        target_name = str(method_name or default_method_name).strip()
+        if not target_name:
+            self._make_error(f"{method_label}名称不能为空")
+
+        result = self._post(endpoint, {"projectId": int(project_id)})
+        methods = result.get("data")
+        if not isinstance(methods, list):
+            raw = result.get("raw")
+            methods = raw if isinstance(raw, list) else None
+        if not isinstance(methods, list):
+            self._make_error(f"查询{method_label}失败：接口响应不是方法列表", result.get("raw"))
+
+        matches = [
+            item
+            for item in methods
+            if isinstance(item, dict) and str(item.get("methodName", "")).strip() == target_name
+        ]
+        if not matches:
+            available_names = [
+                str(item.get("methodName", "")).strip()
+                for item in methods
+                if isinstance(item, dict) and str(item.get("methodName", "")).strip()
+            ]
+            available_text = "、".join(available_names[:20]) or "无"
+            self._make_error(
+                f"未找到{method_label}名称 '{target_name}'；可用名称: {available_text}",
+                result.get("raw"),
+            )
+        if len(matches) > 1:
+            duplicate_ids = [item.get("id") for item in matches]
+            self._make_error(
+                f"{method_label}名称 '{target_name}' 不唯一，对应 ID: {duplicate_ids}",
+                result.get("raw"),
+            )
+
+        method_id = matches[0].get("id")
+        try:
+            return int(method_id)
+        except (TypeError, ValueError):
+            self._make_error(f"{method_label} '{target_name}' 返回了无效 ID: {method_id!r}")
 
     @not_action
     def _sequence_status_name(self, status_code: Any) -> str:
@@ -235,8 +289,8 @@ class HuapuHPLC:
     def create_sequence(
         self,
         proc_inst_id: str,
+        sequence_method_name: str,
         project_id: int = 0,
-        sequence_method_id: int = 0,
         instrument_id: int = 0,
         name: str = "",
         sample_name: str = "",
@@ -251,8 +305,8 @@ class HuapuHPLC:
         """
         Args:
             proc_inst_id[流程ID]: 用户指定的流程 ID，字符串类型，同一项目内必须唯一。
+            sequence_method_name[参考序列方法名称]: 先查询项目序列方法，再按名称解析 ID；为空时使用默认名称。
             project_id[项目ID]: 为空或 0 时使用默认项目 ID。
-            sequence_method_id[参考序列方法ID]: 为空或 0 时使用默认序列方法 ID。
             instrument_id[仪器ID]: 为空或 0 时使用默认仪器 ID。
             name[序列方法名称]: 为空时自动使用 proc_inst_id 生成名称。
             sample_name[样品名称]: 样品名称。
@@ -265,7 +319,13 @@ class HuapuHPLC:
             seq_tray_num[序列盘号]: -1 时使用默认序列盘号。
         """
         project_id = self._resolve_project_id(project_id)
-        sequence_method_id = int(sequence_method_id or self.default_sequence_method_id)
+        sequence_method_id = self._resolve_method_id(
+            project_id,
+            sequence_method_name,
+            self.default_sequence_method_name,
+            "参考序列方法",
+            "/project/findSequenceMethodList",
+        )
         instrument_id = self._resolve_instrument_id(instrument_id)
         seq_tray_num = self.default_seq_tray_num if seq_tray_num < 0 else int(seq_tray_num)
         tray_num = self.default_tray_num if tray_num < 0 else int(tray_num)
@@ -291,23 +351,40 @@ class HuapuHPLC:
     def run_sequence(
         self,
         proc_inst_id: str,
-        process_method_id: int = 0,
-        report_method_id: int = 0,
+        process_method_name: str,
+        report_method_name: str,
+        project_id: int = 0,
         shut_down: int = 0,
         export_path: str = "",
     ) -> Dict[str, Any]:
         """
         Args:
             proc_inst_id[流程ID]: 已创建序列使用的流程 ID。
-            process_method_id[处理方法ID]: 为空或 0 时使用默认处理方法 ID。
-            report_method_id[报告方法ID]: 为空或 0 时使用默认报告方法 ID。
+            process_method_name[处理方法名称]: 先查询项目处理方法，再按名称解析 ID；为空时使用默认名称。
+            report_method_name[报告方法名称]: 先查询项目报告方法，再按名称解析 ID；为空时使用默认名称。
+            project_id[项目ID]: 为空或 0 时使用默认项目 ID。
             shut_down[完成后关机]: 0-否，1-是。
             export_path[报告导出路径]: 为空时使用默认导出路径。
         """
+        project_id = self._resolve_project_id(project_id)
+        process_method_id = self._resolve_method_id(
+            project_id,
+            process_method_name,
+            self.default_process_method_name,
+            "处理方法",
+            "/project/findProcessMethodList",
+        )
+        report_method_id = self._resolve_method_id(
+            project_id,
+            report_method_name,
+            self.default_report_method_name,
+            "报告方法",
+            "/project/findReportMethodList",
+        )
         payload = {
             "procInstId": str(proc_inst_id),
-            "proMethodId": int(process_method_id or self.default_process_method_id),
-            "reportMethodId": int(report_method_id or self.default_report_method_id),
+            "proMethodId": process_method_id,
+            "reportMethodId": report_method_id,
             "shutDown": int(shut_down),
             "exportPath": export_path or self.export_path,
         }
@@ -341,6 +418,11 @@ class HuapuHPLC:
             status_data = status_result.get("data")
             status_code = status_data.get("status") if isinstance(status_data, dict) else None
             status_name = self._sequence_status_name(status_code)
+            if status_code in (4, 5):
+                self._make_error(
+                    f"序列未成功完成: {status_name} (procInstId={proc_inst_id})",
+                    status_result.get("raw"),
+                )
             return {
                 "success": status_code == 2,
                 "completed": status_code in (2, 4, 5),
@@ -417,10 +499,10 @@ class HuapuHPLC:
     def run_sample(
         self,
         proc_inst_id: str,
+        sequence_method_name: str,
+        process_method_name: str,
+        report_method_name: str,
         project_id: int = 0,
-        sequence_method_id: int = 0,
-        process_method_id: int = 0,
-        report_method_id: int = 0,
         instrument_id: int = 0,
         name: str = "",
         sample_name: str = "",
@@ -437,10 +519,10 @@ class HuapuHPLC:
         """
         Args:
             proc_inst_id[流程ID]: 用户指定的流程 ID，字符串类型，同一项目内必须唯一。
+            sequence_method_name[参考序列方法名称]: 先查询并解析参考序列方法 ID。
+            process_method_name[处理方法名称]: 先查询并解析处理方法 ID。
+            report_method_name[报告方法名称]: 先查询并解析报告方法 ID。
             project_id[项目ID]: 为空或 0 时使用默认项目 ID。
-            sequence_method_id[参考序列方法ID]: 为空或 0 时使用默认序列方法 ID。
-            process_method_id[处理方法ID]: 为空或 0 时使用默认处理方法 ID。
-            report_method_id[报告方法ID]: 为空或 0 时使用默认报告方法 ID。
             instrument_id[仪器ID]: 为空或 0 时使用默认仪器 ID。
             name[序列方法名称]: 为空时自动使用 proc_inst_id 生成名称。
             sample_name[样品名称]: 样品名称。
@@ -456,8 +538,8 @@ class HuapuHPLC:
         """
         create_result = self.create_sequence(
             proc_inst_id=proc_inst_id,
+            sequence_method_name=sequence_method_name,
             project_id=project_id,
-            sequence_method_id=sequence_method_id,
             instrument_id=instrument_id,
             name=name,
             sample_name=sample_name,
@@ -473,8 +555,9 @@ class HuapuHPLC:
 
         run_result = self.run_sequence(
             proc_inst_id=proc_inst_id,
-            process_method_id=process_method_id,
-            report_method_id=report_method_id,
+            process_method_name=process_method_name,
+            report_method_name=report_method_name,
+            project_id=project_id,
             shut_down=shut_down,
             export_path=export_path,
         )
@@ -489,6 +572,12 @@ class HuapuHPLC:
             status_data = last_status.get("data")
             status_code = status_data.get("status") if isinstance(status_data, dict) else None
             if status_code in (2, 4, 5):
+                if status_code in (4, 5):
+                    self._make_error(
+                        f"序列未成功完成: {self._sequence_status_name(status_code)} "
+                        f"(procInstId={proc_inst_id})",
+                        last_status.get("raw"),
+                    )
                 return {
                     "success": status_code == 2,
                     "message": self._sequence_status_name(status_code),

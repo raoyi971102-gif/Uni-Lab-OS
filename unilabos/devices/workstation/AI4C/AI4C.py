@@ -3,6 +3,7 @@ AI4C 设备驱动
 继承自 OPC UA 通讯基类，实现具体的设备动作函数
 """
 
+import functools
 import json
 import re
 import time
@@ -14,7 +15,14 @@ import threading
 # 导入日志类
 from unilabos.utils.log import logger
 import logging
-from unilabos.registry.decorators import ActionInputHandle, DataSource, action, device, not_action
+from unilabos.registry.decorators import (
+    ActionInputHandle,
+    DataSource,
+    action,
+    device,
+    not_action,
+    topic_config,
+)
 from unilabos.devices.workstation.AI4C.bottle_carriers import (
     AI4C_PowderCylinderCarrier,
     AI4C_WellPlateCarrier,
@@ -75,6 +83,34 @@ _SOLID_WEIGHING_SLOT_RANGE_RE = re.compile(r"^(\d+)\s*-\s*(\d+)$")
 
 # OPC UA「固体称量克数 / 误差」寄存器的单位：写入的整数 1 = 0.1 mg
 SOLID_WEIGHING_WEIGHT_UNIT_MG = 0.1
+
+# AI4C 只有一套机械臂，所有机械臂取放动作共用一把可重入锁。
+# 列表与 XMU 的 ARM_LOCK_MAP 用途一致：只串行化共享机械臂的动作，
+# 固态称量、移液、磁搅和 HPLC 等独立单元仍可按原逻辑运行。
+_ROBOTIC_ARM_ACTIONS = (
+    "pick_well_plate_from_loading_rack",
+    "pick_well_plate_from_unloading_rack",
+    "place_well_plate_to_solid_weighing",
+    "pick_powder_cylinder_from_stack",
+    "place_powder_cylinder_to_solid_weighing",
+    "pick_powder_cylinder_from_solid_weighing",
+    "place_powder_cylinder_to_solid_weighing_stack",
+    "pick_well_plate_from_solid_weighing",
+    "place_well_plate_to_pipetting_station",
+    "pick_well_plate_from_pipetting_station",
+    "place_well_plate_to_magnetic_stirrer",
+    "pick_well_plate_from_magnetic_stirrer",
+    "place_well_plate_to_hplc_station",
+    "pick_well_plate_from_hplc_station",
+    "place_well_plate_to_unloading_rack",
+    "place_well_plate_to_loading_rack",
+)
+
+# 与 XMU 的集中机械臂状态轮询保持一致，只集中刷新固定的空闲/故障状态。
+_ROBOTIC_ARM_STATUS_NODES = (
+    "Robotic_Arm_Idle",
+    "Robotic_Arm_Fault",
+)
 
 
 # 定义 AI4C 设备通信类
@@ -173,6 +209,63 @@ class AI4CDevice(OpcUaClientWithSubscription):
         self._held_well_plate = None
         self._held_powder_cylinder = None
         self._placeholder_resource_counter = 0
+
+        # 单一后台线程集中刷新机械臂状态；状态发布只读本地缓存，不与动作争抢 OPC UA 锁。
+        self._arm_status_nodes = list(_ROBOTIC_ARM_STATUS_NODES)
+        self._arm_status_cache = {}
+        for node_name in self._arm_status_nodes:
+            try:
+                self._arm_status_cache[node_name] = bool(self.get_node_value(node_name))
+            except Exception:
+                self._arm_status_cache[node_name] = False
+        self._arm_status_poller_stop = threading.Event()
+        self._arm_status_thread = threading.Thread(
+            target=self._arm_status_poll_loop,
+            name="AI4CArmStatusPoller",
+            daemon=True,
+        )
+        self._arm_status_thread.start()
+
+        # AI4C 只有一套机械臂，所有取放动作通过同一把 RLock 串行执行。
+        self._robotic_arm_lock = threading.RLock()
+        for method_name in _ROBOTIC_ARM_ACTIONS:
+            original = getattr(self, method_name, None)
+            if callable(original):
+                setattr(self, method_name, self._make_operation_locked(original))
+            else:
+                logger.warning(f"机械臂线程锁包裹失败，方法不存在: {method_name}")
+
+    @not_action
+    def _make_operation_locked(self, func):
+        """将机械臂动作包装为实例级串行调用。"""
+        lock = self._robotic_arm_lock
+
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            with lock:
+                logger.info(f"[机械臂] 已获取线程锁: {func.__name__}")
+                try:
+                    return func(*args, **kwargs)
+                finally:
+                    logger.info(f"[机械臂] 已释放线程锁: {func.__name__}")
+
+        return wrapper
+
+    @not_action
+    def _arm_status_poll_loop(self) -> None:
+        """每秒集中刷新机械臂状态；读取失败时保留上一次有效值。"""
+        while not self._arm_status_poller_stop.is_set():
+            for node_name in self._arm_status_nodes:
+                try:
+                    self._arm_status_cache[node_name] = bool(self.get_node_value(node_name))
+                except Exception:
+                    pass
+            self._arm_status_poller_stop.wait(1.0)
+
+    @not_action
+    def _read_bool_status(self, node_name: str) -> bool:
+        """非阻塞读取机械臂状态缓存，未取得有效值时返回 False。"""
+        return bool(self._arm_status_cache.get(node_name, False))
 
     @not_action
     def post_init(self, ros_node):
@@ -420,7 +513,17 @@ class AI4CDevice(OpcUaClientWithSubscription):
         Returns:
             bool: 如果机械臂空闲，返回True，否则返回False
         """
-        return self.get_node_value("Robotic_Arm_Idle")
+        return self._read_bool_status("Robotic_Arm_Idle")
+
+    @topic_config(period=1.0)
+    def robotic_arm_idle(self) -> bool:
+        """发布机械臂空闲状态。"""
+        return self._read_bool_status("Robotic_Arm_Idle")
+
+    @topic_config(period=1.0)
+    def robotic_arm_fault(self) -> bool:
+        """读取机械臂故障状态。"""
+        return self._read_bool_status("Robotic_Arm_Fault")
 
     @not_action
     def is_solid_weighing_occupied(self) -> bool:
