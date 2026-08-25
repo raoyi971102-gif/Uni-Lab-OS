@@ -8205,6 +8205,324 @@ liquid_handler.prcxi:
           title: LiquidHandlerDropTips
           type: object
         type: LiquidHandlerDropTips
+      eight_channels_reuse_tips:
+        feedback: {}
+        goal: {}
+        goal_default:
+          blow_out_air_volume: null
+          none_keys: []
+          sources: null
+          targets: null
+          tip_racks: null
+          vols: null
+        handles:
+          input:
+          - data_key: sources
+            data_source: handle
+            data_type: resource
+            handler_key: sources_identifier
+            label: 吸液位置
+          - data_key: targets
+            data_source: handle
+            data_type: resource
+            handler_key: targets_identifier
+            label: 放液目标
+          - data_key: tip_racks
+            data_source: handle
+            data_type: resource
+            handler_key: tip_rack_identifier
+            label: 枪头盒
+          output:
+          - data_key: sources.@flatten
+            data_source: executor
+            data_type: resource
+            handler_key: sources_out
+            label: 移液后源孔
+          - data_key: targets.@flatten
+            data_source: executor
+            data_type: resource
+            handler_key: targets_out
+            label: 移液后目标孔
+        placeholder_keys:
+          sources: unilabos_resources
+          targets: unilabos_resources
+          tip_racks: unilabos_resources
+        result:
+          return_info: return_info
+          success: success
+        schema:
+          description: 八通道轴复用一整列枪头：从同一个源孔反复 8 通道吸液、逐列放液，最后丢弃枪头。
+          properties:
+            feedback: {}
+            goal:
+              properties:
+                blow_out_air_volume:
+                  description: 可选，每通道吹出空气体积；缺省用设备默认。
+                  items:
+                    type: number
+                  title: 吹出空气量(µL)
+                  type: array
+                none_keys:
+                  default: []
+                  description: 上游标记为"未填写"的字段名列表。
+                  items:
+                    type: string
+                  title: 空值字段
+                  type: array
+                sources:
+                  description: 单一吸液容器（储液槽），只接受 1 个孔；8 个通道每轮都从这里吸液。
+                  items:
+                    type: object
+                  title: 吸液位置
+                  type: array
+                targets:
+                  description: 放液目标孔列表，长度须为 8 的整数倍，每 8 个为同板同列的 A~H。
+                  items:
+                    type: object
+                  title: 放液目标
+                  type: array
+                tip_racks:
+                  description: 取枪头用的 tip 盒列表；整个动作只取一整列 8 个枪头。
+                  items:
+                    type: object
+                  title: 枪头盒
+                  type: array
+                vols:
+                  anyOf:
+                  - items:
+                      type: number
+                    type: array
+                  - type: number
+                  description: 每列每通道的吸放液体积；只给 1 个值时所有列共用，否则长度须等于列数。
+                  title: 单列体积(µL)
+              required:
+              - sources
+              - targets
+              - tip_racks
+              - vols
+              type: object
+            result:
+              $defs:
+                ResourceDict:
+                  properties:
+                    class:
+                      description: Resource class name
+                      title: Class
+                      type: string
+                    config:
+                      additionalProperties: true
+                      description: Resource configuration
+                      title: Config
+                      type: object
+                    data:
+                      additionalProperties: true
+                      description: 'Resource data, eg: container liquid data'
+                      title: Data
+                      type: object
+                    description:
+                      default: ''
+                      description: Resource description
+                      title: Description
+                      type: string
+                    extra:
+                      additionalProperties: true
+                      description: 'Extra data, eg: slot index'
+                      title: Extra
+                      type: object
+                    icon:
+                      default: ''
+                      description: Resource icon
+                      title: Icon
+                      type: string
+                    id:
+                      description: Resource ID
+                      title: Id
+                      type: string
+                    machine_name:
+                      default: ''
+                      description: Machine this resource belongs to
+                      title: Machine Name
+                      type: string
+                    model:
+                      additionalProperties: true
+                      description: Resource model
+                      title: Model
+                      type: object
+                    name:
+                      description: Resource name
+                      title: Name
+                      type: string
+                    parent:
+                      anyOf:
+                      - $ref: '#/$defs/ResourceDict'
+                      - type: 'null'
+                      default: null
+                      description: Parent resource object
+                    parent_uuid:
+                      anyOf:
+                      - type: string
+                      - type: 'null'
+                      default: null
+                      description: Parent resource uuid
+                      title: Parent Uuid
+                    pose:
+                      $ref: '#/$defs/ResourceDictPosition'
+                      description: Resource position
+                    schema:
+                      additionalProperties: true
+                      description: Resource schema
+                      title: Schema
+                      type: object
+                    type:
+                      anyOf:
+                      - const: device
+                        type: string
+                      - type: string
+                      description: Resource type
+                      title: Type
+                    uuid:
+                      description: Resource UUID
+                      title: Uuid
+                      type: string
+                  required:
+                  - id
+                  - uuid
+                  - name
+                  - type
+                  - class
+                  - config
+                  - data
+                  - extra
+                  title: ResourceDict
+                  type: object
+                ResourceDictPosition:
+                  properties:
+                    cross_section_type:
+                      default: rectangle
+                      description: Cross section type
+                      enum:
+                      - rectangle
+                      - circle
+                      - rounded_rectangle
+                      title: Cross Section Type
+                      type: string
+                    extra:
+                      anyOf:
+                      - additionalProperties: true
+                        type: object
+                      - type: 'null'
+                      default: null
+                      description: Extra data
+                      title: Extra
+                    layout:
+                      default: x-y
+                      description: Resource layout
+                      enum:
+                      - 2d
+                      - x-y
+                      - z-y
+                      - x-z
+                      title: Layout
+                      type: string
+                    position:
+                      $ref: '#/$defs/ResourceDictPositionObject'
+                      description: Resource position
+                    position3d:
+                      $ref: '#/$defs/ResourceDictPositionObject'
+                      description: Resource position in 3D space
+                    rotation:
+                      $ref: '#/$defs/ResourceDictPositionObject'
+                      description: Resource rotation
+                    scale:
+                      $ref: '#/$defs/ResourceDictPositionScale'
+                      description: Resource scale
+                    size:
+                      $ref: '#/$defs/ResourceDictPositionSize'
+                      description: Resource size
+                  title: ResourceDictPosition
+                  type: object
+                ResourceDictPositionObject:
+                  properties:
+                    x:
+                      default: 0.0
+                      description: X coordinate
+                      title: X
+                      type: number
+                    y:
+                      default: 0.0
+                      description: Y coordinate
+                      title: Y
+                      type: number
+                    z:
+                      default: 0.0
+                      description: Z coordinate
+                      title: Z
+                      type: number
+                  title: ResourceDictPositionObject
+                  type: object
+                ResourceDictPositionScale:
+                  properties:
+                    x:
+                      default: 0.0
+                      description: x scale
+                      title: X
+                      type: number
+                    y:
+                      default: 0.0
+                      description: y scale
+                      title: Y
+                      type: number
+                    z:
+                      default: 0.0
+                      description: z scale
+                      title: Z
+                      type: number
+                  title: ResourceDictPositionScale
+                  type: object
+                ResourceDictPositionSize:
+                  properties:
+                    depth:
+                      default: 0.0
+                      description: Depth
+                      title: Depth
+                      type: number
+                    height:
+                      default: 0.0
+                      description: Height
+                      title: Height
+                      type: number
+                    width:
+                      default: 0.0
+                      description: Width
+                      title: Width
+                      type: number
+                  title: ResourceDictPositionSize
+                  type: object
+              properties:
+                sources:
+                  items:
+                    items:
+                      $ref: '#/$defs/ResourceDict'
+                    type: array
+                  title: Sources
+                  type: array
+                targets:
+                  items:
+                    items:
+                      $ref: '#/$defs/ResourceDict'
+                    type: array
+                  title: Targets
+                  type: array
+              required:
+              - sources
+              - targets
+              title: TransferLiquidReturn
+              type: object
+          required:
+          - goal
+          title: eight_channels_reuse_tips参数
+          type: object
+        type: UniLabJsonCommandAsync
       mix:
         feedback: {}
         goal:
@@ -8598,6 +8916,324 @@ liquid_handler.prcxi:
           required:
           - goal
           title: LiquidHandlerMovePlate
+          type: object
+        type: UniLabJsonCommandAsync
+      one_channel_reuse_tip:
+        feedback: {}
+        goal: {}
+        goal_default:
+          blow_out_air_volume: null
+          none_keys: []
+          sources: null
+          targets: null
+          tip_racks: null
+          vols: null
+        handles:
+          input:
+          - data_key: sources
+            data_source: handle
+            data_type: resource
+            handler_key: sources_identifier
+            label: 吸液位置
+          - data_key: targets
+            data_source: handle
+            data_type: resource
+            handler_key: targets_identifier
+            label: 放液目标
+          - data_key: tip_racks
+            data_source: handle
+            data_type: resource
+            handler_key: tip_rack_identifier
+            label: 枪头盒
+          output:
+          - data_key: sources.@flatten
+            data_source: executor
+            data_type: resource
+            handler_key: sources_out
+            label: 移液后源孔
+          - data_key: targets.@flatten
+            data_source: executor
+            data_type: resource
+            handler_key: targets_out
+            label: 移液后目标孔
+        placeholder_keys:
+          sources: unilabos_resources
+          targets: unilabos_resources
+          tip_racks: unilabos_resources
+        result:
+          return_info: return_info
+          success: success
+        schema:
+          description: 单通道轴复用一个枪头：从同一个源孔反复吸液、依次分配到多个目标孔，最后丢弃枪头。
+          properties:
+            feedback: {}
+            goal:
+              properties:
+                blow_out_air_volume:
+                  description: 可选，每通道吹出空气体积；缺省用设备默认。
+                  items:
+                    type: number
+                  title: 吹出空气量(µL)
+                  type: array
+                none_keys:
+                  default: []
+                  description: 上游标记为"未填写"的字段名列表。
+                  items:
+                    type: string
+                  title: 空值字段
+                  type: array
+                sources:
+                  description: 单一吸液容器，只接受 1 个孔；每轮都从这里吸液。
+                  items:
+                    type: object
+                  title: 吸液位置
+                  type: array
+                targets:
+                  description: 放液目标孔列表，按传入顺序逐个放液。
+                  items:
+                    type: object
+                  title: 放液目标
+                  type: array
+                tip_racks:
+                  description: 取枪头用的 tip 盒列表；整个动作只取 1 个枪头。
+                  items:
+                    type: object
+                  title: 枪头盒
+                  type: array
+                vols:
+                  anyOf:
+                  - items:
+                      type: number
+                    type: array
+                  - type: number
+                  description: 每轮吸放液体积；只给 1 个值时所有目标孔共用，否则长度须等于目标孔数量。
+                  title: 单次体积(µL)
+              required:
+              - sources
+              - targets
+              - tip_racks
+              - vols
+              type: object
+            result:
+              $defs:
+                ResourceDict:
+                  properties:
+                    class:
+                      description: Resource class name
+                      title: Class
+                      type: string
+                    config:
+                      additionalProperties: true
+                      description: Resource configuration
+                      title: Config
+                      type: object
+                    data:
+                      additionalProperties: true
+                      description: 'Resource data, eg: container liquid data'
+                      title: Data
+                      type: object
+                    description:
+                      default: ''
+                      description: Resource description
+                      title: Description
+                      type: string
+                    extra:
+                      additionalProperties: true
+                      description: 'Extra data, eg: slot index'
+                      title: Extra
+                      type: object
+                    icon:
+                      default: ''
+                      description: Resource icon
+                      title: Icon
+                      type: string
+                    id:
+                      description: Resource ID
+                      title: Id
+                      type: string
+                    machine_name:
+                      default: ''
+                      description: Machine this resource belongs to
+                      title: Machine Name
+                      type: string
+                    model:
+                      additionalProperties: true
+                      description: Resource model
+                      title: Model
+                      type: object
+                    name:
+                      description: Resource name
+                      title: Name
+                      type: string
+                    parent:
+                      anyOf:
+                      - $ref: '#/$defs/ResourceDict'
+                      - type: 'null'
+                      default: null
+                      description: Parent resource object
+                    parent_uuid:
+                      anyOf:
+                      - type: string
+                      - type: 'null'
+                      default: null
+                      description: Parent resource uuid
+                      title: Parent Uuid
+                    pose:
+                      $ref: '#/$defs/ResourceDictPosition'
+                      description: Resource position
+                    schema:
+                      additionalProperties: true
+                      description: Resource schema
+                      title: Schema
+                      type: object
+                    type:
+                      anyOf:
+                      - const: device
+                        type: string
+                      - type: string
+                      description: Resource type
+                      title: Type
+                    uuid:
+                      description: Resource UUID
+                      title: Uuid
+                      type: string
+                  required:
+                  - id
+                  - uuid
+                  - name
+                  - type
+                  - class
+                  - config
+                  - data
+                  - extra
+                  title: ResourceDict
+                  type: object
+                ResourceDictPosition:
+                  properties:
+                    cross_section_type:
+                      default: rectangle
+                      description: Cross section type
+                      enum:
+                      - rectangle
+                      - circle
+                      - rounded_rectangle
+                      title: Cross Section Type
+                      type: string
+                    extra:
+                      anyOf:
+                      - additionalProperties: true
+                        type: object
+                      - type: 'null'
+                      default: null
+                      description: Extra data
+                      title: Extra
+                    layout:
+                      default: x-y
+                      description: Resource layout
+                      enum:
+                      - 2d
+                      - x-y
+                      - z-y
+                      - x-z
+                      title: Layout
+                      type: string
+                    position:
+                      $ref: '#/$defs/ResourceDictPositionObject'
+                      description: Resource position
+                    position3d:
+                      $ref: '#/$defs/ResourceDictPositionObject'
+                      description: Resource position in 3D space
+                    rotation:
+                      $ref: '#/$defs/ResourceDictPositionObject'
+                      description: Resource rotation
+                    scale:
+                      $ref: '#/$defs/ResourceDictPositionScale'
+                      description: Resource scale
+                    size:
+                      $ref: '#/$defs/ResourceDictPositionSize'
+                      description: Resource size
+                  title: ResourceDictPosition
+                  type: object
+                ResourceDictPositionObject:
+                  properties:
+                    x:
+                      default: 0.0
+                      description: X coordinate
+                      title: X
+                      type: number
+                    y:
+                      default: 0.0
+                      description: Y coordinate
+                      title: Y
+                      type: number
+                    z:
+                      default: 0.0
+                      description: Z coordinate
+                      title: Z
+                      type: number
+                  title: ResourceDictPositionObject
+                  type: object
+                ResourceDictPositionScale:
+                  properties:
+                    x:
+                      default: 0.0
+                      description: x scale
+                      title: X
+                      type: number
+                    y:
+                      default: 0.0
+                      description: y scale
+                      title: Y
+                      type: number
+                    z:
+                      default: 0.0
+                      description: z scale
+                      title: Z
+                      type: number
+                  title: ResourceDictPositionScale
+                  type: object
+                ResourceDictPositionSize:
+                  properties:
+                    depth:
+                      default: 0.0
+                      description: Depth
+                      title: Depth
+                      type: number
+                    height:
+                      default: 0.0
+                      description: Height
+                      title: Height
+                      type: number
+                    width:
+                      default: 0.0
+                      description: Width
+                      title: Width
+                      type: number
+                  title: ResourceDictPositionSize
+                  type: object
+              properties:
+                sources:
+                  items:
+                    items:
+                      $ref: '#/$defs/ResourceDict'
+                    type: array
+                  title: Sources
+                  type: array
+                targets:
+                  items:
+                    items:
+                      $ref: '#/$defs/ResourceDict'
+                    type: array
+                  title: Targets
+                  type: array
+              required:
+              - sources
+              - targets
+              title: TransferLiquidReturn
+              type: object
+          required:
+          - goal
+          title: one_channel_reuse_tip参数
           type: object
         type: UniLabJsonCommandAsync
       pick_up_tips:

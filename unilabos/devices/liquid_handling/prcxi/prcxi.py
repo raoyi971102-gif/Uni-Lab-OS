@@ -1550,6 +1550,77 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
     # ``liquid_history.py`` 同策略）。
     _flatten_multi_channel_kwargs = staticmethod(_flatten_multi_channel_kwargs_impl)
 
+    def _sync_pipetting_positions(
+        self,
+        sources: Sequence[Container],
+        targets: Sequence[Container],
+        tip_rack: TipRack,
+    ) -> None:
+        """把本次移液涉及的所有板（含 tip 盒）位置同步到设备端，并刷新 ``tip_height``。
+
+        P2 v2：跨板场景下 sources / targets 里可能引用多个 plate（v1 旧实现只取 [0] 会漏掉
+        slot 3/5/6 的位置同步）。这里遍历所有 source/target 的 parent plate，按首次出现顺序
+        去重——既保证跨板都能 update_pipetting_position，又避免同板多孔重复发送。
+        详见 02-cross-slot-merge.md §3.3.2 / §9.5 step 5。
+        """
+        change_slots = []
+        seen_plates = set()
+
+        def _push_unique_plate(plate_obj):
+            if plate_obj is None or not self.no_matrix_id:
+                return
+            pname = getattr(plate_obj, "name", None) or id(plate_obj)
+            if pname in seen_plates:
+                return
+            seen_plates.add(pname)
+            change_slots.append(plate_obj)
+
+        for src in sources:
+            _push_unique_plate(getattr(src, "parent", None))
+        for tgt in targets:
+            _push_unique_plate(getattr(tgt, "parent", None))
+        _push_unique_plate(tip_rack)
+
+        self.tip_height = tip_rack.children[0].get_size_z()
+
+        change_slots_positions = []
+        for slot in change_slots:
+            if self.no_matrix_id:
+                continue
+            number = self._get_slot_number(slot)
+
+            well = slot.children[0]
+            # 板叠放在 module/plate_adapter 上时，移液头按「无支撑基准 - support」抬高一层；
+            # support 取支撑层真实高度（云端反序列化的 get_size_z 常为 0，需 _recover_height 还原）。
+            slot_parent = getattr(slot, "parent", None)
+            if isinstance(slot_parent, (PRCXI9300ModuleSite, PlateAdapter)):
+                support = self._recover_height(slot_parent)
+                support_layer = slot_parent
+            else:
+                support, support_layer = 0.0, None
+            pip_pos = self.plr_pos_to_prcxi(well)
+            pip_pos.z = self._support_free_prcxi_z(well, slot, support, support_layer) - support
+            half_x = well.get_size_x() / 2 * abs(1 + self.x_increase)
+            z_wall = self._recover_height(slot)
+
+            change_slots_positions.append({
+                "Number": number,
+                "XPos": pip_pos.x,
+                "YPos": pip_pos.y,
+                "ZPos": pip_pos.z, 
+                "X_Left": half_x,
+                "X_Right": half_x,
+                "ZAgainstTheWall": pip_pos.z - z_wall,
+                "X2Pos": pip_pos.x + self.right_2_left.x,
+                "Y2Pos": pip_pos.y + self.right_2_left.y,
+                "Z2Pos": pip_pos.z + self.right_2_left.z,
+                "X2_Left": half_x,
+                "X2_Right": half_x,
+                "ZAgainstTheWall2": pip_pos.z - z_wall,
+            })
+        if change_slots_positions:
+            self._unilabos_backend.api_client.update_pipetting_position(self._unilabos_backend.matrix_id, change_slots_positions)
+
     async def _cleanup_after_failed_transfer(self):
         """transfer_liquid 出错后尽力把 head 上残留 tip 丢到 trash 并清空 head 软件状态，
         避免下次 pickup 报 'Channel has tip' 且无需重启 edge。本方法自身不抛异常。"""
@@ -1744,68 +1815,7 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
             if small_vols and self._tip_rack_is_10ul_range(tip_rack) and not _explicit_multi:
                 use_channels = [1]
                 mix_vol = max(min(mix_vol, 10), 0) if mix_vol is not None else None
-        # P2 v2：跨板 transfer_liquid 场景下 sources / targets 列表里可能引用多个 plate
-        # （v1 旧实现只取 [0] 会漏掉 slot 3/5/6 的位置同步）。这里改为遍历所有 source/target
-        # 的 parent plate，按首次出现顺序去重——既保证跨板都能 update_pipetting_position，
-        # 又避免同板多孔重复发送。详见 02-cross-slot-merge.md §3.3.2 / §9.5 step 5。
-        change_slots = []
-        seen_plates = set()
-
-        def _push_unique_plate(plate_obj):
-            if plate_obj is None or not self.no_matrix_id:
-                return
-            pname = getattr(plate_obj, "name", None) or id(plate_obj)
-            if pname in seen_plates:
-                return
-            seen_plates.add(pname)
-            change_slots.append(plate_obj)
-
-        for src in sources:
-            _push_unique_plate(getattr(src, "parent", None))
-        for tgt in targets:
-            _push_unique_plate(getattr(tgt, "parent", None))
-        _push_unique_plate(tip_rack)
-
-        self.tip_height = tip_rack.children[0].get_size_z()
-
-        change_slots_positions = []
-        for slot in change_slots:
-            if self.no_matrix_id:
-                continue
-            number = self._get_slot_number(slot)
-            
-            well = slot.children[0]
-            # 板叠放在 module/plate_adapter 上时，移液头按「无支撑基准 - support」抬高一层；
-            # support 取支撑层真实高度（云端反序列化的 get_size_z 常为 0，需 _recover_height 还原）。
-            slot_parent = getattr(slot, "parent", None)
-            if isinstance(slot_parent, (PRCXI9300ModuleSite, PlateAdapter)):
-                support = self._recover_height(slot_parent)
-                support_layer = slot_parent
-            else:
-                support, support_layer = 0.0, None
-            pip_pos = self.plr_pos_to_prcxi(well)
-            pip_pos.z = self._support_free_prcxi_z(well, slot, support, support_layer) - support
-            half_x = well.get_size_x() / 2 * abs(1 + self.x_increase)
-            z_wall = self._recover_height(slot)
-
-            change_slots_positions.append({
-                "Number": number,
-                "XPos": pip_pos.x,
-                "YPos": pip_pos.y,
-                "ZPos": pip_pos.z, 
-                "X_Left": half_x,
-                "X_Right": half_x,
-                "ZAgainstTheWall": pip_pos.z - z_wall,
-                "X2Pos": pip_pos.x + self.right_2_left.x,
-                "Y2Pos": pip_pos.y + self.right_2_left.y,
-                "Z2Pos": pip_pos.z + self.right_2_left.z,
-                "X2_Left": half_x,
-                "X2_Right": half_x,
-                "ZAgainstTheWall2": pip_pos.z - z_wall,
-            })
-        if change_slots_positions:
-            self._unilabos_backend.api_client.update_pipetting_position(self._unilabos_backend.matrix_id, change_slots_positions)
-
+        self._sync_pipetting_positions(sources, targets, tip_rack)
 
         # P1 v5（Q6=B）：扁平化路径下调 super 时临时关 liquids-keep，防跨孔同名物料潜在污染。
         # identity-keep（同一物理 well 反复抽，例如 reservoir）继续生效 —— 同一液池零污染。
@@ -1851,6 +1861,335 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         finally:
             if _flatten_8_to_1:
                 self._tip_reuse_by_liquid_name = _prev_tip_reuse
+
+    # ------------------------------------------------------------------
+    # 复用枪头动作（one_channel_reuse_tip / eight_channels_reuse_tips）
+    # 说明文档：unilabos/devices/liquid_handling/prcxi/reuse_tip_actions.md
+    # ------------------------------------------------------------------
+
+    # PRCXI 的 step payload（Imbibing / Tapping）不带速率字段，实际速率由设备侧决定；
+    # 这里仍按需求把 30 写进 PLR op，保证语义可追溯、simulator 行为一致。
+    _REUSE_TIP_FLOW_RATE = 30.0
+
+    def _tip_max_volume(self, tip_rack: TipRack) -> Optional[float]:
+        """读取 tip 盒孔位上 prototype tip 的最大量程（µL）；取不到返回 None。"""
+        children = getattr(tip_rack, "children", None) or []
+        if not children:
+            return None
+        spot = children[0]
+        tracker = getattr(spot, "tracker", None)
+        tip = None
+        if tracker is not None:
+            tip = getattr(tracker, "_tip", None) or getattr(tracker, "tip", None)
+        if tip is None:
+            tip = getattr(spot, "tip", None)
+        max_vol = getattr(tip, "maximal_volume", None) if tip is not None else None
+        try:
+            return float(max_vol) if max_vol is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    def _select_reuse_tip_channels(
+        self, n_channels_req: int, max_vol: float, action_name: str
+    ) -> List[int]:
+        """为复用枪头动作选轴，返回 ``use_channels``（左[0..7]/右[8..15]）。
+
+        按 ``pip_setting`` 动态选：先筛出并行度够用（``channels >= n_channels_req``）且量程
+        容得下 ``max_vol`` 的轴，其中「并行度正好等于需求」的优先（避免单通道动作占用 8 通道
+        轴），同档按量程从小到大取（精度优先）。未配置 ``pip_setting`` 时回退硬编码：单通道
+        走左轴 ``[0]``、8 通道走右轴 ``[8..15]``。
+        """
+        if self.pip_setting is None:
+            return _axis_channel_list("left" if n_channels_req == 1 else "right", n_channels_req)
+
+        axes = [
+            (name, float(spec["vol"]), int(spec["channels"]))
+            for name, spec in ((n, self.pip_setting.get(n)) for n in ("left", "right"))
+            if spec
+        ]
+        capable = [a for a in axes if a[2] >= n_channels_req]
+        if not capable:
+            raise ValueError(
+                f"{action_name} 需要 {n_channels_req} 通道并行，但 pip_setting 中没有并行度 >= "
+                f"{n_channels_req} 的轴：{self.pip_setting!r}"
+            )
+        vol_fit = [a for a in capable if max_vol <= a[1]]
+        if not vol_fit:
+            raise ValueError(
+                f"{action_name} 单次体积 {max_vol}µL 超过所有 {n_channels_req} 通道轴的量程"
+                f"（{[(a[0], a[1]) for a in capable]}）；请减小 vols。"
+            )
+        exact = [a for a in vol_fit if a[2] == n_channels_req]
+        pool = sorted(exact or vol_fit, key=lambda a: a[1])
+        return _axis_channel_list(pool[0][0], n_channels_req)
+
+    def _check_reuse_tip_capacity(self, tip_rack: TipRack, max_vol: float, action_name: str) -> None:
+        """单次体积超过枪头量程时报错（本动作不做拆分，见说明文档"边界与限制"）。"""
+        tip_vol = self._tip_max_volume(tip_rack)
+        if tip_vol is not None and max_vol > tip_vol:
+            raise ValueError(
+                f"{action_name} 单次体积 {max_vol}µL 超过枪头量程 {tip_vol}µL"
+                f"（tip 盒 {getattr(tip_rack, 'name', '?')}）；请减小 vols 或换更大量程的枪头。"
+            )
+
+    @staticmethod
+    def _normalize_reuse_tip_vols(
+        vols: Union[List[float], float, None], n_rounds: int, action_name: str, round_label: str
+    ) -> List[float]:
+        """把 ``vols`` 归一化为长度 ``n_rounds`` 的逐轮体积。
+
+        标量或长度 1 → 广播到所有轮次；长度 == ``n_rounds`` → 逐轮取值；其余长度报错。
+        """
+        if vols is None:
+            raise ValueError(f"{action_name} 必须提供 vols")
+        vol_list = list(vols) if isinstance(vols, (list, tuple)) else [vols]
+        if len(vol_list) == 0:
+            raise ValueError(f"{action_name} 的 vols 不能为空")
+        try:
+            vol_list = [float(v) for v in vol_list]
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{action_name} 的 vols 必须是数字，实际 {vols!r}") from exc
+        if any(v <= 0 for v in vol_list):
+            raise ValueError(f"{action_name} 的 vols 必须为正数，实际 {vol_list}")
+        if len(vol_list) == 1:
+            return vol_list * n_rounds
+        if len(vol_list) != n_rounds:
+            raise ValueError(
+                f"{action_name} 的 vols 长度必须是 1（所有{round_label}共用）或 {n_rounds}"
+                f"（逐{round_label}指定），实际 {len(vol_list)}"
+            )
+        return vol_list
+
+    @classmethod
+    def _split_target_columns(cls, targets: List[Container], action_name: str) -> List[List[Container]]:
+        """把 targets 切成整列（每列 8 孔）并校验同板、同列、A→H 顺序。
+
+        8 通道整列吸放在设备端是一条 ``Tapping`` 指令（``HoleCol`` + 整列 ``HoleNumbers``），
+        所以每 8 个 target 必须真的是同一块板同一列的 A~H，否则无法下发。
+        """
+        n_targets = len(targets)
+        if n_targets == 0 or n_targets % 8 != 0:
+            raise ValueError(
+                f"{action_name} 的 targets 必须是整列形式（8 的正整数倍），实际 {n_targets} 个孔"
+            )
+        columns: List[List[Container]] = []
+        for start in range(0, n_targets, 8):
+            group = targets[start : start + 8]
+            col_no = start // 8 + 1
+            plate = getattr(group[0], "parent", None)
+            if plate is None:
+                raise ValueError(
+                    f"{action_name} 的第 {col_no} 列目标孔没有 parent 板，无法定位列号"
+                )
+            num_items_y = PRCXI9300Backend._resource_num_items_y(plate)
+            if num_items_y != 8:
+                raise ValueError(
+                    f"{action_name} 要求目标板每列 8 个孔，"
+                    f"但 {getattr(plate, 'name', '?')} 的 num_items_y={num_items_y}"
+                )
+            plate_children = list(getattr(plate, "children", None) or [])
+            indices: List[int] = []
+            for well in group:
+                if getattr(well, "parent", None) is not plate:
+                    raise ValueError(
+                        f"{action_name} 的第 {col_no} 列 8 个目标孔必须来自同一块板，"
+                        f"实际混用了 {getattr(plate, 'name', '?')} 和 "
+                        f"{getattr(getattr(well, 'parent', None), 'name', '?')}"
+                    )
+                try:
+                    indices.append(plate_children.index(well))
+                except ValueError as exc:
+                    raise ValueError(
+                        f"{action_name} 的目标孔 {getattr(well, 'name', '?')} 不在板 "
+                        f"{getattr(plate, 'name', '?')} 的孔位列表中"
+                    ) from exc
+            if indices[0] % num_items_y != 0 or indices != [indices[0] + j for j in range(8)]:
+                raise ValueError(
+                    f"{action_name} 的第 {col_no} 组 8 个目标孔必须是同一列的 A~H 且按 A→H 顺序，"
+                    f"实际孔位序号 {indices}（板 {getattr(plate, 'name', '?')}）"
+                )
+            columns.append(list(group))
+        return columns
+
+    async def _reuse_tip_prologue(
+        self,
+        action_name: str,
+        sources: Sequence[Container],
+        targets: Sequence[Container],
+        tip_racks: Sequence[TipRack],
+    ) -> Tuple[Container, List[Container], List[TipRack], TipRack]:
+        """复用枪头动作的公共前置：建 matrix / step 协议、解析资源、挂 deck、基础校验。"""
+        if not self._first_transfer_done:
+            self._match_and_create_matrix()
+            self._first_transfer_done = True
+        if self.step_mode:
+            await self.create_protocol(f"{action_name}{time.time()}")
+
+        sources = await self._resolve_to_plr_resources(sources)
+        targets = await self._resolve_to_plr_resources(targets)
+        tip_racks = list(await self._resolve_to_plr_resources(tip_racks))
+        if len(sources) != 1:
+            raise ValueError(
+                f"{action_name} 只接受 1 个 source（每轮都从同一个吸液位置吸液），"
+                f"实际收到 {len(sources)} 个"
+            )
+        if len(targets) == 0:
+            raise ValueError(f"{action_name} 的 targets 不能为空")
+        if len(tip_racks) == 0:
+            raise ValueError(f"{action_name} 至少需要 1 个 tip_rack")
+
+        self._attach_resources_to_deck_if_needed(list(sources) + list(targets) + list(tip_racks))
+        tip_rack = tip_racks[0] if isinstance(tip_racks[0], TipRack) else tip_racks[0].parent
+        return sources[0], list(targets), tip_racks, tip_rack
+
+    async def _run_reuse_tip_rounds(
+        self,
+        *,
+        source: Container,
+        target_groups: List[List[Container]],
+        vols: List[float],
+        tip_racks: List[TipRack],
+        use_channels: List[int],
+        blow_out_air_volume: Optional[List[Optional[float]]],
+        spread: Literal["wide", "tight", "custom"],
+    ) -> None:
+        """一副枪头跑完所有轮次：仅首轮取枪头、仅末轮丢枪头。
+
+        直接驱动 ``_transfer_base_method`` 而不复用抽象层 ``transfer_liquid``：后者的
+        pick_up / drop 由"相邻轮源孔身份或残液同名"推断，跨多个 target 时不保证全程只用
+        一副枪头；这里的 ``pick_up`` / ``drop`` 是显式的。
+        """
+        n_channels = len(use_channels)
+        n_rounds = len(target_groups)
+        self.set_tiprack(tip_racks)
+        for idx, (group, vol) in enumerate(zip(target_groups, vols)):
+            kwargs: Dict[str, Any] = {
+                "sources": [source] * n_channels,
+                "targets": list(group),
+                "tip_racks": tip_racks,
+                "use_channels": use_channels,
+                "asp_vols": [vol] * n_channels,
+                "dis_vols": [vol] * n_channels,
+                "pick_up": idx == 0,
+                "drop": idx == n_rounds - 1,
+                "asp_flow_rates": [self._REUSE_TIP_FLOW_RATE] * n_channels,
+                "dis_flow_rates": [self._REUSE_TIP_FLOW_RATE] * n_channels,
+                "spread": spread,
+            }
+            if blow_out_air_volume:
+                kwargs["blow_out_air_volume"] = list(blow_out_air_volume)
+            await self._transfer_base_method(**kwargs)
+
+    async def one_channel_reuse_tip(
+        self,
+        sources: Sequence[Container],
+        targets: Sequence[Container],
+        tip_racks: Sequence[TipRack],
+        *,
+        vols: Union[List[float], float],
+        blow_out_air_volume: Optional[List[Optional[float]]] = None,
+        none_keys: List[str] = [],
+    ) -> TransferLiquidReturn:
+        """单通道轴复用一个枪头：从同一个源孔反复吸液、依次分配到多个目标孔，最后丢弃枪头。
+
+        全程只取 1 个枪头（首轮取、末轮丢），每轮"吸一次 → 放一次"，吸放速率固定 30。
+        轴按 ``pip_setting`` 选单通道轴（本设备为左轴），未配置时回退左轴 ``[0]``。
+
+        Args:
+            sources[吸液位置]: 单一吸液容器，只接受 1 个孔；每轮都从这里吸液。
+            targets[放液目标]: 放液目标孔列表，按传入顺序逐个放液。
+            tip_racks[枪头盒]: 取枪头用的 tip 盒列表；整个动作只取 1 个枪头。
+            vols[单次体积(µL)]: 每轮吸放液体积；只给 1 个值时所有目标孔共用，否则长度须等于目标孔数量。
+            blow_out_air_volume[吹出空气量(µL)]: 可选，每通道吹出空气体积；缺省用设备默认。
+            none_keys[空值字段]: 上游标记为"未填写"的字段名列表。
+        """
+        action_name = "one_channel_reuse_tip"
+        source, targets, tip_racks, tip_rack = await self._reuse_tip_prologue(
+            action_name, sources, targets, tip_racks
+        )
+        vol_list = self._normalize_reuse_tip_vols(vols, len(targets), action_name, "目标孔")
+        max_vol = max(vol_list)
+        use_channels = self._select_reuse_tip_channels(1, max_vol, action_name)
+        self._check_reuse_tip_capacity(tip_rack, max_vol, action_name)
+        self._sync_pipetting_positions([source], targets, tip_rack)
+
+        try:
+            await self._run_reuse_tip_rounds(
+                source=source,
+                target_groups=[[t] for t in targets],
+                vols=vol_list,
+                tip_racks=tip_racks,
+                use_channels=use_channels,
+                blow_out_air_volume=blow_out_air_volume,
+                spread="wide",
+            )
+            if self.step_mode:
+                await self.run_protocol()
+        except Exception:
+            await self._cleanup_after_failed_transfer()
+            raise
+        return TransferLiquidReturn(
+            sources=ResourceTreeSet.from_plr_resources([source], known_newly_created=False).dump(),  # type: ignore
+            targets=ResourceTreeSet.from_plr_resources(list(targets), known_newly_created=False).dump(),  # type: ignore
+        )
+
+    async def eight_channels_reuse_tips(
+        self,
+        sources: Sequence[Container],
+        targets: Sequence[Container],
+        tip_racks: Sequence[TipRack],
+        *,
+        vols: Union[List[float], float],
+        blow_out_air_volume: Optional[List[Optional[float]]] = None,
+        none_keys: List[str] = [],
+    ) -> TransferLiquidReturn:
+        """八通道轴复用一整列枪头：从同一个源孔反复 8 通道吸液、逐列放液，最后丢弃枪头。
+
+        全程只取 1 整列（8 个）枪头（首轮取、末轮丢），每轮"8 通道吸一次 → 整列放一次"，
+        吸放速率固定 30。轴按 ``pip_setting`` 选 8 通道轴（本设备为右轴），未配置时回退右轴
+        ``[8..15]``。targets 必须是整列形式：每 8 个孔来自同一块板的同一列且按 A→H 顺序。
+
+        Args:
+            sources[吸液位置]: 单一吸液容器（储液槽），只接受 1 个孔；8 个通道每轮都从这里吸液。
+            targets[放液目标]: 放液目标孔列表，长度须为 8 的整数倍，每 8 个为同板同列的 A~H。
+            tip_racks[枪头盒]: 取枪头用的 tip 盒列表；整个动作只取一整列 8 个枪头。
+            vols[单列体积(µL)]: 每列每通道的吸放液体积；只给 1 个值时所有列共用，否则长度须等于列数。
+            blow_out_air_volume[吹出空气量(µL)]: 可选，每通道吹出空气体积；缺省用设备默认。
+            none_keys[空值字段]: 上游标记为"未填写"的字段名列表。
+        """
+        action_name = "eight_channels_reuse_tips"
+        source, targets, tip_racks, tip_rack = await self._reuse_tip_prologue(
+            action_name, sources, targets, tip_racks
+        )
+        target_columns = self._split_target_columns(targets, action_name)
+        vol_list = self._normalize_reuse_tip_vols(vols, len(target_columns), action_name, "列")
+        max_vol = max(vol_list)
+        use_channels = self._select_reuse_tip_channels(8, max_vol, action_name)
+        self._check_reuse_tip_capacity(tip_rack, max_vol, action_name)
+        self._sync_pipetting_positions([source], targets, tip_rack)
+
+        try:
+            await self._run_reuse_tip_rounds(
+                source=source,
+                target_groups=target_columns,
+                vols=vol_list,
+                tip_racks=tip_racks,
+                use_channels=use_channels,
+                blow_out_air_volume=blow_out_air_volume,
+                # 8 个通道同时插进同一个源孔：PLR 的 wide/tight 会按孔几何算通道间距并可能抛
+                # ChannelsDoNotFitError，而 PRCXI 下发的是槽位 + 整列孔号、完全不用 offsets，
+                # 故用 custom（零偏移）跳过与设备无关的几何校验。
+                spread="custom",
+            )
+            if self.step_mode:
+                await self.run_protocol()
+        except Exception:
+            await self._cleanup_after_failed_transfer()
+            raise
+        return TransferLiquidReturn(
+            sources=ResourceTreeSet.from_plr_resources([source], known_newly_created=False).dump(),  # type: ignore
+            targets=ResourceTreeSet.from_plr_resources(list(targets), known_newly_created=False).dump(),  # type: ignore
+        )
 
     async def custom_delay(self, seconds=0, msg=None):
         return await super().custom_delay(seconds, msg)
