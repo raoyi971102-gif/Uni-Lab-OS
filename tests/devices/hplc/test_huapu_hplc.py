@@ -5,6 +5,7 @@ import pytest
 import requests
 
 from unilabos.devices.hplc.huapu_hplc import HuapuHPLC
+from unilabos.registry.decorators import get_action_meta
 
 
 class FakeResponse:
@@ -46,6 +47,41 @@ def test_action_signatures_expose_method_names_instead_of_ids() -> None:
         "process_method_name",
         "report_method_name",
     } <= set(sample_params)
+    assert "project_id" not in inspect.signature(HuapuHPLC.wait_sequence_complete).parameters
+
+
+def test_sequence_actions_expose_flow_and_project_handles() -> None:
+    create_handles = get_action_meta(HuapuHPLC.create_sequence)["handles"]
+    run_handles = get_action_meta(HuapuHPLC.run_sequence)["handles"]
+    wait_handles = get_action_meta(HuapuHPLC.wait_sequence_complete)["handles"]
+
+    assert {
+        handle["data_key"]: handle["data_type"]
+        for handle in create_handles["output"]
+    } == {
+        "proc_inst_id": "hplc_proc_inst_id",
+        "project_id": "hplc_project_id",
+    }
+    assert {
+        handle["data_key"]: handle["data_type"]
+        for handle in run_handles["input"]
+    } == {
+        "proc_inst_id": "hplc_proc_inst_id",
+        "project_id": "hplc_project_id",
+    }
+    assert {
+        handle["data_key"]: handle["data_type"]
+        for handle in run_handles["output"]
+    } == {
+        "proc_inst_id": "hplc_proc_inst_id",
+        "project_id": "hplc_project_id",
+    }
+    assert {
+        handle["data_key"]: handle["data_type"]
+        for handle in wait_handles["input"]
+    } == {
+        "proc_inst_id": "hplc_proc_inst_id",
+    }
 
 
 def test_create_sequence_queries_name_then_posts_resolved_id() -> None:
@@ -76,6 +112,49 @@ def test_create_sequence_queries_name_then_posts_resolved_id() -> None:
     assert payload["sequenceMethodId"] == 22
     assert payload["projectId"] == 7
     assert payload["procInstId"] == "flow-1"
+    assert payload["name"] == "flow-1"
+    assert result["proc_inst_id"] == "flow-1"
+    assert result["project_id"] == 7
+
+
+def test_create_sequence_generates_timestamp_id_and_matching_name_when_empty(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "unilabos.devices.hplc.huapu_hplc.time.strftime",
+        lambda fmt: "20260825203045" if fmt == "%Y%m%d%H%M%S" else "",
+    )
+    driver = _driver(
+        [{"id": 21, "methodName": "参考方法"}],
+        {"code": 0, "msg": "成功", "data": None},
+    )
+
+    result = driver.create_sequence(
+        proc_inst_id="",
+        sequence_method_name="参考方法",
+        name="",
+    )
+
+    payload = driver.session.post.call_args_list[1].kwargs["json"]
+    assert payload["procInstId"] == "20260825203045"
+    assert payload["name"] == "20260825203045"
+    assert result["proc_inst_id"] == "20260825203045"
+
+
+def test_create_sequence_prefers_non_empty_id_and_name() -> None:
+    driver = _driver(
+        [{"id": 21, "methodName": "参考方法"}],
+        {"code": 0, "msg": "成功", "data": None},
+    )
+
+    result = driver.create_sequence(
+        proc_inst_id="custom-flow",
+        sequence_method_name="参考方法",
+        name="custom-name",
+    )
+
+    payload = driver.session.post.call_args_list[1].kwargs["json"]
+    assert payload["procInstId"] == "custom-flow"
+    assert payload["name"] == "custom-name"
+    assert result["proc_inst_id"] == "custom-flow"
 
 
 def test_run_sequence_queries_process_and_report_names_before_post() -> None:
@@ -99,6 +178,22 @@ def test_run_sequence_queries_process_and_report_names_before_post() -> None:
     assert calls[2].args[0].endswith("/project/runSequence")
     assert calls[2].kwargs["json"]["proMethodId"] == 31
     assert calls[2].kwargs["json"]["reportMethodId"] == 41
+    assert result["proc_inst_id"] == "flow-2"
+    assert result["project_id"] == 7
+
+
+def test_wait_sequence_complete_returns_flow_context() -> None:
+    driver = _driver({"code": 0, "msg": "成功", "data": {"status": 2}})
+
+    result = driver.wait_sequence_complete(
+        proc_inst_id="flow-wait",
+        wait=False,
+    )
+
+    assert result["success"] is True
+    assert result["proc_inst_id"] == "flow-wait"
+    assert "project_id" not in result
+    assert "projectId" not in result["data"]
 
 
 def test_default_method_name_is_also_resolved_through_query() -> None:

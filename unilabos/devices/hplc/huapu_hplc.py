@@ -5,7 +5,15 @@ from typing import TYPE_CHECKING, Any, Dict, NoReturn, Optional
 
 import requests
 
-from unilabos.registry.decorators import action, device, not_action, topic_config
+from unilabos.registry.decorators import (
+    ActionInputHandle,
+    ActionOutputHandle,
+    DataSource,
+    action,
+    device,
+    not_action,
+    topic_config,
+)
 
 if TYPE_CHECKING:
     from unilabos.ros.nodes.base_device_node import BaseROS2DeviceNode
@@ -19,6 +27,9 @@ SEQUENCE_STATUS_TEXT = {
     4: "Stopped",
     5: "Error",
 }
+
+HPLC_PROC_INST_ID_DATA_TYPE = "hplc_proc_inst_id"
+HPLC_PROJECT_ID_DATA_TYPE = "hplc_project_id"
 
 
 @device(
@@ -285,7 +296,27 @@ class HuapuHPLC:
     def list_instruments(self) -> Dict[str, Any]:
         return self._post("/project/findInstrumentList")
 
-    @action(description="新建序列方法")
+    @action(
+        description="新建序列方法",
+        handles=[
+            ActionOutputHandle(
+                key="proc_inst_id_output",
+                data_type=HPLC_PROC_INST_ID_DATA_TYPE,
+                label="流程ID",
+                data_key="proc_inst_id",
+                data_source=DataSource.EXECUTOR,
+                description="传递给运行序列和等待序列动作的流程 ID",
+            ),
+            ActionOutputHandle(
+                key="project_id_output",
+                data_type=HPLC_PROJECT_ID_DATA_TYPE,
+                label="项目ID",
+                data_key="project_id",
+                data_source=DataSource.EXECUTOR,
+                description="传递给运行序列和等待序列动作的项目 ID",
+            ),
+        ],
+    )
     def create_sequence(
         self,
         proc_inst_id: str,
@@ -304,11 +335,11 @@ class HuapuHPLC:
     ) -> Dict[str, Any]:
         """
         Args:
-            proc_inst_id[流程ID]: 用户指定的流程 ID，字符串类型，同一项目内必须唯一。
+            proc_inst_id[流程ID]: 同一项目内必须唯一；为空时按当前时间生成 YYYYMMDDHHMMSS。
             sequence_method_name[参考序列方法名称]: 先查询项目序列方法，再按名称解析 ID；为空时使用默认名称。
             project_id[项目ID]: 为空或 0 时使用默认项目 ID。
             instrument_id[仪器ID]: 为空或 0 时使用默认仪器 ID。
-            name[序列方法名称]: 为空时自动使用 proc_inst_id 生成名称。
+            name[序列方法名称]: 为空时使用最终的 proc_inst_id；非空时以入参为准。
             sample_name[样品名称]: 样品名称。
             sample_vol[进样量(uL)]: 进样量，0 时不传。
             tray_num[样品盘号]: -1 时使用默认样品盘号。
@@ -318,6 +349,8 @@ class HuapuHPLC:
             batch_num[批号]: 样品批号。
             seq_tray_num[序列盘号]: -1 时使用默认序列盘号。
         """
+        proc_inst_id = str(proc_inst_id or "").strip() or time.strftime("%Y%m%d%H%M%S")
+        name = str(name or "").strip() or proc_inst_id
         project_id = self._resolve_project_id(project_id)
         sequence_method_id = self._resolve_method_id(
             project_id,
@@ -336,7 +369,7 @@ class HuapuHPLC:
             "procInstId": str(proc_inst_id),
             "projectId": project_id,
             "sequenceMethodId": sequence_method_id,
-            "name": name or f"sequence_{proc_inst_id}",
+            "name": name,
             "seqTrayNum": seq_tray_num,
             "sampleArr": [sample],
             "instIdArr": [instrument_id] if instrument_id else [],
@@ -345,9 +378,47 @@ class HuapuHPLC:
         if result["success"]:
             self.data["status"] = "SequenceCreated"
             self.data["last_proc_inst_id"] = str(proc_inst_id)
+            result["proc_inst_id"] = str(proc_inst_id)
+            result["project_id"] = project_id
         return result
 
-    @action(description="运行序列")
+    @action(
+        description="运行序列",
+        handles=[
+            ActionInputHandle(
+                key="proc_inst_id_input",
+                data_type=HPLC_PROC_INST_ID_DATA_TYPE,
+                label="流程ID",
+                data_key="proc_inst_id",
+                data_source=DataSource.HANDLE,
+                description="接收创建序列动作输出的流程 ID",
+            ),
+            ActionInputHandle(
+                key="project_id_input",
+                data_type=HPLC_PROJECT_ID_DATA_TYPE,
+                label="项目ID",
+                data_key="project_id",
+                data_source=DataSource.HANDLE,
+                description="接收创建序列动作输出的项目 ID",
+            ),
+            ActionOutputHandle(
+                key="proc_inst_id_output",
+                data_type=HPLC_PROC_INST_ID_DATA_TYPE,
+                label="流程ID",
+                data_key="proc_inst_id",
+                data_source=DataSource.EXECUTOR,
+                description="继续传递给等待序列动作的流程 ID",
+            ),
+            ActionOutputHandle(
+                key="project_id_output",
+                data_type=HPLC_PROJECT_ID_DATA_TYPE,
+                label="项目ID",
+                data_key="project_id",
+                data_source=DataSource.EXECUTOR,
+                description="继续传递给等待序列动作的项目 ID",
+            ),
+        ],
+    )
     def run_sequence(
         self,
         proc_inst_id: str,
@@ -392,9 +463,23 @@ class HuapuHPLC:
         if result["success"]:
             self.data["status"] = "Running"
             self.data["last_proc_inst_id"] = str(proc_inst_id)
+            result["proc_inst_id"] = str(proc_inst_id)
+            result["project_id"] = project_id
         return result
 
-    @action(description="检测序列是否完成")
+    @action(
+        description="检测序列是否完成",
+        handles=[
+            ActionInputHandle(
+                key="proc_inst_id_input",
+                data_type=HPLC_PROC_INST_ID_DATA_TYPE,
+                label="流程ID",
+                data_key="proc_inst_id",
+                data_source=DataSource.HANDLE,
+                description="接收运行序列动作输出的流程 ID",
+            ),
+        ],
+    )
     def wait_sequence_complete(
         self,
         proc_inst_id: str,
@@ -427,6 +512,7 @@ class HuapuHPLC:
                 "success": status_code == 2,
                 "completed": status_code in (2, 4, 5),
                 "message": status_name,
+                "proc_inst_id": str(proc_inst_id),
                 "data": {
                     "procInstId": str(proc_inst_id),
                     "status_code": status_code,
