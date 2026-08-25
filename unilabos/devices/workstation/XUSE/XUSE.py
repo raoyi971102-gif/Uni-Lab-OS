@@ -2877,13 +2877,29 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
         
     
-    @action()
-    def large_crucible_feed(self) -> dict:
+    @action(
+        always_free=True,
+        node_type=NodeType.MANUAL_CONFIRM,
+        placeholder_keys={"assignee_user_ids": "unilabos_manual_confirm"},
+        goal_default={"timeout_seconds": 3600, "assignee_user_ids": []},
+        feedback_interval=300,
+        description="大坩埚入料（人工确认节点：确认通过后执行大坩埚搬运位置上料）",
+    )
+    def large_crucible_feed(
+        self,
+        timeout_seconds: int = 3600,
+        assignee_user_ids: Optional[list] = None,
+        **kwargs,
+    ) -> dict:
         """
-        大坩锅搬运位置上料
+        大坩锅搬运位置上料（人工确认通过后执行）
         - 设置上料操作
         - 等待上料完成
         - 返回成功
+
+        Args:
+            timeout_seconds[超时时间]: 人工确认超时时间，单位秒。
+            assignee_user_ids[确认人]: 指定处理人工确认任务的用户 ID 列表。
         """
         logger.info("大坩埚上料")
 
