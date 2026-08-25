@@ -1176,10 +1176,11 @@ class XUSEDevice(OpcUaClientWithSubscription):
         表头至少包含“加粉名称”和“重量”两列，后续每行代表一次加粉，执行顺序
         与表格行顺序一致。
 
-        加粉名称会在仓库相对目录 ``powder_params_dir`` 内递归匹配旧版加样参数
-        xlsx。优先匹配文件名（不含扩展名），找不到时匹配参数文件“单值参数”
-        sheet 中的“粉末名称”。每次下发时，仅用清单中的加粉名称和重量覆盖旧版
-        参数文件里的“粉末名称”“加样_重量”，其余工艺参数保持原值。
+        加粉名称会在 ``powder_params_dir`` 内递归匹配旧版加样参数 xlsx。目录可传
+        绝对路径或仓库根目录相对路径；留空时使用仓库内默认参数库。优先匹配文件名
+        （不含扩展名），找不到时匹配参数文件“单值参数” sheet 中的“粉末名称”。
+        每次下发时，仅用清单中的加粉名称和重量覆盖旧版参数文件里的“粉末名称”
+        “加样_重量”，其余工艺参数保持原值。
 
         所有清单行和配方文件会在首次 PLC 写入前完成校验。任一轮参数下发或
         加粉失败会立即停止，避免后续加粉继续使用残留参数。
@@ -1187,7 +1188,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
         Args:
             can_number[球磨罐号]: 由上游动作 handle 传入的罐号，范围 1~32。
             plan_file[多种加粉清单]: 独立清单 xlsx；绝对路径或仓库根目录相对路径。
-            powder_params_dir[粉末参数相对目录]: 旧版加样参数 xlsx 所在的仓库相对目录。
+            powder_params_dir[粉末参数目录]: 旧版加样参数 xlsx 所在目录；支持绝对路径或
+                仓库根目录相对路径，留空使用仓库内默认目录。
             record_dir[档案保存目录]: 每次参数下发档案的保存目录（可选）。
             check_can_occupied[是否检查罐体占位]: True=每次下发和加粉前检查；False=跳过。
         """
@@ -1209,18 +1211,19 @@ class XUSEDevice(OpcUaClientWithSubscription):
         cleaned_params_dir = str(powder_params_dir or "").strip().strip('"').strip("'")
         # AST 注册表扫描不会求值类变量，旧注册数据可能把默认值保存为变量名文本。
         # 接受该文本可让已生成的任务在注册表刷新前也正常使用默认目录。
-        if cleaned_params_dir == "_DEFAULT_POWDER_PARAMS_DIR":
+        if not cleaned_params_dir or cleaned_params_dir == "_DEFAULT_POWDER_PARAMS_DIR":
             cleaned_params_dir = self._DEFAULT_POWDER_PARAMS_DIR
-        if not cleaned_params_dir:
-            raise ValueError("未提供粉末参数相对目录")
-        relative_params_dir = Path(cleaned_params_dir)
-        if relative_params_dir.is_absolute():
-            raise ValueError("粉末参数目录必须使用仓库根目录下的相对路径")
-        params_root = (repo_root / relative_params_dir).resolve()
-        try:
-            params_root.relative_to(repo_root)
-        except ValueError as e:
-            raise ValueError("粉末参数目录不能超出仓库根目录") from e
+        configured_params_dir = Path(cleaned_params_dir).expanduser()
+        if configured_params_dir.is_absolute():
+            params_root = configured_params_dir.resolve()
+        else:
+            params_root = (repo_root / configured_params_dir).resolve()
+            try:
+                params_root.relative_to(repo_root)
+            except ValueError as e:
+                raise ValueError(
+                    "粉末参数相对目录不能超出仓库根目录；仓库外目录请传绝对路径"
+                ) from e
         if not params_root.is_dir():
             raise ValueError(f"粉末参数目录不存在或不是目录: {params_root}")
 
@@ -1421,7 +1424,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             "data": {
                 "can_number": can_number,
                 "plan_file": str(plan_path),
-                "powder_params_dir": str(relative_params_dir),
+                "powder_params_dir": str(configured_params_dir),
                 "total": total,
                 "completed": len(results),
                 "results": results,
