@@ -7,10 +7,25 @@ from unilabos.ros.nodes.base_device_node import BaseROS2DeviceNode, DeviceNodeRe
 
 
 class ROS2SerialNode(BaseROS2DeviceNode):
-    def __init__(self, device_id, registry_name, port: str, baudrate: int = 9600, resource_tracker: DeviceNodeResourceTracker=None):
+    def __init__(
+        self,
+        device_id,
+        registry_name,
+        port: str,
+        baudrate: int = 38400,
+        bytesize: int = 8,
+        parity: str = "N",
+        stopbits: int | float = 1,
+        timeout: float | None = 1.0,
+        resource_tracker: DeviceNodeResourceTracker = None,
+    ):
         # 保存属性，以便在调用父类初始化前使用
         self.port = port
         self.baudrate = baudrate
+        self.bytesize = bytesize
+        self.parity = parity
+        self.stopbits = stopbits
+        self.timeout = timeout
         self._hardware_interface = {"name": "hardware_interface", "write": "send_command", "read": "read_data"}
         self._busy = False
         self._closing = False
@@ -18,7 +33,14 @@ class ROS2SerialNode(BaseROS2DeviceNode):
 
         # 初始化硬件接口
         try:
-            self.hardware_interface = Serial(baudrate=baudrate, port=port)
+            self.hardware_interface = Serial(
+                port=port,
+                baudrate=baudrate,
+                bytesize=bytesize,
+                parity=parity,
+                stopbits=stopbits,
+                timeout=timeout,
+            )
         except (OSError, SerialException) as e:
             # 因为还没调用父类初始化，无法使用日志，直接抛出异常
             # print(f"Failed to connect to serial port {port} at {baudrate} baudrate.")
@@ -39,7 +61,8 @@ class ROS2SerialNode(BaseROS2DeviceNode):
 
         # 现在可以使用日志
         self.lab_logger().info(
-            f"【ROS2SerialNode.__init__】初始化串口节点: {device_id}, 端口: {port}, 波特率: {baudrate}"
+            f"【ROS2SerialNode.__init__】初始化串口节点: {device_id}, 端口: {port}, 波特率: {baudrate}, "
+            f"参数: {bytesize}{parity}{stopbits}, timeout={timeout}"
         )
         self.lab_logger().info(f"【ROS2SerialNode.__init__】成功连接串口设备")
 

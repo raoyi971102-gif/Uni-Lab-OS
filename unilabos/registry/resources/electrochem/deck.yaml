@@ -1,0 +1,11 @@
+ElectrochemDeck:
+  category:
+    - deck
+  class:
+    module: unilabos.devices.workstation.electrochem.deck:ElectrochemDeck
+    type: pylabrobot
+  description: "电化学合成工作站 Deck"
+  handles: []
+  icon: ""
+  init_param_schema: {}
+  version: 1.0.0

@@ -29,7 +29,7 @@ import rclpy
 import yaml
 from rclpy.node import Node
 from rclpy.action import ActionServer, ActionClient
-from rclpy.action.server import ServerGoalHandle
+from rclpy.action.server import CancelResponse, ServerGoalHandle
 from rclpy.client import Client
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.service import Service
@@ -1471,10 +1471,25 @@ class BaseROS2DeviceNode(Node, Generic[T]):
             self, publish_name, get_device_attr, msg_type, period, print_publish, qos
         )
 
+    def _notify_action_cancel(self, action_name: str) -> None:
+        """云端/ROS 取消动作时立即通知驱动，便于立刻停硬件。"""
+        hook = getattr(self.driver_instance, "on_action_cancel", None)
+        if not callable(hook):
+            return
+        try:
+            hook(action_name)
+        except Exception:
+            self.lab_logger().error(f"动作 {action_name} on_action_cancel 执行失败\n{traceback.format_exc()}")
+
     def create_ros_action_server(self, action_name, action_value_mapping):
         """创建ROS动作服务器"""
         action_type = action_value_mapping["type"]
         str_action_type = str(action_type)[8:-2]
+
+        def _cancel_callback(*_args, **_kwargs):
+            self.lab_logger().info(f"动作 {action_name} 取消请求已接受")
+            self._notify_action_cancel(action_name)
+            return CancelResponse.ACCEPT
 
         try:
             self._action_servers[action_name] = ActionServer(
@@ -1482,6 +1497,7 @@ class BaseROS2DeviceNode(Node, Generic[T]):
                 action_type,
                 action_name,
                 execute_callback=self._create_execute_callback(action_name, action_value_mapping),
+                cancel_callback=_cancel_callback,
                 callback_group=self.callback_group,
             )
         except Exception as e:
@@ -2056,8 +2072,12 @@ class BaseROS2DeviceNode(Node, Generic[T]):
             if _feedback_timer is not None:
                 _feedback_timer.cancel()
 
-            if future is not None and future.cancelled():
+            if goal_handle.is_cancel_requested or (future is not None and future.cancelled()):
                 self.lab_logger().info(f"动作 {action_name} 已取消")
+                try:
+                    goal_handle.canceled()
+                except Exception:
+                    self.lab_logger().warning(f"动作 {action_name} 标记 canceled 失败")
                 return action_type.Result()
 
             # self.lab_logger().info(f"动作执行完成: {action_name}")
