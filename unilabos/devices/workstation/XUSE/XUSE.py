@@ -2654,10 +2654,11 @@ class XUSEDevice(OpcUaClientWithSubscription):
 
         self._wait_until_true("Robotic_Arm_Idle_2", description="等待机械臂2空闲")
         
-        if self.get_small_crucible_discharge_current_position() != SmallCrucibleDischargePosition.FEEDING:
-            error_msg = f"当前小坩锅搬运位置不是放料位，无法放到搬运位置"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
+        self._wait_until_value(
+            "Small_Crucible_Discharge_Current_Position",
+            SmallCrucibleDischargePosition.FEEDING,
+            description="小坩埚出料机构到达放料位",
+        )
 
         self.set_node_value("Robotic_Arm_Action_Complete_2", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_2", RoboticArmPickPlaceCode_2.PLACE_SMALL_CRUCIBLE_1 + moving_position - 1) # 设置搬运位置
@@ -2941,10 +2942,11 @@ class XUSEDevice(OpcUaClientWithSubscription):
         logger.info("从搬运区取大坩埚")
         self._wait_until_true("Robotic_Arm_Idle_3", description="等待机械臂3空闲")
 
-        if self.get_large_crucible_feed_current_position() != LargeCrucibleFeedPosition.PICKING:
-            error_msg = f"当前大坩埚搬运位置不是取料位，无法取料"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
+        self._wait_until_value(
+            "Large_Crucible_Feed_Current_Position",
+            LargeCrucibleFeedPosition.PICKING,
+            description="大坩埚入料机构到达取料位",
+        )
         
         self.set_node_value("Robotic_Arm_Action_Complete_3", False)  # 先复位完成标志，避免读到上一次动作的完成
         self.set_node_value("Robotic_Arm_Target_Position_Code_3", RoboticArmTargetPosition_3.LARGE_CRUCIBLE_POSITION) # 设置机械臂目标位置为大坩埚
@@ -4155,6 +4157,24 @@ class XUSEDevice(OpcUaClientWithSubscription):
         while True:
             if not self.get_node_value(node_name, use_cache=True):
                 logger.info(f"✓ {desc} 已变为 False")
+                return True
+            time.sleep(interval)
+
+    def _wait_until_value(
+        self,
+        node_name: str,
+        expected_value,
+        interval: float = 0.2,
+        description: str = None,
+    ) -> bool:
+        """等待节点达到指定值（无超时，持续轮询直到满足）。"""
+        desc = description or node_name
+        logger.info(f"等待 {desc}，目标值: {expected_value}...")
+
+        while True:
+            current_value = self.get_node_value(node_name, use_cache=True)
+            if current_value == expected_value:
+                logger.info(f"✓ {desc}，当前值: {current_value}")
                 return True
             time.sleep(interval)
 
