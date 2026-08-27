@@ -85,6 +85,7 @@
 加样请求加工,Add_Sample_Request_Process,VARIABLE,BOOLEAN,Chinese,ns=4;s=uniab|加样请求加工
 加样开始加工,Add_Sample_Start_Process,VARIABLE,BOOLEAN,Chinese,ns=4;s=uniab|加样开始加工
 加样加工完成,Add_Sample_Process_Complete,VARIABLE,BOOLEAN,Chinese,ns=4;s=uniab|加样加工完成
+加粉重量,Powder_Weight,VARIABLE,FLOAT,Chinese,ns=4;s=uniab|加粉重量
 球磨参数下发,Ball_Mill_Parameter_Send,VARIABLE,BOOLEAN,Chinese,ns=4;s=uniab|球磨参数下发
 球磨参数下发完成,Ball_Mill_Parameter_Send_Complete,VARIABLE,BOOLEAN,Chinese,ns=4;s=uniab|球磨参数下发完成
 球磨请求加工,Ball_Mill_Request_Process,VARIABLE,BOOLEAN,Chinese,ns=4;s=uniab|球磨请求加工

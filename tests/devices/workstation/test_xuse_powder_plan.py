@@ -74,8 +74,10 @@ def test_multi_powder_plan_uses_sheet_order_and_recipe_overrides(tmp_path, monke
             self.param_calls.append(kwargs)
             return {"success": True, "data": {"written": 2}}
 
-        def add_powder(self, check_can_occupied=True):
-            self.add_calls.append(check_can_occupied)
+        def add_powder(
+            self, check_can_occupied=True, actual_powder_log_dir=""
+        ):
+            self.add_calls.append((check_can_occupied, actual_powder_log_dir))
             return {"success": True}
 
     device = FakeDevice()
@@ -84,6 +86,7 @@ def test_multi_powder_plan_uses_sheet_order_and_recipe_overrides(tmp_path, monke
         plan_file=str(plan_file),
         powder_params_dir="powder_params",
         record_dir="records",
+        actual_powder_log_dir="actual-logs",
         check_can_occupied=False,
     )
 
@@ -97,7 +100,10 @@ def test_multi_powder_plan_uses_sheet_order_and_recipe_overrides(tmp_path, monke
     assert [call["weight_override"] for call in device.param_calls] == [1.25, 2.5]
     assert Path(device.param_calls[0]["param_file"]).name == "Powder-A.xlsx"
     assert Path(device.param_calls[1]["param_file"]).name == "opaque-name.xlsx"
-    assert device.add_calls == [False, False]
+    assert device.add_calls == [
+        (False, "actual-logs"),
+        (False, "actual-logs"),
+    ]
 
 
 @pytest.mark.parametrize("configured_dir", ["", "_DEFAULT_POWDER_PARAMS_DIR"])
@@ -122,7 +128,9 @@ def test_multi_powder_plan_uses_default_directory(
             self.param_calls.append(kwargs)
             return {"success": True, "data": {"written": 2}}
 
-        def add_powder(self, check_can_occupied=True):
+        def add_powder(
+            self, check_can_occupied=True, actual_powder_log_dir=""
+        ):
             return {"success": True}
 
     device = FakeDevice()
@@ -160,7 +168,9 @@ def test_multi_powder_plan_accepts_absolute_parameter_directory(tmp_path, monkey
             self.param_calls.append(kwargs)
             return {"success": True, "data": {"written": 2}}
 
-        def add_powder(self, check_can_occupied=True):
+        def add_powder(
+            self, check_can_occupied=True, actual_powder_log_dir=""
+        ):
             return {"success": True}
 
     device = FakeDevice()

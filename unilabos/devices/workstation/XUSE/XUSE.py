@@ -7,6 +7,7 @@ import json
 import math
 import time
 import traceback
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 import os
@@ -62,6 +63,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
     _BALL_MILL_CAN_MIN = 1
     _BALL_MILL_CAN_MAX = 32
     _DEFAULT_POWDER_PARAMS_DIR = "unilabos/devices/workstation/XUSE/powder_params"
+    _ACTUAL_POWDER_LOG_FILENAME = "实际加粉日志.xlsx"
+    _ACTUAL_POWDER_LOG_LOCK = threading.RLock()
 
     @classmethod
     def _validate_ball_mill_can_number(cls, can_number: int) -> int:
@@ -140,6 +143,14 @@ class XUSEDevice(OpcUaClientWithSubscription):
         if csv_path:
             self.load_nodes_from_csv(csv_path)
 
+        # 加粉重量监控缓存：PLC REAL 在 OPC UA 中对应 Float。
+        try:
+            self._powder_weight_cache = float(
+                self.get_node_value("Powder_Weight", use_cache=False, force_read=True)
+            )
+        except Exception:
+            self._powder_weight_cache = 0.0
+
         # 机械臂状态本地缓存 + 后台轮询线程。
         # 原因：6 个状态方法会被 ROS 各自的定时器周期调用，如果直接走 get_node_value
         # （共享 OPC 锁、可能因动作占用而阻塞），部分发布回调会卡住，导致对应 topic 不发布、
@@ -201,6 +212,14 @@ class XUSEDevice(OpcUaClientWithSubscription):
                     self._arm_status_cache[node_name] = bool(self.get_node_value(node_name))
                 except Exception:
                     pass
+            try:
+                self._powder_weight_cache = float(
+                    self.get_node_value(
+                        "Powder_Weight", use_cache=False, force_read=True
+                    )
+                )
+            except Exception:
+                pass
             self._arm_status_poller_stop.wait(1.0)
 
     @not_action
@@ -602,6 +621,11 @@ class XUSEDevice(OpcUaClientWithSubscription):
     def robotic_arm_3_fault(self) -> bool:
         """机械臂3故障状态"""
         return self._read_bool_node("Robotic_Arm_Fault_3")
+
+    @topic_config(period=1.0, name="加粉重量")
+    def powder_weight(self) -> float:
+        """PLC 实际加粉重量（REAL），每秒作为监控变量上传。"""
+        return float(getattr(self, "_powder_weight_cache", 0.0))
 
     @not_action
     def is_open_can_upper_lid_occupied(self) -> bool:
@@ -1096,7 +1120,11 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
         
     @action()
-    def add_powder(self, check_can_occupied: bool = True) -> dict:
+    def add_powder(
+        self,
+        check_can_occupied: bool = True,
+        actual_powder_log_dir: str = "",
+    ) -> dict:
         """
         加样（加粉）—— 只触发加粉动作，不含参数下发。
 
@@ -1112,6 +1140,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
 
         Args:
             check_can_occupied[是否检查罐体占位]: True=加粉前等待并校验罐体占位；False=跳过占位检查。
+            actual_powder_log_dir[实际加粉日志目录]: 保存“实际加粉日志.xlsx”的目录；
+                留空使用 XUSE 模块下的 records 目录。
         """
         logger.info(f"加粉...（check_can_occupied={check_can_occupied}）")
 
@@ -1129,11 +1159,35 @@ class XUSEDevice(OpcUaClientWithSubscription):
             self.set_node_value("Add_Sample_Start_Process", True)  # 开始加工
             if self._wait_until_true("Add_Sample_Process_Complete", description="加样加工完成"):
                 logger.info("加样加工完成")
+                completed_at = datetime.now()
+                measurement = None
+                measurement_error = None
+                try:
+                    measurement = self._read_completed_powder_measurement()
+                except Exception as e:
+                    measurement_error = e
                 self.set_node_value("Add_Sample_Start_Process", False)  # 复位加工
                 self._wait_until_false("Add_Sample_Process_Complete", description="加样加工完成复位")
+                if measurement_error is not None:
+                    raise ValueError(
+                        f"加样已完成，但读取实际加粉记录数据失败: {measurement_error}"
+                    ) from measurement_error
+                try:
+                    log_path = self._append_actual_powder_log(
+                        log_dir=actual_powder_log_dir,
+                        timestamp=completed_at,
+                        **measurement,
+                    )
+                except Exception as e:
+                    raise ValueError(f"加样已完成，但写入实际加粉日志失败: {e}") from e
                 return {
                     "success": True,
                     "message": "加样加工完成",
+                    "data": {
+                        **measurement,
+                        "timestamp": completed_at.isoformat(timespec="seconds"),
+                        "actual_powder_log_file": log_path,
+                    },
                 }
             else:
                 logger.error("加样加工失败，动作超时")
@@ -1143,6 +1197,111 @@ class XUSEDevice(OpcUaClientWithSubscription):
             error_msg = "加样失败，未收到加样请求"
             logger.error(error_msg)
             raise ValueError(error_msg)
+
+    def _read_completed_powder_measurement(self) -> dict:
+        """在 PLC 加粉完成信号到达时强制读取本次加粉记录数据。"""
+        powder_name = str(
+            self.get_node_value("Powder_Name", use_cache=False, force_read=True) or ""
+        ).strip()
+        if not powder_name:
+            raise ValueError("PLC 粉末名称为空")
+
+        try:
+            target_weight = float(
+                self.get_node_value("Add_Sample_Weight", use_cache=False, force_read=True)
+            )
+            actual_weight = float(
+                self.get_node_value("Powder_Weight", use_cache=False, force_read=True)
+            )
+        except (TypeError, ValueError) as e:
+            raise ValueError("PLC 目标或实际加粉重量不是有效数字") from e
+        if not math.isfinite(target_weight) or not math.isfinite(actual_weight):
+            raise ValueError("PLC 目标或实际加粉重量不是有限数字")
+
+        self._powder_weight_cache = actual_weight
+        return {
+            "powder_name": powder_name,
+            "target_weight": target_weight,
+            "actual_weight": actual_weight,
+        }
+
+    def _append_actual_powder_log(
+        self,
+        *,
+        log_dir: str,
+        timestamp,
+        powder_name: str,
+        target_weight: float,
+        actual_weight: float,
+    ) -> str:
+        """将一次 PLC 加粉完成记录追加到固定名称的 xlsx 日志。"""
+        from openpyxl import Workbook, load_workbook
+        from openpyxl.styles import Alignment, Font, PatternFill
+
+        cleaned_dir = str(log_dir or "").strip().strip('"').strip("'")
+        if cleaned_dir:
+            output_dir = Path(cleaned_dir).expanduser().resolve()
+        else:
+            output_dir = Path(__file__).resolve().parent / "records"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        log_path = output_dir / self._ACTUAL_POWDER_LOG_FILENAME
+        temp_path = output_dir / (
+            f".{log_path.stem}.{os.getpid()}.{threading.get_ident()}.tmp.xlsx"
+        )
+        headers = ["时间戳", "加粉名称", "目标加粉重量", "实际加粉重量"]
+
+        with self._ACTUAL_POWDER_LOG_LOCK:
+            if log_path.exists():
+                workbook = load_workbook(log_path)
+                sheet = (
+                    workbook["实际加粉日志"]
+                    if "实际加粉日志" in workbook.sheetnames
+                    else workbook.create_sheet("实际加粉日志")
+                )
+            else:
+                workbook = Workbook()
+                sheet = workbook.active
+                sheet.title = "实际加粉日志"
+
+            current_headers = [sheet.cell(row=1, column=i).value for i in range(1, 5)]
+            if all(value is None for value in current_headers):
+                for column_index, header in enumerate(headers, start=1):
+                    sheet.cell(row=1, column=column_index, value=header)
+                for cell in sheet[1]:
+                    cell.fill = PatternFill("solid", fgColor="1A3A63")
+                    cell.font = Font(bold=True, color="FFFFFF")
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+                sheet.freeze_panes = "A2"
+                sheet.sheet_view.showGridLines = False
+                for column, width in zip(("A", "B", "C", "D"), (22, 24, 18, 18)):
+                    sheet.column_dimensions[column].width = width
+            elif current_headers != headers:
+                workbook.close()
+                raise ValueError(
+                    f"{log_path} 的表头不是预期格式: {current_headers}"
+                )
+
+            sheet.append(
+                [timestamp, str(powder_name), float(target_weight), float(actual_weight)]
+            )
+            row_index = sheet.max_row
+            sheet.cell(row=row_index, column=1).number_format = "yyyy-mm-dd hh:mm:ss"
+            sheet.cell(row=row_index, column=3).number_format = "0.0000"
+            sheet.cell(row=row_index, column=4).number_format = "0.0000"
+            sheet.auto_filter.ref = f"A1:D{row_index}"
+
+            try:
+                try:
+                    workbook.save(temp_path)
+                finally:
+                    workbook.close()
+                os.replace(temp_path, log_path)
+            finally:
+                if temp_path.exists():
+                    temp_path.unlink()
+
+        logger.info(f"实际加粉日志已追加: {log_path}")
+        return str(log_path)
 
     @action(
         handles=[
@@ -1168,6 +1327,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         plan_file: str = "",
         powder_params_dir: str = "unilabos/devices/workstation/XUSE/powder_params",
         record_dir: str = "",
+        actual_powder_log_dir: str = "",
         check_can_occupied: bool = True,
     ) -> dict:
         """按球磨罐号读取独立加粉清单，并依次执行多种加粉。
@@ -1191,6 +1351,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             powder_params_dir[粉末参数目录]: 旧版加样参数 xlsx 所在目录；支持绝对路径或
                 仓库根目录相对路径，留空使用仓库内默认目录。
             record_dir[档案保存目录]: 每次参数下发档案的保存目录（可选）。
+            actual_powder_log_dir[实际加粉日志目录]: 每次 PLC 加粉完成后追加写入
+                “实际加粉日志.xlsx”的目录；留空使用 XUSE 模块下的 records 目录。
             check_can_occupied[是否检查罐体占位]: True=每次下发和加粉前检查；False=跳过。
         """
         import openpyxl
@@ -1395,7 +1557,10 @@ class XUSEDevice(OpcUaClientWithSubscription):
                 written = int(params_result.get("data", {}).get("written", 0))
                 if not params_result.get("success", False) or written <= 0:
                     raise ValueError("参数文件未写入任何加样参数")
-                powder_result = self.add_powder(check_can_occupied=check_can_occupied)
+                powder_result = self.add_powder(
+                    check_can_occupied=check_can_occupied,
+                    actual_powder_log_dir=actual_powder_log_dir,
+                )
                 if not powder_result.get("success", False):
                     raise ValueError("加粉动作返回失败")
                 results.append(
