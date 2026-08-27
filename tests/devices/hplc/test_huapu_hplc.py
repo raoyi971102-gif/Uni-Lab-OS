@@ -139,6 +139,24 @@ def test_create_sequence_generates_timestamp_id_and_matching_name_when_empty(mon
     assert result["proc_inst_id"] == "20260825203045"
 
 
+def test_create_sequence_generates_timestamp_id_when_argument_is_omitted(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "unilabos.devices.hplc.huapu_hplc.time.strftime",
+        lambda fmt: "20260827171012" if fmt == "%Y%m%d%H%M%S" else "",
+    )
+    driver = _driver(
+        [{"id": 21, "methodName": "参考方法"}],
+        {"code": 0, "msg": "成功", "data": None},
+    )
+
+    result = driver.create_sequence(sequence_method_name="参考方法")
+
+    payload = driver.session.post.call_args_list[1].kwargs["json"]
+    assert payload["procInstId"] == "20260827171012"
+    assert payload["name"] == "20260827171012"
+    assert result["proc_inst_id"] == "20260827171012"
+
+
 def test_create_sequence_prefers_non_empty_id_and_name() -> None:
     driver = _driver(
         [{"id": 21, "methodName": "参考方法"}],

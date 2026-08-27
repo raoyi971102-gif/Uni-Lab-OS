@@ -319,8 +319,8 @@ class HuapuHPLC:
     )
     def create_sequence(
         self,
-        proc_inst_id: str,
-        sequence_method_name: str,
+        proc_inst_id: str = "",
+        sequence_method_name: str = "",
         project_id: int = 0,
         instrument_id: int = 0,
         name: str = "",

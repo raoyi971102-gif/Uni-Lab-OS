@@ -7421,6 +7421,7 @@ liquid_handler.prcxi:
           protocol_name: ''
           protocol_type: ''
           protocol_version: ''
+          track_move_plate_resource_position: false
         handles: {}
         placeholder_keys: {}
         result: {}
@@ -7453,6 +7454,10 @@ liquid_handler.prcxi:
                 protocol_version:
                   default: ''
                   type: string
+                track_move_plate_resource_position:
+                  default: false
+                  description: 是否持久跟踪并回写搬板位置；关闭时从当前前端快照起始位置并仅在本次protocol内跟踪
+                  type: boolean
               required: []
               type: object
             result: {}

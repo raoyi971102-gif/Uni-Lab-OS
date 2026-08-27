@@ -888,6 +888,7 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         debug=False,
         simulator=False,
         validate_material_volume=True,
+        track_move_plate_resource_position=True,
         step_mode=False,
         matrix_id="",
         is_9320=False,
@@ -912,6 +913,16 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
                 "false", "0", "no", "off", ""
             }
         self.validate_material_volume = bool(validate_material_volume)
+        if isinstance(track_move_plate_resource_position, str):
+            track_move_plate_resource_position = (
+                track_move_plate_resource_position.strip().lower()
+                not in {"false", "0", "no", "off", ""}
+            )
+        # True：搬板后更新资源树/前端位置，并以 update_resource_site 作为记账位置；
+        # False：create_protocol 时从前端资源树快照一次，协议内搬板只更新内存槽位，
+        # 不回写前端资源树或 update_resource_site。
+        self.track_move_plate_resource_position = bool(track_move_plate_resource_position)
+        self._protocol_resource_slots: Dict[str, int] = {}
 
         # 枪头轴配置：``{"left": {"vol": 100, "channels": 8}, "right": {"vol": 1000, "channels": 1}}``
         # 代表左轴 100µL/8 通道、右轴 1000µL/1 通道。None → 走 legacy 路由（≤10µL→右单通道[1]、
@@ -986,10 +997,120 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         # backend 在做槽位反查时若拿不到 deck，需要回退到 handler.deck，这里建立反向引用
         self._unilabos_backend._handler = self
 
-    @staticmethod
-    def _get_slot_number(resource) -> Optional[int]:
+    def _get_slot_number(self, resource) -> Optional[int]:
         """从 resource 的 unilabos_extra["update_resource_site"]（如 "T13"）或位置反算槽位号。"""
+        if not self.track_move_plate_resource_position:
+            remembered = self._remembered_resource_slot(resource)
+            if remembered is not None:
+                return remembered
         return _get_slot_number(resource)
+
+    @staticmethod
+    def _resource_tree(resource: Resource) -> Iterator[Resource]:
+        stack = [resource]
+        while stack:
+            current = stack.pop()
+            yield current
+            stack.extend(getattr(current, "children", None) or [])
+
+    def _remember_resource_tree_slot(self, resource: Resource, slot: int) -> None:
+        """记忆资源及其子树的 protocol 内槽位。"""
+        for current in self._resource_tree(resource):
+            name = getattr(current, "name", None)
+            if name:
+                self._protocol_resource_slots[str(name)] = slot
+
+    def _remembered_resource_slot(self, resource) -> Optional[int]:
+        """按当前对象及 parent 链查找 protocol 内槽位。"""
+        current = resource
+        seen = set()
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            name = getattr(current, "name", None)
+            if name and str(name) in self._protocol_resource_slots:
+                return self._protocol_resource_slots[str(name)]
+            current = getattr(current, "parent", None)
+        return None
+
+    def _sync_protocol_resource_slots_from_frontend(
+        self,
+        frontend_resources: Optional[Sequence[Resource]] = None,
+    ) -> None:
+        """create_protocol 时用最新前端资源重建本次协议的槽位记忆。"""
+        self._protocol_resource_slots = {}
+        deck = getattr(self, "deck", None)
+        if not isinstance(deck, PRCXI9300Deck):
+            return
+
+        pulled_from_frontend = frontend_resources is not None
+        roots = list(frontend_resources) if pulled_from_frontend else [deck]
+        for root in roots:
+            candidates = list(getattr(root, "children", None) or []) if isinstance(root, PRCXI9300Deck) else [root]
+            for candidate in candidates:
+                # 这里的 update_resource_site 来自 create_protocol 刚主动拉取的前端数据，
+                # 因此就是本次快照的权威槽位，可以优先使用。
+                slot = _get_slot_number(candidate) if pulled_from_frontend else None
+                if slot is None and isinstance(root, PRCXI9300Deck):
+                    location = getattr(candidate, "location", None)
+                    if location is not None:
+                        for idx in range(len(root.sites)):
+                            site_location = root._get_site_location(idx)
+                            if (
+                                abs(float(location.x) - float(site_location.x)) < 2
+                                and abs(float(location.y) - float(site_location.y)) < 2
+                            ):
+                                slot = idx + 1
+                                break
+                if slot is None:
+                    continue
+                self._remember_resource_tree_slot(candidate, slot)
+
+        # 新 protocol 的起点已以前端为准，清掉 Edge 本地树上一轮的持久记账。
+        for deck_child in deck.children:
+            for resource in self._resource_tree(deck_child):
+                extra = getattr(resource, "unilabos_extra", None)
+                if isinstance(extra, dict):
+                    extra.pop("update_resource_site", None)
+
+    async def _pull_frontend_resources_for_protocol(self) -> Optional[List[Resource]]:
+        """从云端主动拉取最新 PRCXI Deck 资源。
+
+        纯本地/simple backend 没有 ROS 节点时返回 ``None``，由调用方使用当前
+        ``self.deck``。真实 Edge 上已有 ROS 节点却拉取失败时直接报错，避免用启动时
+        旧槽位继续执行。
+        """
+        ros_node = getattr(self, "_ros_node", None)
+        if ros_node is None or not hasattr(ros_node, "get_resource"):
+            return None
+
+        deck = getattr(self, "deck", None)
+        deck_uuid = str(getattr(deck, "unilabos_uuid", "") or "")
+        child_uuids = [
+            str(getattr(child, "unilabos_uuid", "") or "")
+            for child in (getattr(deck, "children", None) or [])
+        ]
+        child_uuids = [uid for uid in child_uuids if uid]
+        requests = [[deck_uuid]] if deck_uuid else []
+        if child_uuids:
+            requests.append(child_uuids)
+        if not requests:
+            raise PRCXIError("create_protocol 无法同步前端：PRCXI_Deck 及其物料均没有 UUID")
+
+        errors = []
+        for resource_uuids in requests:
+            try:
+                tree_set = await ros_node.get_resource(resource_uuids, with_children=True)
+                resources = tree_set.to_plr_resources()
+                if resources:
+                    return resources
+                errors.append(f"{resource_uuids}: 返回空资源树")
+            except Exception as exc:
+                errors.append(f"{resource_uuids}: {exc}")
+
+        raise PRCXIError(
+            "create_protocol 从前端同步 PRCXI 物料失败，已拒绝使用 Edge 启动时的旧位置："
+            + "; ".join(errors)
+        )
 
     def _top_level_consumable(self, resource):
         """从任意 PLR 资源沿 parent 向上找"放在 deck 上的那一层耗材"。"""
@@ -1008,11 +1129,17 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
             cur = parent
         return None
 
-    def _attach_resources_to_deck_if_needed(self, items: Sequence[Resource]) -> None:
+    def _attach_resources_to_deck_if_needed(
+        self,
+        items: Sequence[Resource],
+        *,
+        prefer_update_resource_site: bool = True,
+    ) -> None:
         """把通过 _resolve_to_plr_resources 拿回的"游离"耗材自动挂到 self.deck。
 
         - 已经在 PRCXI9300Deck 上（含 name 同名）的跳过；
-        - 优先按 ``unilabos_extra.update_resource_site`` 的 Tn 解析槽位；
+        - 记账模式下优先按 ``unilabos_extra.update_resource_site`` 的 Tn 解析槽位；
+        - 前端位置模式下忽略该字段，避免旧记账槽位覆盖前端资源树；
         - 否则交给 ``Deck.assign_child_resource`` 找空槽。
         - 任意失败仅打印告警，不中断主流程（backend 仍可走名字兜底）。
         """
@@ -1032,10 +1159,21 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
             spot_idx: Optional[int] = None
             extra = getattr(top, "unilabos_extra", {}) or {}
             site = str(extra.get("update_resource_site", ""))
-            if site:
+            if prefer_update_resource_site and site:
                 digits = "".join(c for c in site if c.isdigit())
                 if digits:
                     spot_idx = int(digits) - 1
+            elif not prefer_update_resource_site:
+                location = getattr(top, "location", None)
+                if location is not None:
+                    for idx in range(len(deck.sites)):
+                        site_location = deck._get_site_location(idx)
+                        if (
+                            abs(float(location.x) - float(site_location.x)) < 2
+                            and abs(float(location.y) - float(site_location.y)) < 2
+                        ):
+                            spot_idx = idx
+                            break
             try:
                 deck.assign_child_resource(top, spot=spot_idx, reassign=False)
                 existing_names.add(top_name)
@@ -1460,8 +1598,21 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         protocol_author: str = "",
         protocol_date: str = "",
         protocol_type: str = "",
+        track_move_plate_resource_position: bool = False,
         none_keys: List[str] = [],
     ):
+        if isinstance(track_move_plate_resource_position, str):
+            track_move_plate_resource_position = (
+                track_move_plate_resource_position.strip().lower()
+                not in {"false", "0", "no", "off", ""}
+            )
+        # 该开关属于单个 protocol，每次创建方案时重新选择，不再依赖启动 JSON。
+        self.track_move_plate_resource_position = bool(track_move_plate_resource_position)
+        if not self.track_move_plate_resource_position:
+            frontend_resources = await self._pull_frontend_resources_for_protocol()
+            self._sync_protocol_resource_slots_from_frontend(frontend_resources)
+        else:
+            self._protocol_resource_slots = {}
         self._unilabos_backend.create_protocol(protocol_name)
 
     async def run_protocol(self, protocol_id: str = None):
@@ -1654,7 +1805,10 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
             try:
                 # step_mode 下需单独建一个清理 protocol 并执行（丢到 trash）
                 if self.step_mode:
-                    await self.create_protocol(f"cleanup_drop_tips{time.time()}")
+                    await self.create_protocol(
+                        f"cleanup_drop_tips{time.time()}",
+                        track_move_plate_resource_position=self.track_move_plate_resource_position,
+                    )
                 # use_channels=None → PLR 自动取「当前有 tip 的通道」丢到 trash
                 await self.discard_tips()
                 if self.step_mode:
@@ -1703,7 +1857,10 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
             self._match_and_create_matrix()
             self._first_transfer_done = True
         if self.step_mode:
-            await self.create_protocol(f"transfer_liquid{time.time()}")
+            await self.create_protocol(
+                f"transfer_liquid{time.time()}",
+                track_move_plate_resource_position=self.track_move_plate_resource_position,
+            )
 
         _asp_list = asp_vols if isinstance(asp_vols, list) else [asp_vols]
         _dis_list = dis_vols if isinstance(dis_vols, list) else [dis_vols]
@@ -2099,7 +2256,10 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
             self._match_and_create_matrix()
             self._first_transfer_done = True
         if self.step_mode:
-            await self.create_protocol(f"{action_name}{time.time()}")
+            await self.create_protocol(
+                f"{action_name}{time.time()}",
+                track_move_plate_resource_position=self.track_move_plate_resource_position,
+            )
 
         sources = await self._resolve_to_plr_resources(sources)
         targets = await self._resolve_to_plr_resources(targets)
@@ -2410,6 +2570,27 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
     async def shaker_action(self, time: int, module_no: int, amplitude: int, is_wait: bool):
         return await self._unilabos_backend.shaker_action(time, module_no, amplitude, is_wait)
 
+    async def shaking_incubation_action(
+        self,
+        time: int,
+        module_no: int,
+        amplitude: int,
+        is_wait: bool,
+        temperature: int,
+    ):
+        """添加联合孵育振荡步骤。
+
+        参数顺序与 PRCXI SDK 的 ``Shaking_Incubation`` 步骤一致，由 backend
+        写入当前 protocol，实际执行时机由 ``step_mode`` / ``run_protocol`` 决定。
+        """
+        return await self._unilabos_backend.shaking_incubation_action(
+            time=time,
+            module_no=module_no,
+            amplitude=amplitude,
+            is_wait=is_wait,
+            temperature=temperature,
+        )
+
     async def heater_action(self, temperature: float, time: int):
         return await self._unilabos_backend.heater_action(temperature, time)
 
@@ -2449,10 +2630,20 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
             to = self._unilabos_backend._deck_plate_slot_no(to, getattr(to, "parent", None))
 
         # 确保 plate 已挂到 deck，并从 plate 反推当前（源）slot。
-        self._attach_resources_to_deck_if_needed([plate])
-        src_slot = self._unilabos_backend._deck_plate_slot_no(plate, getattr(plate, "parent", None))
+        self._attach_resources_to_deck_if_needed(
+            [plate],
+            prefer_update_resource_site=self.track_move_plate_resource_position,
+        )
+        src_slot = self._unilabos_backend._deck_plate_slot_no(
+            plate,
+            getattr(plate, "parent", None),
+            prefer_update_resource_site=self.track_move_plate_resource_position,
+        )
         if self.step_mode:
-            await self.create_protocol(f"move_plate{time.time()}")
+            await self.create_protocol(
+                f"move_plate{time.time()}",
+                track_move_plate_resource_position=self.track_move_plate_resource_position,
+            )
         # 下发硬件 pick+drop（simulator 模式只更新物料，不产生硬件步骤）。
         step = None
         if not self._simulator:
@@ -2484,22 +2675,36 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
                         break
                     stack.extend(getattr(node, "children", None) or [])
 
-        old_parent = getattr(target_plate, "parent", None)
-        if old_parent is not None and old_parent is not dst_resource:
-            try:
-                old_parent.unassign_child_resource(target_plate)
-            except Exception:
-                pass
-        if isinstance(dst_resource, (PlateAdapter, PRCXI9300ModuleSite)):
-            # 已经在目标 module/adapter 下则无需重复挂（否则触发命名查重报错）。
-            if getattr(target_plate, "parent", None) is not dst_resource:
-                dst_resource.assign_child_resource(target_plate)
-        elif isinstance(deck, PRCXI9300Deck):
-            deck.assign_child_at_slot(target_plate, to, reassign=True)
-        # 同步槽位标记，保证后续 _get_slot_number 反推一致。
-        extra = getattr(target_plate, "unilabos_extra", None)
-        if isinstance(extra, dict):
-            extra["update_resource_site"] = f"T{to}"
+        if self.track_move_plate_resource_position:
+            old_parent = getattr(target_plate, "parent", None)
+            if old_parent is not None and old_parent is not dst_resource:
+                try:
+                    old_parent.unassign_child_resource(target_plate)
+                except Exception:
+                    pass
+            if isinstance(dst_resource, (PlateAdapter, PRCXI9300ModuleSite)):
+                # 已经在目标 module/adapter 下则无需重复挂（否则触发命名查重报错）。
+                if getattr(target_plate, "parent", None) is not dst_resource:
+                    dst_resource.assign_child_resource(target_plate)
+            elif isinstance(deck, PRCXI9300Deck):
+                deck.assign_child_at_slot(target_plate, to, reassign=True)
+            # 同步槽位标记，保证后续 _get_slot_number 反推一致。
+            extra = getattr(target_plate, "unilabos_extra", None)
+            if isinstance(extra, dict):
+                extra["update_resource_site"] = f"T{to}"
+        else:
+            # 前端同步模式下不 reparent，但要更新本次 protocol 的内存槽位；
+            # 因此同一工作流的第二次搬板会从上一次的目标位取板。
+            self._remember_resource_tree_slot(target_plate, to)
+            if target_plate is not plate:
+                self._remember_resource_tree_slot(plate, to)
+
+            # 不能保留上一轮 T2 之类的持久记账标记，否则以后重新开启
+            # 记账模式时，旧标记会再次覆盖当前前端位置。
+            for resource in {id(plate): plate, id(target_plate): target_plate}.values():
+                extra = getattr(resource, "unilabos_extra", None)
+                if isinstance(extra, dict):
+                    extra.pop("update_resource_site", None)
 
         if self.step_mode and step is not None:
             await self.run_protocol()
@@ -2571,7 +2776,13 @@ class PRCXI9300Backend(LiquidHandlerBackend):
                 return handler_deck
         return None
 
-    def _deck_plate_slot_no(self, plate, deck=None) -> int:
+    def _deck_plate_slot_no(
+        self,
+        plate,
+        deck=None,
+        *,
+        prefer_update_resource_site: bool = True,
+    ) -> int:
         """台面板位槽号（1–16）。
 
         plate 可能并非直接挂在 slot，而是嵌套在 slot 上的 plate_adapter / module 之下
@@ -2587,28 +2798,62 @@ class PRCXI9300Backend(LiquidHandlerBackend):
                 break
             cur = getattr(cur, "parent", None)
 
-        # 1) 显式 update_resource_site 最优先（move_plate 写回 / 声明），plate 自身或其上层皆可。
-        for cand in chain:
-            extra = getattr(cand, "unilabos_extra", {}) or {}
-            digits = "".join(c for c in str(extra.get("update_resource_site", "") or "") if c.isdigit())
-            if digits:
-                return int(digits)
+        # 前端同步模式：create_protocol 时已快照起始位置，后续所有移液/搬板
+        # 槽位解析都优先用本次 protocol 的内存位置。
+        handler = self._handler
+        if (
+            handler is not None
+            and not getattr(handler, "track_move_plate_resource_position", True)
+        ):
+            remembered = handler._remembered_resource_slot(plate)
+            if remembered is not None:
+                return remembered
+
+        # 1) 记账模式下显式 update_resource_site 最优先（move_plate 写回 / 声明）。
+        # 前端显示位置模式会跳过此字段，避免上一轮 T15→T4→T2 留下的 T2 覆盖当前 T15。
+        if prefer_update_resource_site:
+            for cand in chain:
+                extra = getattr(cand, "unilabos_extra", {}) or {}
+                digits = "".join(c for c in str(extra.get("update_resource_site", "") or "") if c.isdigit())
+                if digits:
+                    return int(digits)
+
+        actual_deck = self._resolve_deck(plate, deck)
 
         # 2) 位置反算：优先最接近 deck 的那层（嵌套 plate 的 location 相对父级，不可信）。
+        # 前端位置模式不能调用 _get_slot_number，因为它自身也会优先读取旧的
+        # update_resource_site；此时直接把资源 location 与当前 deck sites 比较。
         for cand in reversed(chain):
-            sn = PRCXI9300Handler._get_slot_number(cand)
-            if sn is not None:
-                return sn
+            if prefer_update_resource_site:
+                sn = _get_slot_number(cand)
+                if sn is not None:
+                    return sn
+                continue
+            if actual_deck is None:
+                continue
+            location = getattr(cand, "location", None)
+            if location is None:
+                continue
+            for idx in range(len(actual_deck.sites)):
+                site_location = actual_deck._get_site_location(idx)
+                if (
+                    abs(float(location.x) - float(site_location.x)) < 2
+                    and abs(float(location.y) - float(site_location.y)) < 2
+                ):
+                    return idx + 1
 
         # 3) 名字兜底：需要 deck（远端解析回来的实例与 deck 上不是同一对象时）。
-        actual_deck = self._resolve_deck(plate, deck)
         if actual_deck is not None:
             for cand in reversed(chain):
                 cname = getattr(cand, "name", None)
                 if cname is not None:
-                    for i, c in enumerate(actual_deck.children):
+                    for c in actual_deck.children:
                         if getattr(c, "name", None) == cname:
-                            return i + 1
+                            return self._deck_plate_slot_no(
+                                c,
+                                actual_deck,
+                                prefer_update_resource_site=prefer_update_resource_site,
+                            )
 
         raise RuntimeError(
             f"无法定位 {getattr(plate, 'name', '?')} 所在的 PRCXI 槽位"
@@ -2631,6 +2876,24 @@ class PRCXI9300Backend(LiquidHandlerBackend):
             module_no=module_no,
             amplitude=amplitude,
             is_wait=is_wait,
+        )
+        self.steps_todo_list.append(step)
+        return step
+
+    async def shaking_incubation_action(
+        self,
+        time: int,
+        module_no: int,
+        amplitude: int,
+        is_wait: bool,
+        temperature: int,
+    ):
+        step = self.api_client.shaking_incubation_action(
+            time=time,
+            module_no=module_no,
+            amplitude=amplitude,
+            is_wait=is_wait,
+            temperature=temperature,
         )
         self.steps_todo_list.append(step)
         return step
@@ -3693,6 +3956,25 @@ class PRCXI9300Api:
             "AssistFun2": module_no,
             "AssistFun3": amplitude,
             "AssistFun4": is_wait,
+        }
+
+    def shaking_incubation_action(
+        self,
+        time: int,
+        module_no: int,
+        amplitude: int,
+        is_wait: bool,
+        temperature: int,
+    ):
+        """PRCXI SDK 孵育+振荡步骤。"""
+        return {
+            "StepAxis": "Left",
+            "Function": "Shaking_Incubation",
+            "AssistFun1": time,
+            "AssistFun2": module_no,
+            "AssistFun3": amplitude,
+            "AssistFun4": is_wait,
+            "AssistFun5": temperature,
         }
 
 
