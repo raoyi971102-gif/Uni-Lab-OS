@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 EXTRA_CLASS = "unilabos_resource_class"
 FRONTEND_POSE_EXTRA = "unilabos_frontend_pose_extra"
+EXTRA_FRONTEND_NAME = "unilabos_frontend_name"
 EXTRA_SAMPLE_UUID = "sample_uuid"
 EXTRA_UNILABOS_SAMPLE_UUID = "unilabos_sample_uuid"
 
@@ -474,6 +475,94 @@ class ResourceTreeInstance(object):
         return result
 
 
+def build_plr_name_aliases(tree: ResourceTreeInstance, *, log_renames: bool = True) -> Dict[str, str]:
+    """为 PLR 构建树内唯一名称，不修改前端 ResourceDict。
+
+    云端以 UUID + parent_uuid 标识节点，因此不同父节点下允许同名；PLR 则要求
+    整棵树的 name 全局唯一。优先将模板子节点前缀替换为父实例名，例如：
+    ``PRCXI_1000uL_Tips_tipspot_A1`` ->
+    ``PRCXI_1000uL_Tips1_tipspot_A1``。
+
+    此函数同时供 ResourceTreeSet 转换和设备创建阶段使用。两处必须使用同一套
+    别名，否则设备创建后的 UUID 回填会再次按原名合并跨父节点重名资源。
+    """
+    aliases: Dict[str, str] = {}
+    used_names: set[str] = set()
+    renamed_examples: List[str] = []
+    renamed_count = 0
+
+    for node in tree.get_all_nodes():
+        res = node.res_content
+        alias = res.name
+        if alias in used_names:
+            parent = res.parent
+            parent_alias = aliases.get(parent.uuid, parent.name) if parent is not None else "root"
+            candidate = ""
+            if parent is not None:
+                type_markers = {
+                    "tip_spot": "_tipspot_",
+                    "well": "_well_",
+                    "tube": "_tube_",
+                }
+                marker = type_markers.get(res.type)
+                if marker and marker in res.name:
+                    candidate = f"{parent_alias}{res.name[res.name.index(marker):]}"
+                prefixes = [
+                    parent.name,
+                    parent.klass,
+                    str(parent.config.get("model") or ""),
+                ]
+                if not candidate:
+                    for prefix in prefixes:
+                        if prefix and res.name.startswith(f"{prefix}_"):
+                            candidate = f"{parent_alias}{res.name[len(prefix):]}"
+                            break
+            if not candidate:
+                candidate = f"{parent_alias}__{res.name}"
+
+            alias = candidate
+            if alias in used_names:
+                uuid_suffix = (res.uuid or str(uuid.uuid4())).replace("-", "")[:8]
+                alias = f"{candidate}__{uuid_suffix}"
+                index = 2
+                while alias in used_names:
+                    alias = f"{candidate}__{uuid_suffix}_{index}"
+                    index += 1
+
+            renamed_count += 1
+            if len(renamed_examples) < 3:
+                renamed_examples.append(f"'{res.name}' -> '{alias}'")
+
+        aliases[res.uuid] = alias
+        used_names.add(alias)
+
+    if log_renames and renamed_count:
+        logger.warning(
+            f"PLR 资源树存在 {renamed_count} 个跨父节点重名，Edge 已使用运行时别名"
+            f"（前端名称保持不变）；示例: {', '.join(renamed_examples)}"
+        )
+
+    return aliases
+
+
+def build_plr_name_to_uuid_map(resource_roots: List[ResourceDictInstance]) -> Dict[str, str]:
+    """按 PLR 运行时名称构建 UUID 映射，避免跨父节点重名被字典覆盖。"""
+    name_to_uuid: Dict[str, str] = {}
+    for root in resource_roots:
+        tree = ResourceTreeInstance(root)
+        effective_names = build_plr_name_aliases(tree, log_renames=False)
+        for node in tree.get_all_nodes():
+            effective_name = effective_names[node.res_content.uuid]
+            existing_uuid = name_to_uuid.get(effective_name)
+            if existing_uuid is not None and existing_uuid != node.res_content.uuid:
+                raise ValueError(
+                    f"PLR 运行时资源名仍然重复: {effective_name} "
+                    f"({existing_uuid}, {node.res_content.uuid})"
+                )
+            name_to_uuid[effective_name] = node.res_content.uuid
+    return name_to_uuid
+
+
 class ResourceTreeSet(object):
     """
     多个根节点的resource集合，包含多个ResourceTree
@@ -577,6 +666,12 @@ class ResourceTreeSet(object):
                     f"from_plr_resources: UUID 列表耗尽，为节点 '{d.get('name', '?')}' 生成临时 UUID {current_uuid}"
                 )
 
+            # PLR 要求整棵树的 name 全局唯一。to_plr_resources 遇到前端合法的
+            # 跨父节点重名时会设置运行时别名；回转 Uni-Lab 资源时恢复前端原名，
+            # 并移除仅供 Edge 内部使用的标记，避免把别名或标记同步到云端。
+            extra = dict(extra or {})
+            frontend_name = str(extra.pop(EXTRA_FRONTEND_NAME, "") or d["name"])
+
             raw_pos = (
                 {"x": d["location"]["x"], "y": d["location"]["y"], "z": d["location"]["z"]}
                 if d["location"]
@@ -595,9 +690,9 @@ class ResourceTreeSet(object):
 
             # 先构建当前节点的字典（不包含children）
             r_dict = {
-                "id": d["name"],
+                "id": frontend_name,
                 "uuid": current_uuid,
-                "name": d["name"],
+                "name": frontend_name,
                 "parent": parent_resource,  # 直接传入 ResourceDict 对象
                 "parent_uuid": parent_uuid,  # 使用 parent_uuid 而不是 parent 对象
                 "type": replace_plr_type(d.get("category", "")),
@@ -697,17 +792,30 @@ class ResourceTreeSet(object):
             "trash": "PRCXI9300Trash",
         }
 
-        def collect_node_data(node: ResourceDictInstance, name_to_uuid: dict, all_states: dict, name_to_extra: dict):
+        def collect_node_data(
+            node: ResourceDictInstance,
+            effective_names: Dict[str, str],
+            name_to_uuid: dict,
+            all_states: dict,
+            name_to_extra: dict,
+        ):
             """一次遍历收集 name_to_uuid, all_states 和 name_to_extra"""
-            name_to_uuid[node.res_content.name] = node.res_content.uuid
-            all_states[node.res_content.name] = node.res_content.data
-            name_to_extra[node.res_content.name] = node.res_content.extra
-            name_to_extra[node.res_content.name][FRONTEND_POSE_EXTRA] = node.res_content.pose.extra
-            name_to_extra[node.res_content.name][EXTRA_CLASS] = node.res_content.klass
+            res = node.res_content
+            effective_name = effective_names[res.uuid]
+            name_to_uuid[effective_name] = res.uuid
+            all_states[effective_name] = res.data
+            extra = dict(res.extra or {})
+            extra[FRONTEND_POSE_EXTRA] = res.pose.extra
+            extra[EXTRA_CLASS] = res.klass
+            if effective_name != res.name:
+                extra[EXTRA_FRONTEND_NAME] = res.name
+            else:
+                extra.pop(EXTRA_FRONTEND_NAME, None)
+            name_to_extra[effective_name] = extra
             for child in node.children:
-                collect_node_data(child, name_to_uuid, all_states, name_to_extra)
+                collect_node_data(child, effective_names, name_to_uuid, all_states, name_to_extra)
 
-        def node_to_plr_dict(node: ResourceDictInstance, has_model: bool):
+        def node_to_plr_dict(node: ResourceDictInstance, has_model: bool, effective_names: Dict[str, str]):
             """转换节点为 PLR 字典格式"""
             res = node.res_content
             plr_type = TYPE_MAP.get(res.type, res.type)
@@ -716,7 +824,7 @@ class ResourceTreeSet(object):
 
             d = {
                 **res.config,
-                "name": res.name,
+                "name": effective_names[res.uuid],
                 "type": res.config.get("type", plr_type),
                 "size_x": res.pose.size.width,
                 "size_y": res.pose.size.height,
@@ -729,8 +837,10 @@ class ResourceTreeSet(object):
                 },
                 "rotation": {"x": 0, "y": 0, "z": 0, "type": "Rotation"},
                 "category": res.config.get("category", plr_type),
-                "children": [node_to_plr_dict(child, has_model) for child in node.children],
-                "parent_name": res.parent_instance_name,
+                "children": [node_to_plr_dict(child, has_model, effective_names) for child in node.children],
+                "parent_name": (
+                    effective_names.get(res.parent.uuid) if res.parent is not None else None
+                ),
             }
             if has_model:
                 d["model"] = res.config.get("model", None)
@@ -808,9 +918,10 @@ class ResourceTreeSet(object):
             name_to_uuid: Dict[str, str] = {}
             all_states: Dict[str, Any] = {}
             name_to_extra: Dict[str, dict] = {}
-            collect_node_data(tree.root_node, name_to_uuid, all_states, name_to_extra)
+            effective_names = build_plr_name_aliases(tree)
+            collect_node_data(tree.root_node, effective_names, name_to_uuid, all_states, name_to_extra)
             has_model = tree.root_node.res_content.type != "deck"
-            plr_dict = node_to_plr_dict(tree.root_node, has_model)
+            plr_dict = node_to_plr_dict(tree.root_node, has_model, effective_names)
             try:
                 sub_cls = find_subclass(plr_dict["type"], PLRResource)
                 if skip_devices and plr_dict["type"] == "device":

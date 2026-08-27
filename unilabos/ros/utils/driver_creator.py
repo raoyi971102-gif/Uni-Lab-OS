@@ -11,8 +11,13 @@ import traceback
 from abc import abstractmethod
 from typing import Type, Any, Dict, Optional, TypeVar, Generic, List
 
-from unilabos.resources.resource_tracker import DeviceNodeResourceTracker, ResourceTreeSet, ResourceDictInstance, \
-    ResourceTreeInstance
+from unilabos.resources.resource_tracker import (
+    DeviceNodeResourceTracker,
+    ResourceDictInstance,
+    ResourceTreeInstance,
+    ResourceTreeSet,
+    build_plr_name_to_uuid_map,
+)
 from unilabos.utils import logger
 from unilabos.utils.cls_creator import create_instance_from_config
 
@@ -209,16 +214,10 @@ class PyLabRobotCreator(DeviceClassCreator[T]):
         deserialize_error = None
         stack = None
 
-        # 递归遍历 children 构建 name_to_uuid 映射
-        def collect_name_to_uuid(children_list: List[ResourceDictInstance], result: Dict[str, str]):
-            """递归遍历嵌套的 children 字典，收集 name 到 uuid 的映射"""
-            for child in children_list:
-                if isinstance(child, ResourceDictInstance):
-                    result[child.res_content.name] = child.res_content.uuid
-                    collect_name_to_uuid(child.children, result)
-
-        name_to_uuid = {}
-        collect_name_to_uuid(self.children, name_to_uuid)
+        # 必须使用与 ResourceTreeSet.to_plr_resources 相同的运行时别名。
+        # 前端允许不同父节点下同名；若直接构建 {原名: UUID}，后一个节点会
+        # 覆盖前一个节点，并在设备创建后把两个 PLR 节点写成同一个 UUID。
+        name_to_uuid = build_plr_name_to_uuid_map(self.children)
         if self.has_deserialize:
             deserialize_method = getattr(self.device_cls, "deserialize")
             spect = inspect.signature(deserialize_method)

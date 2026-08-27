@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from math import e
 import time
 import traceback
@@ -63,6 +64,31 @@ class SetLiquidFromPlateReturn(TypedDict):
     plate: List[List[ResourceDict]]
     wells: List[List[ResourceDict]]
     volumes: List[float]
+
+
+@contextmanager
+def _material_volume_tracking_disabled(resources: Sequence[Container]):
+    """只临时关闭本次物料资源的 tracker；枪头及其他设备的 tracker 不受影响。"""
+    trackers_to_restore = []
+    seen = set()
+    for resource in resources:
+        tracker = getattr(resource, "tracker", None)
+        if tracker is None or id(tracker) in seen:
+            continue
+        seen.add(id(tracker))
+        if getattr(tracker, "is_disabled", False):
+            continue
+        disable = getattr(tracker, "disable", None)
+        if callable(disable):
+            disable()
+            trackers_to_restore.append(tracker)
+    try:
+        yield
+    finally:
+        for tracker in trackers_to_restore:
+            enable = getattr(tracker, "enable", None)
+            if callable(enable):
+                enable()
 
 
 class TransferLiquidReturn(TypedDict):
@@ -241,6 +267,24 @@ class LiquidHandlerMiddleware(LiquidHandler):
         spread: Literal["wide", "tight", "custom"] = "custom",
         **backend_kwargs,
     ):
+        bypass_active = bool(backend_kwargs.pop("_material_volume_bypass_active", False))
+        if not getattr(self, "validate_material_volume", True) and not bypass_active:
+            # 递归一次，让整条 PLR aspirate 链在关闭追踪的上下文中运行；私有标志会在
+            # 递归入口被 pop，不会泄漏给 backend。
+            with _material_volume_tracking_disabled(resources):
+                return await self.aspirate(
+                    resources,
+                    vols,
+                    use_channels,
+                    flow_rates,
+                    offsets,
+                    liquid_height,
+                    blow_out_air_volume,
+                    spread,
+                    _material_volume_bypass_active=True,
+                    **backend_kwargs,
+                )
+
         if spread == "":
             spread = "custom"
 
@@ -251,7 +295,10 @@ class LiquidHandlerMiddleware(LiquidHandler):
             _well_current_liquid_name(res) for res in resources
         ]
 
-        for i, res in enumerate(resources):
+        # 关闭物料体积校验时不能执行自动补液；否则即使 PLR 追踪已关闭，这里的显式
+        # tracker.add_liquid 仍会修改并上传源孔状态。
+        tracked_resources = resources if getattr(self, "validate_material_volume", True) else []
+        for i, res in enumerate(tracked_resources):
             tracker = getattr(res, "tracker", None)
             if tracker is None or getattr(tracker, "is_disabled", False):
                 continue
@@ -464,11 +511,29 @@ class LiquidHandlerMiddleware(LiquidHandler):
         spread: Literal["wide", "tight", "custom"] = "wide",
         **backend_kwargs,
     ) -> SimpleReturn:
+        bypass_active = bool(backend_kwargs.pop("_material_volume_bypass_active", False))
+        if not getattr(self, "validate_material_volume", True) and not bypass_active:
+            with _material_volume_tracking_disabled(resources):
+                return await self.dispense(
+                    resources,
+                    vols,
+                    use_channels,
+                    flow_rates,
+                    offsets,
+                    liquid_height,
+                    blow_out_air_volume,
+                    spread,
+                    _material_volume_bypass_active=True,
+                    **backend_kwargs,
+                )
+
         if spread == "":
             spread = "wide"
 
         def _safe_dispense_volumes(_resources: Sequence[Container], _vols: List[float]) -> List[float]:
             """将 dispense 体积裁剪到目标容器可用体积范围内，避免 volume tracker 报错。"""
+            if not getattr(self, "validate_material_volume", True):
+                return [max(float(vol), 0.0) for vol in _vols]
             safe: List[float] = []
             for res, vol in zip(_resources, _vols):
                 req = max(float(vol), 0.0)
@@ -1159,12 +1224,20 @@ class LiquidHandlerAbstract(LiquidHandlerMiddleware):
         try:
             resource_tree = await self._ros_node.get_resource(uuids)
             plr_list = resource_tree.to_plr_resources(requested_uuids=uuids)
-            for uid, plr in zip(uuids, plr_list):
+            for (_, orig_dict), uid, plr in zip(dict_items, uuids, plr_list):
                 local_matches = self._ros_node.resource_tracker.figure_resource({"uuid": uid}, try_mode=True)
                 if local_matches:
                     local = cast(Union[Container, TipRack], local_matches[0])
                 else:
-                    local = cast(Union[Container, TipRack], plr)
+                    # 实时接口按单个 well UUID 返回时，反序列化结果可能只有一个游离 well，
+                    # 且其 UUID 因前端重挂载/运行时别名未命中本地 tracker。此时继续按
+                    # action 中的完整 id、name、父板+孔位回退，优先复用 deck 树里的真实对象；
+                    # 否则后续会把游离 well 当作顶层耗材挂到 deck，并丢失 parent 板信息。
+                    local_by_reference = self._resolve_dict_resource_local(orig_dict, uid)
+                    local = cast(
+                        Union[Container, TipRack],
+                        local_by_reference if local_by_reference is not None else plr,
+                    )
                 if hasattr(plr, "unilabos_extra") and hasattr(local, "unilabos_extra"):
                     local.unilabos_extra = getattr(plr, "unilabos_extra", {}).copy()
                 if local is not plr and hasattr(plr, "tracker") and hasattr(local, "tracker"):

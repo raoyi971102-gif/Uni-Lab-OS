@@ -278,6 +278,21 @@ class PRCXI9300Deck(Deck):
     def assign_child_at_slot(self, resource: Resource, slot: int, reassign: bool = False) -> None:
         self.assign_child_resource(resource, spot=slot - 1, reassign=reassign)
 
+    def get_trash_area(self) -> Trash:
+        """返回前端挂载到当前 Deck 的真实垃圾槽。
+
+        pylabrobot 默认只识别名称严格等于 ``trash`` 的资源；前端实时移动资源后，
+        运行时名称可能是资源类型名（例如 ``PRCXI_trash``）。此处在默认查找失败时
+        按 ``Trash`` 类型匹配当前 Deck 的直接子节点，避免把已挂载在 T16 的垃圾槽
+        误判为不存在。
+        """
+        if self.has_resource("trash"):
+            return super().get_trash_area()
+        for child in self.children:
+            if isinstance(child, Trash):
+                return child
+        return super().get_trash_area()
+
     def serialize(self) -> dict:
         data = super().serialize()
         data["model"] = self.model
@@ -872,6 +887,7 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         setup=True,
         debug=False,
         simulator=False,
+        validate_material_volume=True,
         step_mode=False,
         matrix_id="",
         is_9320=False,
@@ -891,6 +907,12 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         has_true_8channel: bool = False,
         pip_setting: Optional[Dict[str, Dict[str, Any]]] = None,
     ):
+        if isinstance(validate_material_volume, str):
+            validate_material_volume = validate_material_volume.strip().lower() not in {
+                "false", "0", "no", "off", ""
+            }
+        self.validate_material_volume = bool(validate_material_volume)
+
         # 枪头轴配置：``{"left": {"vol": 100, "channels": 8}, "right": {"vol": 1000, "channels": 1}}``
         # 代表左轴 100µL/8 通道、右轴 1000µL/1 通道。None → 走 legacy 路由（≤10µL→右单通道[1]、
         # 8 通道[0..7]扁平化、backend [0]→Left/[1]→Right）。设置后启用 pip_setting 路由：
@@ -1932,6 +1954,60 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
                 f"（tip 盒 {getattr(tip_rack, 'name', '?')}）；请减小 vols 或换更大量程的枪头。"
             )
 
+    def _check_reuse_target_capacity(
+        self,
+        target_groups: Sequence[Sequence[Container]],
+        vols: Sequence[float],
+        action_name: str,
+    ) -> None:
+        """在取枪前检查逐轮目标容量，禁止 PLR 静默裁剪多通道体积。
+
+        ``LiquidHandlerAbstract.dispense`` 为兼容普通单通道动作，会把请求体积裁剪到目标孔
+        的剩余容量。八通道硬件要求同一条指令的 8 个体积一致；若各孔剩余容量不同，裁剪后
+        才会在 backend 报 ``All dispense volumes must be the same``，既晚又容易误判为输入体积
+        不一致。复用枪头动作应在任何取枪/吸液发生前直接报告真正的目标孔溢出。
+        """
+        if not self.validate_material_volume:
+            return
+
+        insufficient: List[str] = []
+        for round_no, (group, requested) in enumerate(zip(target_groups, vols), start=1):
+            requested = float(requested)
+            for target in group:
+                tracker = getattr(target, "tracker", None)
+                if tracker is None or getattr(tracker, "is_disabled", False):
+                    continue
+                try:
+                    free = float(tracker.get_free_volume())
+                except Exception:
+                    continue
+                if free + 1e-6 >= requested:
+                    continue
+                try:
+                    used = float(tracker.get_used_volume())
+                except Exception:
+                    used = float("nan")
+                max_volume = getattr(tracker, "max_volume", None)
+                if max_volume is None:
+                    max_volume = getattr(target, "max_volume", None)
+                used_text = f"{used:g}" if used == used else "未知"
+                max_text = f"{float(max_volume):g}" if max_volume is not None else "未知"
+                insufficient.append(
+                    f"第{round_no}轮 {getattr(target, 'name', '?')}：当前 {used_text}µL，"
+                    f"容量 {max_text}µL，可用 {max(free, 0.0):g}µL，请求 {requested:g}µL，"
+                    f"超出 {max(requested - free, 0.0):g}µL"
+                )
+
+        if insufficient:
+            detail = "；".join(insufficient[:8])
+            omitted = len(insufficient) - 8
+            if omitted > 0:
+                detail += f"；另有 {omitted} 个孔容量不足"
+            raise ValueError(
+                f"{action_name} 目标孔容量不足，不能按请求体积下发（不会自动裁剪）：{detail}。"
+                "请减小 vols、降低目标孔初始液量，或改用容量更大的耗材。"
+            )
+
     @staticmethod
     def _normalize_reuse_tip_vols(
         vols: Union[List[float], float, None], n_rounds: int, action_name: str, round_label: str
@@ -2111,6 +2187,7 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         max_vol = max(vol_list)
         use_channels = self._select_reuse_tip_channels(1, max_vol, action_name)
         self._check_reuse_tip_capacity(tip_rack, max_vol, action_name)
+        self._check_reuse_target_capacity([[target] for target in targets], vol_list, action_name)
         self._sync_pipetting_positions([source], targets, tip_rack)
 
         try:
@@ -2166,6 +2243,7 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         max_vol = max(vol_list)
         use_channels = self._select_reuse_tip_channels(8, max_vol, action_name)
         self._check_reuse_tip_capacity(tip_rack, max_vol, action_name)
+        self._check_reuse_target_capacity(target_columns, vol_list, action_name)
         self._sync_pipetting_positions([source], targets, tip_rack)
 
         try:
@@ -2256,7 +2334,10 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         spread: Literal["wide", "tight", "custom"] = "wide",
         **backend_kwargs,
     ):
-        use_channels = self._route_axis_and_channels(use_channels)
+        # validate_material_volume=False 时抽象层会在禁用资源 tracker 后递归一次 self.aspirate。
+        # 递归入参已经是 PLR 0-based 通道，不能再次把 [0..7] 解读成左轴并覆盖 active_axis。
+        if not backend_kwargs.get("_material_volume_bypass_active", False):
+            use_channels = self._route_axis_and_channels(use_channels)
         return await super().aspirate(
             resources,
             vols,
@@ -2296,7 +2377,8 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         spread: Literal["wide", "tight", "custom"] = "wide",
         **backend_kwargs,
     ):
-        use_channels = self._route_axis_and_channels(use_channels)
+        if not backend_kwargs.get("_material_volume_bypass_active", False):
+            use_channels = self._route_axis_and_channels(use_channels)
         return await super().dispense(
             resources,
             vols,
@@ -2629,19 +2711,37 @@ class PRCXI9300Backend(LiquidHandlerBackend):
     def run_protocol(self, protocol_id: str = None):
         assert self.is_reset_ok, "PRCXI9300Backend is not reset successfully. Please call setup() first."
         run_time = time.time()
-        if protocol_id == "" or protocol_id is None:
+        is_local_protocol = protocol_id == "" or protocol_id is None
+        expected_steps: Optional[int] = None
+        if is_local_protocol:
+            expected_steps = len(self.steps_todo_list)
+            if expected_steps == 0:
+                raise PRCXIError("PRCXI 协议没有可执行步骤，拒绝启动空协议")
             solution_id = self.api_client.add_solution(
                 f"protocol_{run_time}", self.matrix_id, self.steps_todo_list
             )
         else:
             solution_id = protocol_id
+        if not solution_id:
+            raise PRCXIError("PRCXI 创建协议失败：设备未返回 solution_id")
         print(f"PRCXI9300Backend created solution with ID: {solution_id}")
-        self.api_client.load_solution(solution_id)
+        if not self.api_client.load_solution(solution_id):
+            raise PRCXIError(f"PRCXI 加载协议失败: solution_id={solution_id}")
+        # 官方 SDK 示例在 LoadSolution 后等待 1 秒再 Start。设备在此窗口内可能仍返回
+        # 上一次方案的全完成状态；记录启动前基线，后续必须观察到状态变化才允许完成。
+        time.sleep(1.0)
+        baseline_status = self.api_client.step_state_list()
         print(json.dumps(self.steps_todo_list, indent=2))
         if not self.api_client.start():
-            return False
-        if not self.api_client.wait_for_finish(len(self.steps_todo_list)):
-            return False
+            raise PRCXIError(f"PRCXI 启动协议失败: solution_id={solution_id}")
+        # 本地刚创建的协议使用本次 steps_todo_list 的动态长度；加载已有 protocol_id 时
+        # 本地没有可靠步骤数，由 GetStepStateList 首次返回的完整状态列表确定。
+        if not self.api_client.wait_for_finish(
+            expected_steps,
+            baseline_status=baseline_status,
+            require_state_transition=True,
+        ):
+            raise PRCXIError(f"PRCXI 协议未正常完成: solution_id={solution_id}")
         return True
 
     @classmethod
@@ -2790,9 +2890,17 @@ class PRCXI9300Backend(LiquidHandlerBackend):
         """Pick up tips from the specified resource."""
         axis = self._axis_from_channels(use_channels)
         _eff_nc = self._effective_num_channels(use_channels)
-        # 检查trash #
-        if ops[0].resource.name == "trash":
-            _plate = ops[0].resource
+        # 前端资源名可能是 ``PRCXI_trash``，display_name 才是 ``trash``。
+        # 不能只按名称判断，否则会进入普通 TipRack 分支，把 trash.parent（Deck）
+        # 当成待定位的板，最终报“无法定位 PRCXI_Deck 所在槽位”。
+        target_resource = ops[0].resource
+        is_trash = (
+            isinstance(target_resource, Trash)
+            or str(getattr(target_resource, "category", "")).lower() == "trash"
+            or str(getattr(target_resource, "name", "")).lower() == "trash"
+        )
+        if is_trash:
+            _plate = target_resource
             _deck = _plate.parent
             PlateNo = self._deck_plate_slot_no(_plate, _deck)
 
@@ -3142,26 +3250,110 @@ class PRCXI9300Api:
     def start(self) -> bool:
         return self.call("IAutomation", "Start")
 
-    def wait_for_finish(self, num_steps: int = 1) -> bool:
-        success = False
-        start = False
-        while not success:
+    def wait_for_finish(
+        self,
+        num_steps: Optional[int] = None,
+        poll_interval: float = 1.0,
+        *,
+        baseline_status: Any = None,
+        require_state_transition: bool = False,
+        start_timeout: float = 30.0,
+    ) -> bool:
+        """等待当前已加载协议真正执行完成。
+
+        ``GetStepStateList`` 在 ``Start`` 刚返回后可能短暂返回 ``None``、空列表，或尚未
+        刷新完整的步骤列表。这些情况都只代表状态尚未就绪，不能据此结束 ``run_protocol``，
+        否则云端会立即调度协议后的 ``reset``，打断刚启动的设备。
+
+        Args:
+            num_steps: 本地创建协议时的动态步骤数；加载已有 protocol_id 时传 ``None``，
+                由设备首次返回的非空完整列表确定。
+            poll_interval: 状态轮询间隔（秒）。
+            baseline_status: ``Start`` 前读取的状态，用于识别上一轮遗留的全完成列表。
+            require_state_transition: 为 True 时，必须先观察到状态相对基线发生变化，
+                才能接受最终完成状态。
+            start_timeout: 等待本次执行状态出现的最长秒数。
+        """
+        if num_steps is not None and num_steps <= 0:
+            raise PRCXIError(f"PRCXI 协议步骤数无效: {num_steps}")
+
+        expected_steps = num_steps
+        baseline_signature = self._step_state_signature(baseline_status)
+        if baseline_signature is not None and expected_steps is not None:
+            baseline_signature = baseline_signature[:expected_steps]
+        execution_observed = not require_state_transition
+        wait_started_at = time.monotonic()
+        while True:
             status = self.step_state_list()
-            if status is None :
-                time.sleep(1)
-            if len(status) != num_steps:
-                time.sleep(1)
-            if len(status) == 0:
-                break
-            if status[-1]["State"] == 2 and start:
-                success = True
-            elif status[-1]["State"] > 2:
-                break
-            elif status[-1]["State"] == 0 or len(status) == 1:
-                start = True
-            else:
-                time.sleep(1)
-        return success
+
+            # Start 后设备端状态存在刷新窗口；空状态必须重新查询，不能判定为结束。
+            if status is None or status == []:
+                time.sleep(poll_interval)
+                continue
+            if not isinstance(status, list):
+                raise PRCXIError(f"PRCXI 返回了非法步骤状态: {status!r}")
+
+            if expected_steps is None:
+                # GetStepStateList 的语义是返回“已加载方案”的步骤状态列表；加载已有
+                # protocol_id 时，本地没有 steps_todo_list，只能由该列表动态取得步骤数。
+                expected_steps = len(status)
+
+            relevant_status = status[:expected_steps]
+            states: List[int] = []
+            for index, step_status in enumerate(relevant_status, start=1):
+                if not isinstance(step_status, dict) or "State" not in step_status:
+                    raise PRCXIError(f"PRCXI 第 {index} 步状态格式错误: {step_status!r}")
+                try:
+                    state = int(step_status["State"])
+                except (TypeError, ValueError) as exc:
+                    raise PRCXIError(
+                        f"PRCXI 第 {index} 步状态值无效: {step_status['State']!r}"
+                    ) from exc
+                states.append(state)
+
+            failed_steps = [(index, state) for index, state in enumerate(states, start=1) if state > 2]
+            if failed_steps:
+                index, state = failed_steps[0]
+                raise PRCXIError(f"PRCXI 协议执行失败: 第 {index} 步 State={state}")
+
+            current_signature = tuple(states)
+            if not execution_observed:
+                # Start 刚返回时 GetStepStateList 可能仍是上一轮的全部 State=2。
+                # 只有状态内容/长度相对 Start 前基线变化，才说明本次执行已经被设备接收。
+                if baseline_signature is not None and current_signature != baseline_signature:
+                    execution_observed = True
+                elif baseline_signature is None and any(state != 2 for state in states):
+                    execution_observed = True
+                elif time.monotonic() - wait_started_at >= start_timeout:
+                    raise PRCXIError(
+                        "PRCXI 启动后步骤状态始终未变化，拒绝把上一轮完成状态判为本次完成"
+                    )
+
+            # 状态列表尚未刷新到本次协议的动态步骤数，继续等待下一次完整结果。
+            if len(status) < expected_steps:
+                time.sleep(poll_interval)
+                continue
+
+            # PRCXI 顺序执行方案；最后一步完成（State=2）即代表整套方案完成。
+            if execution_observed and states and states[-1] == 2:
+                return True
+
+            time.sleep(poll_interval)
+
+    @staticmethod
+    def _step_state_signature(status: Any) -> Optional[Tuple[int, ...]]:
+        """把设备步骤状态转成可比较快照；空值/非法值返回 None。"""
+        if not isinstance(status, list) or not status:
+            return None
+        states: List[int] = []
+        for step_status in status:
+            if not isinstance(step_status, dict) or "State" not in step_status:
+                return None
+            try:
+                states.append(int(step_status["State"]))
+            except (TypeError, ValueError):
+                return None
+        return tuple(states)
 
     def call(self, service: str, method: str, params: Optional[list] = None) -> Any:
         payload = json.dumps(

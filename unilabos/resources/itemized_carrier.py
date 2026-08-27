@@ -13,6 +13,8 @@ from pylabrobot.resources import Resource as ResourcePLR
 from pylabrobot.resources import Well, ResourceHolder
 from pylabrobot.resources.coordinate import Coordinate
 
+from unilabos.utils.log import logger
+
 
 LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
@@ -182,6 +184,27 @@ class ItemizedCarrier(ResourcePLR):
         if site_location == location:
           idx = i
           break
+
+    # 前端允许只保存二维槽位坐标，载架定义则可能带有槽位高度。此时 occupied_by
+    # 也可能尚未回填，按唯一的 X/Y 坐标匹配实际槽位，并采用载架定义中的完整坐标。
+    if idx is None and location is not None:
+      xy_matches = [
+        i
+        for i, site_location in enumerate(self.child_locations.values())
+        if abs(site_location.x - location.x) < 1e-6
+        and abs(site_location.y - location.y) < 1e-6
+      ]
+      if len(xy_matches) == 1:
+        idx = xy_matches[0]
+        logger.warning(
+          f"载架 {self.name} 的子资源 {resource.name} 未命中 occupied_by/完整坐标，"
+          f"Edge 已按 X/Y 匹配槽位 {idx}"
+        )
+
+    if idx is None:
+      raise ValueError(
+        f"载架 {self.name} 无法为子资源 {resource.name} 匹配槽位，location={location}"
+      )
 
     if not reassign and self.sites[idx] is not None:
       raise ValueError(f"a site with index {idx} already exists")

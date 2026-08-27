@@ -30,9 +30,10 @@
             "config": {
                 "url": "opc.tcp://192.168.1.88:4840",
                 "url_sim": "opc.tcp://127.0.0.1:49320",
-                "simulator": true,
+                "simulator": false,
                 "csv_path": "ai4c_sim_updated.csv",
                 "use_subscription": true,
+                "create_placeholder_resource_when_missing": false,
                 "deck": {
                     "data": {
                         "_resource_child_name": "AI4C_deck",
@@ -94,7 +95,7 @@
                 "default_process_method_name": "Processing Method_1",
                 "default_report_method_name": "单结果报告-2",
                 "default_instrument_id": 1,
-                "export_path": "C:\\Users\\DP\\Desktop\\深研院\\AI4C\\华谱对接",
+                "export_path": "C:\\Users\\Administrator\\Desktop\\HPLC",
                 "default_seq_tray_num": 1,
                 "default_tray_num": 1,
                 "default_x_position": "A",
@@ -135,8 +136,9 @@
                 "setup": true,
                 "is_9320": true,
                 "timeout": 10,
-                "matrix_id": "64e6d9fb-2537-41f8-aeab-b24d76b97e9b",
-                "simulator": true,
+                "matrix_id": "724c7858-c025-44be-8832-f3a4f5cc345f",
+                "simulator": false,
+                "validate_material_volume": false,
                 "channel_num": 8,
                 "pip_setting": {
                     "left": {

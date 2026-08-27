@@ -31,14 +31,3 @@ BIOYOND_YB_Deck:
   icon: 配液站.webp
   init_param_schema: {}
   version: 1.0.0
-CoincellDeck:
-  category:
-  - deck
-  class:
-    module: unilabos.devices.workstation.coin_cell_assembly.YB_YH_materials:YH_Deck
-    type: pylabrobot
-  description: YIHUA CoinCellAssembly Deck
-  handles: []
-  icon: koudian.webp
-  init_param_schema: {}
-  version: 1.0.0

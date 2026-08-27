@@ -298,6 +298,8 @@ def _make_fake_prcxi(*, pip_setting: Any) -> Any:
     inst._first_transfer_done = True
     inst.step_mode = False
     inst.has_true_8channel = False
+    inst.no_matrix_id = False
+    inst.validate_material_volume = True
     inst.pip_setting = normalize_pip_setting(pip_setting)
     inst._tip_reuse_by_liquid_name = True
     inst.tip_height = 0
@@ -464,6 +466,40 @@ class TestRouteAxisAndChannels:
         prcxi = _make_fake_prcxi(pip_setting=PIP)
         assert prcxi._route_axis_and_channels(None) is None
         assert prcxi._route_axis_and_channels([]) == []
+
+    @pytest.mark.parametrize("method_name", ["aspirate", "dispense"])
+    def test_material_volume_bypass_inner_call_keeps_right_axis(self, method_name: str) -> None:
+        """体积旁路递归传入的 0-based 通道不能被二次路由成左轴。"""
+        prcxi = _make_fake_prcxi(pip_setting=PIP)
+        backend = prcxi._unilabos_backend
+        backend._active_axis = "Right"  # 外层 [8..15] 已完成路由
+        captured: Dict[str, Any] = {}
+
+        async def _super_call(
+            self_: Any,
+            resources: Any,
+            vols: Any,
+            use_channels: Any = None,
+            *args: Any,
+            **kwargs: Any,
+        ) -> None:
+            captured["use_channels"] = use_channels
+            captured["active_axis"] = self_._unilabos_backend._active_axis
+
+        with patch.object(LiquidHandlerAbstract, method_name, _super_call):
+            _run(
+                getattr(prcxi, method_name)(
+                    [],
+                    [1000.0] * 8,
+                    use_channels=[0, 1, 2, 3, 4, 5, 6, 7],
+                    _material_volume_bypass_active=True,
+                )
+            )
+
+        assert captured == {
+            "use_channels": [0, 1, 2, 3, 4, 5, 6, 7],
+            "active_axis": "Right",
+        }
 
 
 # ---------------------------------------------------------------------------

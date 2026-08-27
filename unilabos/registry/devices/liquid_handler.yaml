@@ -11118,6 +11118,10 @@ liquid_handler.prcxi:
         simulator:
           default: false
           type: string
+        validate_material_volume:
+          default: true
+          description: 是否校验并追踪源孔和目标孔的当前物料体积；关闭后按请求体积下发且不累计孔体积
+          type: boolean
         start_rail:
           default: 2
           type: string

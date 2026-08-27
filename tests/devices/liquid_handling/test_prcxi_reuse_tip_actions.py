@@ -24,8 +24,14 @@ import pytest
 from unilabos.devices.liquid_handling.prcxi.flatten_utils import normalize_pip_setting
 
 try:
+    import pylabrobot.resources.volume_tracker as volume_tracker_module
+    from pylabrobot.liquid_handling import LiquidHandler
     from pylabrobot.resources import Coordinate
 
+    from unilabos.devices.liquid_handling.liquid_handler_abstract import (
+        EXTRA_SAMPLE_UUID,
+        LiquidHandlerAbstract,
+    )
     from unilabos.devices.liquid_handling.prcxi.prcxi import PRCXI9300Handler
     from unilabos.devices.liquid_handling.prcxi.prcxi_labware import PRCXI_300ul_Tips
 
@@ -68,6 +74,25 @@ class _DummyWell:
 
 
 @dataclass
+class _DummyVolumeTracker:
+    used_volume: float
+    max_volume: float
+    is_disabled: bool = False
+
+    def get_used_volume(self) -> float:
+        return self.used_volume
+
+    def get_free_volume(self) -> float:
+        return self.max_volume - self.used_volume
+
+    def disable(self) -> None:
+        self.is_disabled = True
+
+    def enable(self) -> None:
+        self.is_disabled = False
+
+
+@dataclass
 class _DummyPlate:
     """96 板替身：``children`` 按列优先（A1..H1, A2..H2, ...），``num_items_y=8``。"""
 
@@ -105,12 +130,15 @@ class _FakeBackend:
     _active_axis: Optional[str] = None
 
 
-def _make_fake_prcxi(*, pip_setting: Any = PIP_9320) -> Any:
+def _make_fake_prcxi(
+    *, pip_setting: Any = PIP_9320, validate_material_volume: bool = True
+) -> Any:
     """构造跳过 ``__init__`` 的 handler：只保留复用枪头动作依赖的属性，其余 stub 掉。"""
     inst: Any = PRCXI9300Handler.__new__(PRCXI9300Handler)
     inst._first_transfer_done = True
     inst.step_mode = False
     inst.pip_setting = normalize_pip_setting(pip_setting)
+    inst.validate_material_volume = validate_material_volume
     inst.tip_height = 0
     # no_matrix_id=False → _sync_pipetting_positions 只刷新 tip_height，不发位置同步
     inst.no_matrix_id = False
@@ -379,6 +407,38 @@ class TestEightChannelsReuseTips:
         assert [r["asp_vols"][0] for r in cap.rounds] == [10.0, 20.0, 30.0]
         assert all(len(set(r["asp_vols"])) == 1 for r in cap.rounds)
 
+    def test_target_capacity_checked_before_pickup(self) -> None:
+        """目标孔装不下时应报告真实溢出，不能裁剪后再报 8 通道体积不一致。"""
+        prcxi = _make_fake_prcxi()
+        cap = _install_capture(prcxi)
+        plate = _DummyPlate("p_tgt", num_columns=1)
+        source = _DummyWell("trough", parent=_DummyPlate("p_src", num_columns=1))
+        for index, well in enumerate(plate.children):
+            # 50µL 请求分别只剩 40/30µL，模拟实机日志中各孔剩余容量不同的情形。
+            well.tracker = _DummyVolumeTracker(2160.0 + (index % 2) * 10.0, 2200.0)  # type: ignore[attr-defined]
+
+        with pytest.raises(ValueError, match="目标孔容量不足") as exc_info:
+            _run(prcxi.eight_channels_reuse_tips([source], plate.children, [_tip_rack()], vols=50.0))
+
+        message = str(exc_info.value)
+        assert "A1" in message and "可用 40µL" in message and "超出 10µL" in message
+        assert "B1" in message and "可用 30µL" in message and "超出 20µL" in message
+        assert cap.rounds == []
+
+    def test_target_capacity_bypass_switch(self) -> None:
+        """关闭开关后不读取目标孔当前体积，仍按请求体积构建动作。"""
+        prcxi = _make_fake_prcxi(validate_material_volume=False)
+        cap = _install_capture(prcxi)
+        plate = _DummyPlate("p_tgt", num_columns=1)
+        source = _DummyWell("trough", parent=_DummyPlate("p_src", num_columns=1))
+        for well in plate.children:
+            well.tracker = _DummyVolumeTracker(2199.0, 2200.0)  # type: ignore[attr-defined]
+
+        _run(prcxi.eight_channels_reuse_tips([source], plate.children, [_tip_rack()], vols=50.0))
+
+        assert len(cap.rounds) == 1
+        assert cap.rounds[0]["dis_vols"] == [50.0] * 8
+
     def test_vols_length_mismatch_raises(self) -> None:
         prcxi = _make_fake_prcxi()
         _install_capture(prcxi)
@@ -536,3 +596,71 @@ class TestRegistryExposure:
         goal_props = self._prcxi_actions()[action_name]["schema"]["properties"]["goal"]["properties"]
         for hidden in ("asp_flow_rates", "dis_flow_rates", "asp_vols", "dis_vols", "use_channels"):
             assert hidden not in goal_props
+
+
+@_skip_if_no_plr
+class TestMaterialVolumeValidationSwitch:
+    def test_dispense_uses_requested_volume_without_tracking(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """开关关闭时不按目标孔剩余容量裁剪，并在调用结束后恢复 PLR 全局状态。"""
+        observed: Dict[str, Any] = {}
+
+        async def _fake_dispense(_self: Any, _resources: Any, _vols: Any, *args: Any, **kwargs: Any) -> None:
+            observed["vols"] = list(_vols)
+            observed["material_disabled"] = _resources[0].tracker.is_disabled
+            observed["global_tracking"] = volume_tracker_module.does_volume_tracking()
+
+        monkeypatch.setattr(LiquidHandler, "dispense", _fake_dispense)
+        handler: Any = LiquidHandlerAbstract.__new__(LiquidHandlerAbstract)
+        handler._simulator = False
+        handler.validate_material_volume = False
+        handler.pending_liquids_dict = {
+            0: {EXTRA_SAMPLE_UUID: "sample-1", "volume": 50.0, "liquid_name": "water"}
+        }
+        well = _DummyWell("A1", parent=_DummyPlate("plate", num_columns=1))
+        well.tracker = _DummyVolumeTracker(2190.0, 2200.0)  # type: ignore[attr-defined]
+        well.unilabos_extra = {}  # type: ignore[attr-defined]
+        previous = volume_tracker_module.does_volume_tracking()
+
+        _run(handler.dispense([well], [50.0], use_channels=[0]))
+
+        assert observed == {
+            "vols": [50.0],
+            "material_disabled": True,
+            "global_tracking": previous,
+        }
+        assert well.tracker.is_disabled is False  # type: ignore[attr-defined]
+        assert volume_tracker_module.does_volume_tracking() is previous
+
+    def test_aspirate_does_not_auto_fill_source(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """开关关闭时空源孔不会被 auto_init 填满，backend 仍收到原请求体积。"""
+        observed: Dict[str, Any] = {}
+
+        async def _fake_aspirate(_self: Any, _resources: Any, _vols: Any, *args: Any, **kwargs: Any) -> None:
+            observed["vols"] = list(_vols)
+            observed["material_disabled"] = _resources[0].tracker.is_disabled
+            observed["global_tracking"] = volume_tracker_module.does_volume_tracking()
+
+        monkeypatch.setattr(LiquidHandler, "aspirate", _fake_aspirate)
+        handler: Any = LiquidHandlerAbstract.__new__(LiquidHandlerAbstract)
+        handler._simulator = False
+        handler.validate_material_volume = False
+        handler.pending_liquids_dict = {}
+        well = _DummyWell("source", parent=_DummyPlate("reservoir", num_columns=1))
+        well.tracker = _DummyVolumeTracker(0.0, 2200.0)  # type: ignore[attr-defined]
+        well.unilabos_extra = {}  # type: ignore[attr-defined]
+        previous = volume_tracker_module.does_volume_tracking()
+
+        _run(handler.aspirate([well], [500.0], use_channels=[0]))
+
+        assert observed == {
+            "vols": [500.0],
+            "material_disabled": True,
+            "global_tracking": previous,
+        }
+        assert well.tracker.get_used_volume() == 0.0  # type: ignore[attr-defined]
+        assert well.tracker.is_disabled is False  # type: ignore[attr-defined]
+        assert volume_tracker_module.does_volume_tracking() is previous

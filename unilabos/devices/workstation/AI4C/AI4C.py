@@ -140,6 +140,7 @@ class AI4CDevice(OpcUaClientWithSubscription):
         use_subscription: bool = True,
         cache_timeout: float = 5.0,
         subscription_interval: int = 500,
+        create_placeholder_resource_when_missing: bool = True,
         *args,
         **kwargs,
     ):
@@ -157,6 +158,9 @@ class AI4CDevice(OpcUaClientWithSubscription):
             use_subscription: 是否启用订阅模式
             cache_timeout: 缓存超时时间（秒）
             subscription_interval: 订阅发布间隔（毫秒）
+            create_placeholder_resource_when_missing: 前端源仓位没有资源时，是否创建临时
+                孔板/粉桶并在后续放料时同步到前端；关闭后硬件动作不受影响，也不会凭空
+                生成前端资源
         """
         test_mode = False
         try:
@@ -176,6 +180,14 @@ class AI4CDevice(OpcUaClientWithSubscription):
         self.simulator = simulator
         self.url = active_url
         self.url_sim = url_sim
+        if isinstance(create_placeholder_resource_when_missing, str):
+            create_placeholder_resource_when_missing = (
+                create_placeholder_resource_when_missing.strip().lower()
+                not in {"false", "0", "no", "off", ""}
+            )
+        self.create_placeholder_resource_when_missing = bool(
+            create_placeholder_resource_when_missing
+        )
 
         # 调用父类构造函数
         super().__init__(
@@ -357,6 +369,13 @@ class AI4CDevice(OpcUaClientWithSubscription):
         """硬件取料完成后，从源仓位解绑资源并放入机械臂临时持有态。"""
         try:
             if warehouse_name not in self.deck.warehouses:
+                if not self.create_placeholder_resource_when_missing:
+                    logger.info(
+                        f"{warehouse_name} 不在 AI4C_deck 上，且已关闭缺失资源占位创建；"
+                        "仅执行硬件取料，不生成前端资源"
+                    )
+                    setattr(self, held_attr, None)
+                    return
                 logger.info(f"{warehouse_name} 不在 AI4C_deck 上（由独立设备管理），按占位资源进入持有态")
                 resource = self._create_placeholder_resource(resource_kind, warehouse_name, site_key)
                 setattr(self, held_attr, resource)
@@ -365,6 +384,13 @@ class AI4CDevice(OpcUaClientWithSubscription):
             site_key = str(site_key)
             resource = self._get_warehouse_resource(warehouse_name, site_key)
             if resource is None:
+                if not self.create_placeholder_resource_when_missing:
+                    logger.info(
+                        f"{warehouse_name}[{site_key}] 前端没有资源，且已关闭缺失资源占位创建；"
+                        "仅执行硬件取料，不生成前端资源"
+                    )
+                    setattr(self, held_attr, None)
+                    return
                 logger.warning(f"{warehouse_name}[{site_key}] 未找到资源，按硬件占位创建临时资源")
                 resource = self._create_placeholder_resource(resource_kind, warehouse_name, site_key)
             else:
@@ -394,6 +420,12 @@ class AI4CDevice(OpcUaClientWithSubscription):
             site_key = str(site_key)
             resource = getattr(self, held_attr, None)
             if resource is None:
+                if not self.create_placeholder_resource_when_missing:
+                    logger.info(
+                        f"机械臂没有可追踪的前端资源，且已关闭缺失资源占位创建；"
+                        f"仅执行硬件放料，不在 {warehouse_name}[{site_key}] 生成资源"
+                    )
+                    return
                 logger.warning(f"机械臂无持有资源，按硬件放料在 {warehouse_name}[{site_key}] 创建临时资源")
                 resource = self._create_placeholder_resource(resource_kind, warehouse_name, site_key)
 
