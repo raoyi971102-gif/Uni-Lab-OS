@@ -1119,11 +1119,29 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
         
-    @action()
+    @action(
+        handles=[
+            ActionInputHandle(
+                key="ball_mill_can_number_input",
+                data_type="xuse_ball_mill_can_number",
+                label="球磨罐号",
+                data_key="can_number",
+                data_source=DataSource.HANDLE,
+            ),
+            ActionOutputHandle(
+                key="ball_mill_can_number_output",
+                data_type="xuse_ball_mill_can_number",
+                label="球磨罐号",
+                data_key="can_number",
+                data_source=DataSource.EXECUTOR,
+            ),
+        ],
+    )
     def add_powder(
         self,
         check_can_occupied: bool = True,
         actual_powder_log_dir: str = "",
+        can_number: Optional[int] = None,
     ) -> dict:
         """
         加样（加粉）—— 只触发加粉动作，不含参数下发。
@@ -1142,8 +1160,13 @@ class XUSEDevice(OpcUaClientWithSubscription):
             check_can_occupied[是否检查罐体占位]: True=加粉前等待并校验罐体占位；False=跳过占位检查。
             actual_powder_log_dir[实际加粉日志目录]: 保存“实际加粉日志.xlsx”的目录；
                 留空使用 XUSE 模块下的 records 目录。
+            can_number[球磨罐号]: 由上游动作 handle 传入，范围 1~32；用于实际加粉日志。
         """
-        logger.info(f"加粉...（check_can_occupied={check_can_occupied}）")
+        can_number = self._validate_ball_mill_can_number(can_number)
+        logger.info(
+            f"为 {can_number} 号球磨罐加粉..."
+            f"（check_can_occupied={check_can_occupied}）"
+        )
 
         if check_can_occupied:
             if not self._wait_condition(lambda: self.is_add_sample_occupied()):
@@ -1176,14 +1199,17 @@ class XUSEDevice(OpcUaClientWithSubscription):
                     log_path = self._append_actual_powder_log(
                         log_dir=actual_powder_log_dir,
                         timestamp=completed_at,
+                        can_number=can_number,
                         **measurement,
                     )
                 except Exception as e:
                     raise ValueError(f"加样已完成，但写入实际加粉日志失败: {e}") from e
                 return {
                     "success": True,
+                    "can_number": can_number,
                     "message": "加样加工完成",
                     "data": {
+                        "can_number": can_number,
                         **measurement,
                         "timestamp": completed_at.isoformat(timespec="seconds"),
                         "actual_powder_log_file": log_path,
@@ -1230,6 +1256,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         *,
         log_dir: str,
         timestamp,
+        can_number: int,
         powder_name: str,
         target_weight: float,
         actual_weight: float,
@@ -1248,7 +1275,13 @@ class XUSEDevice(OpcUaClientWithSubscription):
         temp_path = output_dir / (
             f".{log_path.stem}.{os.getpid()}.{threading.get_ident()}.tmp.xlsx"
         )
-        headers = ["时间戳", "加粉名称", "目标加粉重量", "实际加粉重量"]
+        headers = [
+            "时间戳",
+            "加粉名称",
+            "目标加粉重量",
+            "实际加粉重量",
+            "球磨罐编号",
+        ]
 
         with self._ACTUAL_POWDER_LOG_LOCK:
             if log_path.exists():
@@ -1263,7 +1296,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
                 sheet = workbook.active
                 sheet.title = "实际加粉日志"
 
-            current_headers = [sheet.cell(row=1, column=i).value for i in range(1, 5)]
+            current_headers = [sheet.cell(row=1, column=i).value for i in range(1, 6)]
             if all(value is None for value in current_headers):
                 for column_index, header in enumerate(headers, start=1):
                     sheet.cell(row=1, column=column_index, value=header)
@@ -1273,8 +1306,29 @@ class XUSEDevice(OpcUaClientWithSubscription):
                     cell.alignment = Alignment(horizontal="center", vertical="center")
                 sheet.freeze_panes = "A2"
                 sheet.sheet_view.showGridLines = False
-                for column, width in zip(("A", "B", "C", "D"), (22, 24, 18, 18)):
+                for column, width in zip(
+                    ("A", "B", "C", "D", "E"), (22, 24, 18, 18, 16)
+                ):
                     sheet.column_dimensions[column].width = width
+            elif current_headers[:4] == headers[:4] and current_headers[4] is None:
+                # 兼容已由上一版本生成的四列表格：历史记录的罐号无法追溯，保持为空。
+                sheet.cell(row=1, column=5, value=headers[4])
+                for cell in sheet[1][:5]:
+                    cell.fill = PatternFill("solid", fgColor="1A3A63")
+                    cell.font = Font(bold=True, color="FFFFFF")
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+                sheet.freeze_panes = "A2"
+                sheet.sheet_view.showGridLines = False
+                for column, width in zip(
+                    ("A", "B", "C", "D", "E"), (22, 24, 18, 18, 16)
+                ):
+                    sheet.column_dimensions[column].width = width
+                for legacy_row in range(2, sheet.max_row + 1):
+                    sheet.cell(row=legacy_row, column=1).number_format = (
+                        "yyyy-mm-dd hh:mm:ss"
+                    )
+                    sheet.cell(row=legacy_row, column=3).number_format = "0.0000"
+                    sheet.cell(row=legacy_row, column=4).number_format = "0.0000"
             elif current_headers != headers:
                 workbook.close()
                 raise ValueError(
@@ -1282,13 +1336,20 @@ class XUSEDevice(OpcUaClientWithSubscription):
                 )
 
             sheet.append(
-                [timestamp, str(powder_name), float(target_weight), float(actual_weight)]
+                [
+                    timestamp,
+                    str(powder_name),
+                    float(target_weight),
+                    float(actual_weight),
+                    int(can_number),
+                ]
             )
             row_index = sheet.max_row
             sheet.cell(row=row_index, column=1).number_format = "yyyy-mm-dd hh:mm:ss"
             sheet.cell(row=row_index, column=3).number_format = "0.0000"
             sheet.cell(row=row_index, column=4).number_format = "0.0000"
-            sheet.auto_filter.ref = f"A1:D{row_index}"
+            sheet.cell(row=row_index, column=5).number_format = "0"
+            sheet.auto_filter.ref = f"A1:E{row_index}"
 
             try:
                 try:
@@ -1560,6 +1621,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
                 powder_result = self.add_powder(
                     check_can_occupied=check_can_occupied,
                     actual_powder_log_dir=actual_powder_log_dir,
+                    can_number=can_number,
                 )
                 if not powder_result.get("success", False):
                     raise ValueError("加粉动作返回失败")
@@ -3414,7 +3476,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
                 return ret
             
             # 加粉
-            ret = self.add_powder()
+            ret = self.add_powder(can_number=rack_pos)
             if not ret["success"]:
                 return ret
             
@@ -4447,7 +4509,8 @@ if __name__ == '__main__':
         elif choice.startswith("1-5 "):
             xuseDevice.place_can_to_add_powder_position()
         elif choice.startswith("1-6 "):
-            xuseDevice.add_powder()
+            can_number = int(choice.split(" ")[1])
+            xuseDevice.add_powder(can_number=can_number)
         elif choice.startswith("1-7 "):
             xuseDevice.pick_can_from_add_powder_position()
         elif choice.startswith("1-8 "):

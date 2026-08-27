@@ -37,6 +37,7 @@ def test_ball_mill_can_number_handles_form_a_chain():
         "place_empty_can_to_open_can_position",
         "pick_empty_can_from_open_can_position",
         "place_can_to_add_powder_position",
+        "add_powder",
         "add_powder_multiple_times",
     ]
 
@@ -75,9 +76,11 @@ def test_multi_powder_plan_uses_sheet_order_and_recipe_overrides(tmp_path, monke
             return {"success": True, "data": {"written": 2}}
 
         def add_powder(
-            self, check_can_occupied=True, actual_powder_log_dir=""
+            self, check_can_occupied=True, actual_powder_log_dir="", can_number=None
         ):
-            self.add_calls.append((check_can_occupied, actual_powder_log_dir))
+            self.add_calls.append(
+                (check_can_occupied, actual_powder_log_dir, can_number)
+            )
             return {"success": True}
 
     device = FakeDevice()
@@ -101,8 +104,8 @@ def test_multi_powder_plan_uses_sheet_order_and_recipe_overrides(tmp_path, monke
     assert Path(device.param_calls[0]["param_file"]).name == "Powder-A.xlsx"
     assert Path(device.param_calls[1]["param_file"]).name == "opaque-name.xlsx"
     assert device.add_calls == [
-        (False, "actual-logs"),
-        (False, "actual-logs"),
+        (False, "actual-logs", 7),
+        (False, "actual-logs", 7),
     ]
 
 
@@ -129,7 +132,7 @@ def test_multi_powder_plan_uses_default_directory(
             return {"success": True, "data": {"written": 2}}
 
         def add_powder(
-            self, check_can_occupied=True, actual_powder_log_dir=""
+            self, check_can_occupied=True, actual_powder_log_dir="", can_number=None
         ):
             return {"success": True}
 
@@ -169,7 +172,7 @@ def test_multi_powder_plan_accepts_absolute_parameter_directory(tmp_path, monkey
             return {"success": True, "data": {"written": 2}}
 
         def add_powder(
-            self, check_can_occupied=True, actual_powder_log_dir=""
+            self, check_can_occupied=True, actual_powder_log_dir="", can_number=None
         ):
             return {"success": True}
 

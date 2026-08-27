@@ -111,6 +111,7 @@ def test_add_powder_appends_actual_measurement_log(tmp_path):
     first_result = device.add_powder(
         check_can_occupied=False,
         actual_powder_log_dir=f'"{tmp_path}"',
+        can_number=12,
     )
     device.values.update(
         Powder_Name="测试粉末_B",
@@ -120,11 +121,14 @@ def test_add_powder_appends_actual_measurement_log(tmp_path):
     second_result = device.add_powder(
         check_can_occupied=False,
         actual_powder_log_dir=str(tmp_path),
+        can_number=20,
     )
 
     log_path = tmp_path / "实际加粉日志.xlsx"
     assert first_result["data"]["actual_powder_log_file"] == str(log_path)
     assert second_result["data"]["actual_powder_log_file"] == str(log_path)
+    assert first_result["can_number"] == 12
+    assert second_result["data"]["can_number"] == 20
     assert device._powder_weight_cache == 2.4931
     assert all(kwargs == {"use_cache": False, "force_read": True} for _, kwargs in device.reads)
 
@@ -135,19 +139,73 @@ def test_add_powder_appends_actual_measurement_log(tmp_path):
         "加粉名称",
         "目标加粉重量",
         "实际加粉重量",
+        "球磨罐编号",
     ]
     assert sheet.max_row == 3
     assert isinstance(sheet["A2"].value, datetime)
-    assert [sheet["B2"].value, sheet["C2"].value, sheet["D2"].value] == [
+    assert [
+        sheet["B2"].value,
+        sheet["C2"].value,
+        sheet["D2"].value,
+        sheet["E2"].value,
+    ] == [
         "测试粉末_A",
         1.25,
         1.2478,
+        12,
     ]
-    assert [sheet["B3"].value, sheet["C3"].value, sheet["D3"].value] == [
+    assert [
+        sheet["B3"].value,
+        sheet["C3"].value,
+        sheet["D3"].value,
+        sheet["E3"].value,
+    ] == [
         "测试粉末_B",
         2.5,
         2.4931,
+        20,
     ]
     assert sheet.freeze_panes == "A2"
-    assert sheet.auto_filter.ref == "A1:D3"
+    assert sheet.auto_filter.ref == "A1:E3"
+    workbook.close()
+
+
+def test_add_powder_upgrades_legacy_four_column_log(tmp_path):
+    log_path = tmp_path / "实际加粉日志.xlsx"
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "实际加粉日志"
+    sheet.append(["时间戳", "加粉名称", "目标加粉重量", "实际加粉重量"])
+    sheet.append([datetime(2026, 8, 27, 12, 0, 0), "历史粉末", 1.0, 0.99])
+    workbook.save(log_path)
+    workbook.close()
+
+    device = CompletedPowderDevice(
+        powder_name="新粉末",
+        target_weight=2.0,
+        actual_weight=1.98,
+    )
+    device.add_powder(
+        check_can_occupied=False,
+        actual_powder_log_dir=str(tmp_path),
+        can_number=7,
+    )
+
+    workbook = openpyxl.load_workbook(log_path, data_only=True)
+    sheet = workbook["实际加粉日志"]
+    assert [cell.value for cell in sheet[1]] == [
+        "时间戳",
+        "加粉名称",
+        "目标加粉重量",
+        "实际加粉重量",
+        "球磨罐编号",
+    ]
+    assert [sheet["B2"].value, sheet["C2"].value, sheet["D2"].value] == [
+        "历史粉末",
+        1.0,
+        0.99,
+    ]
+    assert sheet["E2"].value is None
+    assert [sheet["B3"].value, sheet["E3"].value] == ["新粉末", 7]
+    assert sheet.auto_filter.ref == "A1:E3"
     workbook.close()
