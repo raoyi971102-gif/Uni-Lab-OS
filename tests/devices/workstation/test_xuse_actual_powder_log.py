@@ -62,17 +62,29 @@ def test_powder_weight_variable_is_in_real_and_sim_tables():
     assert sim_row["NodeId"] == "ns=2;s=XUSE.设备 1.加粉重量"
 
 
-def test_powder_weight_is_uploaded_as_one_second_monitor():
+def test_powder_weight_is_uploaded_as_five_second_monitor():
     config = get_topic_config(XUSEDevice.powder_weight)
     device = object.__new__(XUSEDevice)
     device._powder_weight_cache = 1.2345
 
-    assert config["period"] == 1.0
-    assert config["name"] == "加粉重量"
+    assert config["period"] == 5.0
+    assert config["name"] is None
     assert device.powder_weight() == 1.2345
 
+    for method_name in (
+        "robotic_arm_1_idle",
+        "robotic_arm_2_idle",
+        "robotic_arm_3_idle",
+        "robotic_arm_1_fault",
+        "robotic_arm_2_fault",
+        "robotic_arm_3_fault",
+    ):
+        robot_config = get_topic_config(getattr(XUSEDevice, method_name))
+        assert robot_config["period"] == 5.0
+        assert robot_config["name"] is None
 
-def test_powder_weight_poller_force_reads_plc_each_second():
+
+def test_powder_weight_poller_force_reads_plc_every_five_seconds():
     class OnePassStop:
         stopped = False
 
@@ -80,7 +92,7 @@ def test_powder_weight_poller_force_reads_plc_each_second():
             return self.stopped
 
         def wait(self, seconds):
-            assert seconds == 1.0
+            assert seconds == 5.0
             self.stopped = True
 
     device = object.__new__(XUSEDevice)

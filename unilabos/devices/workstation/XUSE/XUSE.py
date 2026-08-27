@@ -151,11 +151,11 @@ class XUSEDevice(OpcUaClientWithSubscription):
         except Exception:
             self._powder_weight_cache = 0.0
 
-        # 机械臂状态本地缓存 + 后台轮询线程。
-        # 原因：6 个状态方法会被 ROS 各自的定时器周期调用，如果直接走 get_node_value
+        # 工站状态本地缓存 + 后台轮询线程。
+        # 原因：状态方法会被 ROS 各自的定时器周期调用，如果直接走 get_node_value
         # （共享 OPC 锁、可能因动作占用而阻塞），部分发布回调会卡住，导致对应 topic 不发布、
-        # host 扫不到、前端状态显示不全。这里用单一后台线程统一刷新缓存，状态方法只读缓存
-        # 即时返回（非阻塞、永不 None），保证 6 个状态都能稳定发布。
+        # host 扫不到、前端状态显示不全。这里用单一后台线程每 5 秒统一刷新缓存，
+        # 状态方法只读缓存即时返回，保证机械臂状态和加粉重量都能稳定发布。
         self._arm_status_nodes = list(ARM_STATUS_NODES)
         # 启动时先同步读一次真实值初始化缓存（读失败才退回 False 兜底），
         # 保证 6 个状态从一开始就是 OPC UA 的真实状态，且始终是具体 bool（永不 None、永远发布）。
@@ -202,9 +202,9 @@ class XUSEDevice(OpcUaClientWithSubscription):
 
     @not_action
     def _arm_status_poll_loop(self):
-        """后台每秒轮询 6 个机械臂状态节点刷新缓存（容错，读取失败保留上次值）。
+        """后台每 5 秒轮询机械臂状态及加粉重量（读取失败时保留上次值）。
 
-        缓存在启动时已用真实值初始化，状态方法始终返回具体 bool、6 个 topic 都能稳定发布。
+        缓存在启动时已用真实值初始化，topic 方法只读取本地缓存，不阻塞 ROS 发布线程。
         """
         while not self._arm_status_poller_stop.is_set():
             for node_name in self._arm_status_nodes:
@@ -220,7 +220,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
                 )
             except Exception:
                 pass
-            self._arm_status_poller_stop.wait(1.0)
+            self._arm_status_poller_stop.wait(5.0)
 
     @not_action
     def post_init(self, ros_node):
@@ -592,39 +592,39 @@ class XUSEDevice(OpcUaClientWithSubscription):
         """读取机械臂状态缓存：非阻塞、永不抛错、永不返回 None（默认 False）。"""
         return bool(self._arm_status_cache.get(node_name, False))
 
-    @topic_config(period=1.0)
+    @topic_config(period=5.0)
     def robotic_arm_1_idle(self) -> bool:
         """机械臂1空闲状态"""
         return self._read_bool_node("Robotic_Arm_Idle_1")
 
-    @topic_config(period=1.0)
+    @topic_config(period=5.0)
     def robotic_arm_2_idle(self) -> bool:
         """机械臂2空闲状态"""
         return self._read_bool_node("Robotic_Arm_Idle_2")
 
-    @topic_config(period=1.0)
+    @topic_config(period=5.0)
     def robotic_arm_3_idle(self) -> bool:
         """机械臂3空闲状态"""
         return self._read_bool_node("Robotic_Arm_Idle_3")
 
-    @topic_config(period=1.0)
+    @topic_config(period=5.0)
     def robotic_arm_1_fault(self) -> bool:
         """机械臂1故障状态"""
         return self._read_bool_node("Robotic_Arm_Fault_1")
 
-    @topic_config(period=1.0)
+    @topic_config(period=5.0)
     def robotic_arm_2_fault(self) -> bool:
         """机械臂2故障状态"""
         return self._read_bool_node("Robotic_Arm_Fault_2")
 
-    @topic_config(period=1.0)
+    @topic_config(period=5.0)
     def robotic_arm_3_fault(self) -> bool:
         """机械臂3故障状态"""
         return self._read_bool_node("Robotic_Arm_Fault_3")
 
-    @topic_config(period=1.0, name="加粉重量")
+    @topic_config(period=5.0)
     def powder_weight(self) -> float:
-        """PLC 实际加粉重量（REAL），每秒作为监控变量上传。"""
+        """PLC 实际加粉重量（REAL），每 5 秒以 powder_weight 状态发布。"""
         return float(getattr(self, "_powder_weight_cache", 0.0))
 
     @not_action
