@@ -158,6 +158,43 @@ class RclpyAsyncMutex:
 registered_devices: Dict[str, "DeviceInfoType"] = {}
 
 
+def _find_resource_site_index(resource: Any, sites: List[Any]) -> Optional[int]:
+    """在 carrier/deck 的站点列表中定位资源，兼容 Resource 与 dict 两种站点表示。"""
+    try:
+        return sites.index(resource)
+    except ValueError:
+        pass
+
+    resource_name = getattr(resource, "name", None)
+    resource_location = getattr(resource, "location", None)
+    for index, site in enumerate(sites):
+        if isinstance(site, dict):
+            occupied_by = site.get("occupied_by")
+            occupied_name = getattr(occupied_by, "name", occupied_by)
+            position = site.get("position")
+        else:
+            occupied_by = getattr(site, "occupied_by", None)
+            occupied_name = getattr(occupied_by, "name", occupied_by)
+            position = getattr(site, "location", None)
+
+        if resource_name is not None and resource_name == occupied_name:
+            return index
+
+        if resource_location is None or position is None:
+            continue
+        if isinstance(position, dict):
+            if (
+                resource_location.x == position.get("x")
+                and resource_location.y == position.get("y")
+                and resource_location.z == position.get("z")
+            ):
+                return index
+        elif resource_location == position:
+            return index
+
+    return None
+
+
 # 实现同时记录自定义日志和ROS2日志的适配器
 class ROSLoggerAdapter:
     """同时向自定义日志和ROS2日志发送消息的适配器"""
@@ -1081,20 +1118,9 @@ class BaseROS2DeviceNode(Node, Generic[T]):
                         else []
                     )
                     if target_site is not None and sites is not None and site_names is not None:
-                        site_index = None
-                        try:
-                            # sites 可能是 Resource 列表或 dict 列表 (如 PRCXI9300Deck)
-                            # 只有itemized_carrier在使用，准备弃用
-                            site_index = sites.index(original_instance)
-                        except ValueError:
-                            # dict 类型的 sites: 通过name匹配
-                            for idx, site in enumerate(sites):
-                                if original_instance.name == site["occupied_by"]:
-                                    site_index = idx
-                                    break
-                                elif (original_instance.location.x == site["position"]["x"] and original_instance.location.y == site["position"]["y"] and original_instance.location.z == site["position"]["z"]):
-                                    site_index = idx
-                                    break
+                        # sites 可能是 Resource 列表或 dict 列表（如 PRCXI9300Deck）；
+                        # PRCXI 默认站点不含 occupied_by，需要通过位置安全反查。
+                        site_index = _find_resource_site_index(original_instance, sites)
                         if site_index is None:
                             site_name = None
                         else:
