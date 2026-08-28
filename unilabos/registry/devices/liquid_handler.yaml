@@ -8266,7 +8266,7 @@ liquid_handler.prcxi:
           none_keys: []
           sources: null
           targets: null
-          tip_disposal: trash
+          tip_disposal: TRASH1
           tip_racks: null
           vols: null
         handles:
@@ -8336,11 +8336,12 @@ liquid_handler.prcxi:
                   title: 放液目标
                   type: array
                 tip_disposal:
-                  default: trash
-                  description: 枪头结束处理方式；trash 丢入垃圾桶，return 放回枪头盒原孔。
+                  default: TRASH1
+                  description: 枪头结束处理方式；TRASH1/TRASH2 按前端同名 Trash 资源选择垃圾桶，RETURN 放回枪头盒原孔。
                   enum:
-                  - trash
-                  - return
+                  - TRASH1
+                  - TRASH2
+                  - RETURN
                   title: 枪头结束处理
                   type: string
                 tip_racks:
@@ -8988,7 +8989,7 @@ liquid_handler.prcxi:
           none_keys: []
           sources: null
           targets: null
-          tip_disposal: trash
+          tip_disposal: TRASH1
           tip_racks: null
           vols: null
         handles:
@@ -9058,11 +9059,12 @@ liquid_handler.prcxi:
                   title: 放液目标
                   type: array
                 tip_disposal:
-                  default: trash
-                  description: 枪头结束处理方式；trash 丢入垃圾桶，return 放回枪头盒原孔。
+                  default: TRASH1
+                  description: 枪头结束处理方式；TRASH1/TRASH2 按前端同名 Trash 资源选择垃圾桶，RETURN 放回枪头盒原孔。
                   enum:
-                  - trash
-                  - return
+                  - TRASH1
+                  - TRASH2
+                  - RETURN
                   title: 枪头结束处理
                   type: string
                 tip_racks:
@@ -10569,7 +10571,7 @@ liquid_handler.prcxi:
           sources: null
           spread: wide
           targets: null
-          tip_disposal: trash
+          tip_disposal: TRASH1
           tip_racks: null
           touch_tip: false
           use_channels: []
@@ -10841,11 +10843,12 @@ liquid_handler.prcxi:
                     type: object
                   type: array
                 tip_disposal:
-                  default: trash
-                  description: 枪头结束处理方式；trash 丢入垃圾桶，return 放回枪头盒原孔。
+                  default: TRASH1
+                  description: 枪头结束处理方式；TRASH1/TRASH2 按前端同名 Trash 资源选择垃圾桶，RETURN 放回枪头盒原孔。
                   enum:
-                  - trash
-                  - return
+                  - TRASH1
+                  - TRASH2
+                  - RETURN
                   title: 枪头结束处理
                   type: string
                 tip_racks:

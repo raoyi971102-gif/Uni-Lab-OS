@@ -65,7 +65,7 @@ from unilabos.devices.liquid_handling.prcxi.flatten_utils import (
 )
 from unilabos.registry.placeholder_type import ResourceSlot
 from unilabos.resources.itemized_carrier import ItemizedCarrier
-from unilabos.resources.resource_tracker import ResourceTreeSet
+from unilabos.resources.resource_tracker import EXTRA_FRONTEND_NAME, ResourceTreeSet
 from unilabos.ros.nodes.base_device_node import BaseROS2DeviceNode, ROS2DeviceNode
 
 
@@ -1851,7 +1851,7 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         mix_liquid_height: Optional[float] = None,
         delays: Optional[List[int]] = None,
         pre_aspirate_from_target: Optional[float] = None,
-        tip_disposal: Literal["trash", "return"] = "trash",
+        tip_disposal: str = "trash",
         none_keys: List[str] = [],
     ) -> TransferLiquidReturn:
         if not self._first_transfer_done:
@@ -2290,7 +2290,7 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         use_channels: List[int],
         blow_out_air_volume: Optional[List[Optional[float]]],
         spread: Literal["wide", "tight", "custom"],
-        tip_disposal: Literal["trash", "return"],
+        tip_disposal: str,
     ) -> None:
         """一副枪头跑完所有轮次：仅首轮取枪头、仅末轮释放枪头。
 
@@ -2299,9 +2299,10 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         一副枪头；这里的 ``pick_up`` / ``drop`` 是显式的。
         """
         tip_disposal = str(tip_disposal or "trash").strip().lower()
-        if tip_disposal not in {"trash", "return"}:
+        if tip_disposal not in {"trash", "trash1", "trash2", "return"}:
             raise ValueError(
-                f"tip_disposal must be 'trash' or 'return', got {tip_disposal!r}."
+                "tip_disposal must be one of 'TRASH1', 'TRASH2', or 'RETURN' "
+                f"(legacy 'trash' is also supported), got {tip_disposal!r}."
             )
 
         n_channels = len(use_channels)
@@ -2334,7 +2335,7 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         *,
         vols: Union[List[float], float],
         blow_out_air_volume: Optional[List[Optional[float]]] = None,
-        tip_disposal: Literal["trash", "return"] = "trash",
+        tip_disposal: str = "trash",
         none_keys: List[str] = [],
     ) -> TransferLiquidReturn:
         """单通道轴复用一个枪头：从同一个源孔反复吸液，结束后丢弃或放回原位。
@@ -2348,7 +2349,8 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
             tip_racks[枪头盒]: 取枪头用的 tip 盒列表；整个动作只取 1 个枪头。
             vols[单次体积(µL)]: 每轮吸放液体积；只给 1 个值时所有目标孔共用，否则长度须等于目标孔数量。
             blow_out_air_volume[吹出空气量(µL)]: 可选，每通道吹出空气体积；缺省用设备默认。
-            tip_disposal[枪头结束处理]: ``trash`` 丢入垃圾桶；``return`` 放回枪头盒原孔。
+            tip_disposal[枪头结束处理]: ``TRASH1`` / ``TRASH2`` 选择同名垃圾桶；
+                ``RETURN`` 放回枪头盒原孔。
             none_keys[空值字段]: 上游标记为"未填写"的字段名列表。
         """
         action_name = "one_channel_reuse_tip"
@@ -2391,7 +2393,7 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         *,
         vols: Union[List[float], float],
         blow_out_air_volume: Optional[List[Optional[float]]] = None,
-        tip_disposal: Literal["trash", "return"] = "trash",
+        tip_disposal: str = "trash",
         none_keys: List[str] = [],
     ) -> TransferLiquidReturn:
         """八通道轴复用一整列枪头：从同一个源孔反复吸液，结束后丢弃或放回原位。
@@ -2406,7 +2408,8 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
             tip_racks[枪头盒]: 取枪头用的 tip 盒列表；整个动作只取一整列 8 个枪头。
             vols[单列体积(µL)]: 每列每通道的吸放液体积；只给 1 个值时所有列共用，否则长度须等于列数。
             blow_out_air_volume[吹出空气量(µL)]: 可选，每通道吹出空气体积；缺省用设备默认。
-            tip_disposal[枪头结束处理]: ``trash`` 丢入垃圾桶；``return`` 放回枪头盒原孔。
+            tip_disposal[枪头结束处理]: ``TRASH1`` / ``TRASH2`` 选择同名垃圾桶；
+                ``RETURN`` 放回枪头盒原孔。
             none_keys[空值字段]: 上游标记为"未填写"的字段名列表。
         """
         action_name = "eight_channels_reuse_tips"
@@ -2567,14 +2570,76 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
             **backend_kwargs,
         )
 
+    @staticmethod
+    def _trash_resource_names(resource: Resource) -> List[str]:
+        """返回垃圾桶可被动作参数匹配的名称（PLR 名、前端原名、display_name）。"""
+        extra = getattr(resource, "unilabos_extra", {}) or {}
+        names = [
+            getattr(resource, "name", ""),
+            extra.get(EXTRA_FRONTEND_NAME, ""),
+            getattr(resource, "display_name", ""),
+        ]
+        return [str(name).strip() for name in names if str(name or "").strip()]
+
+    def _resolve_named_trash(self, trash_name: str) -> Trash:
+        """按前端资源名选择垃圾桶；TRASH1 缺失时兼容旧版单垃圾桶布局。"""
+        selector = str(trash_name or "").strip().casefold()
+        trash_resources = [
+            resource
+            for resource in self._resource_tree(self.deck)
+            if isinstance(resource, Trash)
+        ]
+        for resource in trash_resources:
+            names = {name.casefold() for name in self._trash_resource_names(resource)}
+            if selector in names:
+                return resource
+
+        # 旧资源树通常只有一个名为 trash / PRCXI_trash 的垃圾桶。新参数默认 TRASH1，
+        # 因此在没有同名资源时让 TRASH1 继续使用旧默认；TRASH2 必须显式存在。
+        if selector == "trash1":
+            try:
+                return self.deck.get_trash_area()
+            except Exception:
+                pass
+
+        available = [
+            {
+                "names": self._trash_resource_names(resource),
+                "slot": self._get_slot_number(resource),
+            }
+            for resource in trash_resources
+        ]
+        raise ValueError(
+            f"未找到名为 {trash_name!r} 的 PRCXI 垃圾桶；"
+            f"请在 PRCXI Deck 上挂载对应 Trash 资源。当前垃圾桶: {available}"
+        )
+
     async def discard_tips(
         self,
         use_channels: Optional[List[int]] = None,
         allow_nonzero_volume: bool = True,
         offsets: Optional[List[Coordinate]] = None,
+        trash_name: Optional[str] = None,
         **backend_kwargs,
     ):
         use_channels = self._route_axis_and_channels(use_channels)
+        if trash_name:
+            trash = self._resolve_named_trash(trash_name)
+            if use_channels is None or len(use_channels) == 0:
+                use_channels = [
+                    channel
+                    for channel, tracker in self.head.items()
+                    if tracker.has_tip
+                ]
+            if not use_channels:
+                raise RuntimeError("No tips have been picked up.")
+            return await self.drop_tips(
+                [trash] * len(use_channels),
+                use_channels,
+                offsets,
+                allow_nonzero_volume,
+                **backend_kwargs,
+            )
         return await super().discard_tips(use_channels, allow_nonzero_volume, offsets, **backend_kwargs)
 
     async def return_tips(

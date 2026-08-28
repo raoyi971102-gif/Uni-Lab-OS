@@ -2176,15 +2176,16 @@ class LiquidHandlerAbstract(LiquidHandlerMiddleware):
         mix_liquid_height: Optional[float] = None,
         delays: Optional[List[int]] = None,
         pre_aspirate_from_target: Optional[float] = None,
-        tip_disposal: Literal["trash", "return"] = "trash",
+        tip_disposal: str = "trash",
         none_keys: List[str] = [],
     ) -> TransferLiquidReturn:
         """Transfer liquid with automatic mode detection.
         """
         tip_disposal = str(tip_disposal or "trash").strip().lower()
-        if tip_disposal not in {"trash", "return"}:
+        if tip_disposal not in {"trash", "trash1", "trash2", "return"}:
             raise ValueError(
-                f"tip_disposal must be 'trash' or 'return', got {tip_disposal!r}."
+                "tip_disposal must be one of 'TRASH1', 'TRASH2', or 'RETURN' "
+                f"(legacy 'trash' is also supported), got {tip_disposal!r}."
             )
 
         # 若传入 dict（含 uuid），解析为 PLR Container/TipRack
@@ -2466,9 +2467,16 @@ class LiquidHandlerAbstract(LiquidHandlerMiddleware):
         dis_vols: List[float],
         pick_up: bool = True,
         drop: bool = True,
-        tip_disposal: Literal["trash", "return"] = "trash",
+        tip_disposal: str = "trash",
         **kwargs
     ):
+
+        tip_disposal = str(tip_disposal or "trash").strip().lower()
+        if tip_disposal not in {"trash", "trash1", "trash2", "return"}:
+            raise ValueError(
+                "tip_disposal must be one of 'TRASH1', 'TRASH2', or 'RETURN' "
+                f"(legacy 'trash' is also supported), got {tip_disposal!r}."
+            )
 
         # === [B-DBG] _transfer_base_method 调用计数（候选 D）===
         # 每条 transfer 应调用 num_targets 次（51b9a5 → 9 次）；
@@ -2650,11 +2658,15 @@ class LiquidHandlerAbstract(LiquidHandlerMiddleware):
         if drop:
             if tip_disposal == "return":
                 await self.return_tips(use_channels=use_channels)
-            elif tip_disposal == "trash":
-                await self.discard_tips(use_channels=use_channels)
+            elif tip_disposal in {"trash", "trash1", "trash2"}:
+                backend_kwargs = {}
+                if tip_disposal != "trash":
+                    backend_kwargs["trash_name"] = tip_disposal
+                await self.discard_tips(use_channels=use_channels, **backend_kwargs)
             else:
                 raise ValueError(
-                    f"tip_disposal must be 'trash' or 'return', got {tip_disposal!r}."
+                    "tip_disposal must be one of 'TRASH1', 'TRASH2', or 'RETURN' "
+                    f"(legacy 'trash' is also supported), got {tip_disposal!r}."
                 )
 
     # except Exception as e:

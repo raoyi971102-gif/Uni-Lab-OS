@@ -103,7 +103,15 @@ class FakeLiquidHandler(LiquidHandlerAbstract):
 
     async def discard_tips(self, use_channels=None, *args, **kwargs):
         # 有的分支是 discard_tips(use_channels=[0])，有的分支是 discard_tips([0..7])（位置参数）
-        self.calls.append(("discard_tips", {"use_channels": list(use_channels) if use_channels is not None else None}))
+        self.calls.append(
+            (
+                "discard_tips",
+                {
+                    "use_channels": list(use_channels) if use_channels is not None else None,
+                    "trash_name": kwargs.get("trash_name"),
+                },
+            )
+        )
 
     async def return_tips(self, use_channels=None, *args, **kwargs):
         self.calls.append(("return_tips", {"use_channels": list(use_channels) if use_channels is not None else None}))
@@ -185,6 +193,26 @@ def test_tip_disposal_return_puts_tips_back_instead_of_discarding():
     names = [name for name, _ in lh.calls]
     assert names.count("return_tips") == 1
     assert "discard_tips" not in names
+
+
+def test_tip_disposal_trash2_selects_named_trash():
+    lh = FakeLiquidHandler(channel_num=1)
+    lh.current_tip = iter(make_tip_iter(16))
+
+    run(
+        lh._transfer_base_method(
+            sources=[DummyContainer("S0")],
+            targets=[DummyContainer("T0")],
+            tip_racks=[],
+            use_channels=[0],
+            asp_vols=[10],
+            dis_vols=[10],
+            tip_disposal="TRASH2",
+        )
+    )
+
+    discard = [payload for name, payload in lh.calls if name == "discard_tips"]
+    assert discard == [{"use_channels": [0], "trash_name": "trash2"}]
 
 
 def test_tip_disposal_rejects_unknown_mode_before_motion():
