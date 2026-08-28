@@ -105,6 +105,9 @@ class FakeLiquidHandler(LiquidHandlerAbstract):
         # 有的分支是 discard_tips(use_channels=[0])，有的分支是 discard_tips([0..7])（位置参数）
         self.calls.append(("discard_tips", {"use_channels": list(use_channels) if use_channels is not None else None}))
 
+    async def return_tips(self, use_channels=None, *args, **kwargs):
+        self.calls.append(("return_tips", {"use_channels": list(use_channels) if use_channels is not None else None}))
+
     async def custom_delay(self, seconds=0, msg=None):
         self.calls.append(("custom_delay", {"seconds": seconds, "msg": msg}))
 
@@ -161,6 +164,46 @@ def test_one_to_one_single_channel_basic_calls():
     dispenses = [payload for name, payload in lh.calls if name == "dispense"]
     assert dispenses[2]["resources"] == [targets[2]]
     assert dispenses[2]["vols"] == [6.0]
+
+
+def test_tip_disposal_return_puts_tips_back_instead_of_discarding():
+    lh = FakeLiquidHandler(channel_num=1)
+    lh.current_tip = iter(make_tip_iter(16))
+
+    run(
+        lh._transfer_base_method(
+            sources=[DummyContainer("S0")],
+            targets=[DummyContainer("T0")],
+            tip_racks=[],
+            use_channels=[0],
+            asp_vols=[10],
+            dis_vols=[10],
+            tip_disposal="return",
+        )
+    )
+
+    names = [name for name, _ in lh.calls]
+    assert names.count("return_tips") == 1
+    assert "discard_tips" not in names
+
+
+def test_tip_disposal_rejects_unknown_mode_before_motion():
+    lh = FakeLiquidHandler(channel_num=1)
+
+    with pytest.raises(ValueError, match="tip_disposal"):
+        run(
+            lh.transfer_liquid(
+                sources=[DummyContainer("S0")],
+                targets=[DummyContainer("T0")],
+                tip_racks=[],
+                use_channels=[0],
+                asp_vols=[10],
+                dis_vols=[10],
+                tip_disposal="unknown",  # type: ignore[arg-type]
+            )
+        )
+
+    assert lh.calls == []
 
 
 def test_one_to_one_single_channel_before_stage_mixes_prior_to_aspirate():

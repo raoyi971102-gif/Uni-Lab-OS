@@ -213,6 +213,44 @@ def _tip_rack() -> Any:
 
 @_skip_if_no_plr
 class TestOneChannelReuseTip:
+    def test_return_disposal_is_applied_to_final_round(self) -> None:
+        prcxi = _make_fake_prcxi()
+        cap = _install_capture(prcxi)
+        plate = _DummyPlate("p_tgt")
+        source = _DummyWell("S0", parent=_DummyPlate("p_src"))
+
+        _run(
+            prcxi.one_channel_reuse_tip(
+                [source],
+                plate.children[:2],
+                [_tip_rack()],
+                vols=20.0,
+                tip_disposal="return",
+            )
+        )
+
+        assert [r["tip_disposal"] for r in cap.rounds] == ["return", "return"]
+        assert [r["drop"] for r in cap.rounds] == [False, True]
+
+    def test_unknown_tip_disposal_raises_before_first_round(self) -> None:
+        prcxi = _make_fake_prcxi()
+        cap = _install_capture(prcxi)
+        plate = _DummyPlate("p_tgt")
+        source = _DummyWell("S0", parent=_DummyPlate("p_src"))
+
+        with pytest.raises(ValueError, match="tip_disposal"):
+            _run(
+                prcxi.one_channel_reuse_tip(
+                    [source],
+                    plate.children[:2],
+                    [_tip_rack()],
+                    vols=20.0,
+                    tip_disposal="unknown",  # type: ignore[arg-type]
+                )
+            )
+
+        assert cap.rounds == []
+
     def test_single_tip_across_all_targets(self) -> None:
         """4 个目标孔 → 4 轮；只有首轮取枪头、只有末轮丢枪头。"""
         prcxi = _make_fake_prcxi()

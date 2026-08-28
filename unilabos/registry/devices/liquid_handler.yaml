@@ -7913,6 +7913,54 @@ liquid_handler.prcxi:
           title: LiquidHandlerDiscardTips
           type: object
         type: LiquidHandlerDiscardTips
+      return_tips:
+        feedback: {}
+        goal:
+          allow_nonzero_volume: allow_nonzero_volume
+          use_channels: use_channels
+        goal_default:
+          allow_nonzero_volume: false
+          use_channels: []
+        handles: {}
+        placeholder_keys: {}
+        result:
+          return_info: return_info
+          success: success
+        schema:
+          description: 将当前移液头上的枪头放回各自取用时的枪头盒原孔。
+          properties:
+            feedback:
+              additionalProperties: true
+              title: LiquidHandlerReturnTips_Feedback
+              type: object
+            goal:
+              additionalProperties: false
+              properties:
+                allow_nonzero_volume:
+                  default: false
+                  description: 是否允许放回仍记录有液体的枪头。
+                  type: boolean
+                use_channels:
+                  description: 要放回枪头的通道；留空时使用当前装有枪头的通道。
+                  items:
+                    type: integer
+                  type: array
+              title: LiquidHandlerReturnTips_Goal
+              type: object
+            result:
+              additionalProperties: false
+              properties:
+                return_info:
+                  type: string
+                success:
+                  type: boolean
+              title: LiquidHandlerReturnTips_Result
+              type: object
+          required:
+          - goal
+          title: LiquidHandlerReturnTips
+          type: object
+        type: LiquidHandlerReturnTips
       dispense:
         feedback: {}
         goal:
@@ -8218,6 +8266,7 @@ liquid_handler.prcxi:
           none_keys: []
           sources: null
           targets: null
+          tip_disposal: trash
           tip_racks: null
           vols: null
         handles:
@@ -8256,7 +8305,7 @@ liquid_handler.prcxi:
           return_info: return_info
           success: success
         schema:
-          description: 八通道轴复用一整列枪头：从同一个源孔反复 8 通道吸液、逐列放液，最后丢弃枪头。
+          description: 八通道轴复用一整列枪头：从同一个源孔反复 8 通道吸液、逐列放液，结束后可丢弃或放回原位。
           properties:
             feedback: {}
             goal:
@@ -8286,6 +8335,14 @@ liquid_handler.prcxi:
                     type: object
                   title: 放液目标
                   type: array
+                tip_disposal:
+                  default: trash
+                  description: 枪头结束处理方式；trash 丢入垃圾桶，return 放回枪头盒原孔。
+                  enum:
+                  - trash
+                  - return
+                  title: 枪头结束处理
+                  type: string
                 tip_racks:
                   description: 取枪头用的 tip 盒列表；整个动作只取一整列 8 个枪头。
                   items:
@@ -8931,6 +8988,7 @@ liquid_handler.prcxi:
           none_keys: []
           sources: null
           targets: null
+          tip_disposal: trash
           tip_racks: null
           vols: null
         handles:
@@ -8969,7 +9027,7 @@ liquid_handler.prcxi:
           return_info: return_info
           success: success
         schema:
-          description: 单通道轴复用一个枪头：从同一个源孔反复吸液、依次分配到多个目标孔，最后丢弃枪头。
+          description: 单通道轴复用一个枪头：从同一个源孔反复吸液、依次分配到多个目标孔，结束后可丢弃或放回原位。
           properties:
             feedback: {}
             goal:
@@ -8999,6 +9057,14 @@ liquid_handler.prcxi:
                     type: object
                   title: 放液目标
                   type: array
+                tip_disposal:
+                  default: trash
+                  description: 枪头结束处理方式；trash 丢入垃圾桶，return 放回枪头盒原孔。
+                  enum:
+                  - trash
+                  - return
+                  title: 枪头结束处理
+                  type: string
                 tip_racks:
                   description: 取枪头用的 tip 盒列表；整个动作只取 1 个枪头。
                   items:
@@ -10503,6 +10569,7 @@ liquid_handler.prcxi:
           sources: null
           spread: wide
           targets: null
+          tip_disposal: trash
           tip_racks: null
           touch_tip: false
           use_channels: []
@@ -10773,6 +10840,14 @@ liquid_handler.prcxi:
                     - data
                     type: object
                   type: array
+                tip_disposal:
+                  default: trash
+                  description: 枪头结束处理方式；trash 丢入垃圾桶，return 放回枪头盒原孔。
+                  enum:
+                  - trash
+                  - return
+                  title: 枪头结束处理
+                  type: string
                 tip_racks:
                   items:
                     properties:

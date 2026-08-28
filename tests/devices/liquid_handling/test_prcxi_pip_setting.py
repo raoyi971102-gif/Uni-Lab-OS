@@ -341,6 +341,26 @@ def _run(coro: Any) -> Any:
 
 @_skip_if_no_plr
 class TestPrcxiPipSettingRouting:
+    def test_tip_disposal_is_forwarded_to_abstract_transfer(self) -> None:
+        prcxi = _make_fake_prcxi(pip_setting=PIP)
+        sources = [_DummyWell("S0", parent=_DummyPlate("p_src"))]
+        targets = [_DummyWell("T0", parent=_DummyPlate("p_tgt"))]
+        cap = _SuperCallCapture()
+        with patch.object(LiquidHandlerAbstract, "transfer_liquid", cap):
+            _run(
+                prcxi.transfer_liquid(
+                    sources=sources,
+                    targets=targets,
+                    tip_racks=[_make_tip_rack()],
+                    use_channels=[0],
+                    asp_vols=[50.0],
+                    dis_vols=[50.0],
+                    tip_disposal="return",
+                )
+            )
+
+        assert cap.last_kwargs["tip_disposal"] == "return"
+
     def test_multi_channel_small_vol_routes_left_no_flatten(self) -> None:
         """8 通道 + 50µL → 左轴并行，不扁平化，super 收到 use_channels=[0..7]，长度不变。"""
         prcxi = _make_fake_prcxi(pip_setting=PIP)
@@ -552,6 +572,28 @@ class TestDropTipsNoReroute:
 
         assert be._active_axis == "Right"
         # discard_tips 应把 [8..15] 翻译成 0-based 传给 super（PLR）
+        assert captured["use_channels"] == [0, 1, 2, 3, 4, 5, 6, 7]
+
+    def test_return_tips_sets_right_and_uses_plr_channels(self) -> None:
+        """return_tips 也必须先把右轴通道翻译为 PLR 的 0-based 通道。"""
+        prcxi = _make_fake_prcxi(pip_setting=PIP)
+        be = prcxi._unilabos_backend
+        be._active_axis = None
+        captured = {"use_channels": None, "offsets": None}
+
+        async def _super_return(
+            self_: Any,
+            use_channels: Any = None,
+            allow_nonzero_volume: bool = False,
+            **kwargs: Any,
+        ) -> Any:
+            captured["use_channels"] = use_channels
+            captured["offsets"] = kwargs.get("offsets")
+
+        with patch.object(LiquidHandlerAbstract, "return_tips", _super_return):
+            _run(prcxi.return_tips(use_channels=[8, 9, 10, 11, 12, 13, 14, 15]))
+
+        assert be._active_axis == "Right"
         assert captured["use_channels"] == [0, 1, 2, 3, 4, 5, 6, 7]
 
 

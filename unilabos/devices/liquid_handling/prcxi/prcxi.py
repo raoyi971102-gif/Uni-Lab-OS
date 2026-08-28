@@ -1851,6 +1851,7 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         mix_liquid_height: Optional[float] = None,
         delays: Optional[List[int]] = None,
         pre_aspirate_from_target: Optional[float] = None,
+        tip_disposal: Literal["trash", "return"] = "trash",
         none_keys: List[str] = [],
     ) -> TransferLiquidReturn:
         if not self._first_transfer_done:
@@ -2027,6 +2028,7 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
                 mix_liquid_height=mix_liquid_height,
                 delays=delays,
                 pre_aspirate_from_target=pre_aspirate_from_target,
+                tip_disposal=tip_disposal,
                 none_keys=none_keys,
             )
             if self.step_mode:
@@ -2288,13 +2290,20 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         use_channels: List[int],
         blow_out_air_volume: Optional[List[Optional[float]]],
         spread: Literal["wide", "tight", "custom"],
+        tip_disposal: Literal["trash", "return"],
     ) -> None:
-        """一副枪头跑完所有轮次：仅首轮取枪头、仅末轮丢枪头。
+        """一副枪头跑完所有轮次：仅首轮取枪头、仅末轮释放枪头。
 
         直接驱动 ``_transfer_base_method`` 而不复用抽象层 ``transfer_liquid``：后者的
         pick_up / drop 由"相邻轮源孔身份或残液同名"推断，跨多个 target 时不保证全程只用
         一副枪头；这里的 ``pick_up`` / ``drop`` 是显式的。
         """
+        tip_disposal = str(tip_disposal or "trash").strip().lower()
+        if tip_disposal not in {"trash", "return"}:
+            raise ValueError(
+                f"tip_disposal must be 'trash' or 'return', got {tip_disposal!r}."
+            )
+
         n_channels = len(use_channels)
         n_rounds = len(target_groups)
         self.set_tiprack(tip_racks)
@@ -2308,6 +2317,7 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
                 "dis_vols": [vol] * n_channels,
                 "pick_up": idx == 0,
                 "drop": idx == n_rounds - 1,
+                "tip_disposal": tip_disposal,
                 "asp_flow_rates": [self._REUSE_TIP_FLOW_RATE] * n_channels,
                 "dis_flow_rates": [self._REUSE_TIP_FLOW_RATE] * n_channels,
                 "spread": spread,
@@ -2324,9 +2334,10 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         *,
         vols: Union[List[float], float],
         blow_out_air_volume: Optional[List[Optional[float]]] = None,
+        tip_disposal: Literal["trash", "return"] = "trash",
         none_keys: List[str] = [],
     ) -> TransferLiquidReturn:
-        """单通道轴复用一个枪头：从同一个源孔反复吸液、依次分配到多个目标孔，最后丢弃枪头。
+        """单通道轴复用一个枪头：从同一个源孔反复吸液，结束后丢弃或放回原位。
 
         全程只取 1 个枪头（首轮取、末轮丢），每轮"吸一次 → 放一次"，吸放速率固定 30。
         轴按 ``pip_setting`` 选单通道轴（本设备为左轴），未配置时回退左轴 ``[0]``。
@@ -2337,6 +2348,7 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
             tip_racks[枪头盒]: 取枪头用的 tip 盒列表；整个动作只取 1 个枪头。
             vols[单次体积(µL)]: 每轮吸放液体积；只给 1 个值时所有目标孔共用，否则长度须等于目标孔数量。
             blow_out_air_volume[吹出空气量(µL)]: 可选，每通道吹出空气体积；缺省用设备默认。
+            tip_disposal[枪头结束处理]: ``trash`` 丢入垃圾桶；``return`` 放回枪头盒原孔。
             none_keys[空值字段]: 上游标记为"未填写"的字段名列表。
         """
         action_name = "one_channel_reuse_tip"
@@ -2359,6 +2371,7 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
                 use_channels=use_channels,
                 blow_out_air_volume=blow_out_air_volume,
                 spread="wide",
+                tip_disposal=tip_disposal,
             )
             if self.step_mode:
                 await self.run_protocol()
@@ -2378,9 +2391,10 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         *,
         vols: Union[List[float], float],
         blow_out_air_volume: Optional[List[Optional[float]]] = None,
+        tip_disposal: Literal["trash", "return"] = "trash",
         none_keys: List[str] = [],
     ) -> TransferLiquidReturn:
-        """八通道轴复用一整列枪头：从同一个源孔反复 8 通道吸液、逐列放液，最后丢弃枪头。
+        """八通道轴复用一整列枪头：从同一个源孔反复吸液，结束后丢弃或放回原位。
 
         全程只取 1 整列（8 个）枪头（首轮取、末轮丢），每轮"8 通道吸一次 → 整列放一次"，
         吸放速率固定 30。轴按 ``pip_setting`` 选 8 通道轴（本设备为右轴），未配置时回退右轴
@@ -2392,6 +2406,7 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
             tip_racks[枪头盒]: 取枪头用的 tip 盒列表；整个动作只取一整列 8 个枪头。
             vols[单列体积(µL)]: 每列每通道的吸放液体积；只给 1 个值时所有列共用，否则长度须等于列数。
             blow_out_air_volume[吹出空气量(µL)]: 可选，每通道吹出空气体积；缺省用设备默认。
+            tip_disposal[枪头结束处理]: ``trash`` 丢入垃圾桶；``return`` 放回枪头盒原孔。
             none_keys[空值字段]: 上游标记为"未填写"的字段名列表。
         """
         action_name = "eight_channels_reuse_tips"
@@ -2418,6 +2433,7 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
                 # ChannelsDoNotFitError，而 PRCXI 下发的是槽位 + 整列孔号、完全不用 offsets，
                 # 故用 custom（零偏移）跳过与设备无关的几何校验。
                 spread="custom",
+                tip_disposal=tip_disposal,
             )
             if self.step_mode:
                 await self.run_protocol()
@@ -2560,6 +2576,24 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
     ):
         use_channels = self._route_axis_and_channels(use_channels)
         return await super().discard_tips(use_channels, allow_nonzero_volume, offsets, **backend_kwargs)
+
+    async def return_tips(
+        self,
+        use_channels: Optional[List[int]] = None,
+        allow_nonzero_volume: bool = False,
+        offsets: Optional[List[Coordinate]] = None,
+        **backend_kwargs,
+    ):
+        """将枪头放回各通道记录的原始 TipSpot，并保持 PRCXI 左右轴路由。"""
+        if use_channels is not None and len(use_channels) == 0:
+            use_channels = None
+        use_channels = self._route_axis_and_channels(use_channels)
+        return await super().return_tips(
+            use_channels,
+            allow_nonzero_volume,
+            offsets=offsets,
+            **backend_kwargs,
+        )
 
     def set_tiprack(self, tip_racks: Sequence[TipRack]):
         super().set_tiprack(tip_racks)

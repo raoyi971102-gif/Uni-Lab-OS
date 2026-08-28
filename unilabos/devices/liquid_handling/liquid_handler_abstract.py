@@ -221,7 +221,41 @@ class LiquidHandlerMiddleware(LiquidHandler):
             return await self._simulate_handler.drop_tips(
                 tip_spots, use_channels, offsets, allow_nonzero_volume, **backend_kwargs
             )
+
+        # UniLabOS 运行时可能关闭 PLR 的全局 tip tracking；此时 PLR 会从 head 移除枪头，
+        # 但不会把枪头写回目标 TipSpot。调用 backend 前先保留枪头对象，成功后显式恢复原孔状态。
+        effective_channels = list(
+            use_channels
+            or getattr(self, "_default_use_channels", None)
+            or range(len(tip_spots))
+        )
+        returned_tip_states = []
+        for tip_spot, channel in zip(tip_spots, effective_channels):
+            if isinstance(tip_spot, TipSpot):
+                returned_tip_states.append((tip_spot, self.head[channel].get_tip()))
+
         await super().drop_tips(tip_spots, use_channels, offsets, allow_nonzero_volume, **backend_kwargs)
+
+        returned_tip_spots = []
+        for tip_spot, tip in returned_tip_states:
+            if not tip_spot.tracker.is_disabled and not tip_spot.has_tip():
+                tip_spot.tracker.add_tip(tip)
+            returned_tip_spots.append(tip_spot)
+
+        if returned_tip_spots and hasattr(self, "_ros_node") and self._ros_node is not None:
+            task = ROS2DeviceNode.run_async_func(
+                self._ros_node.update_resource,
+                True,
+                **{"resources": returned_tip_spots},
+            )
+            submit_time = time.time()
+            while not task.done():
+                if time.time() - submit_time > 10:
+                    self._ros_node.lab_logger().info(
+                        f"drop_tips {returned_tip_spots} 资源状态回写超时"
+                    )
+                    break
+                time.sleep(0.01)
         self.pending_liquids_dict = {}
         return
 
@@ -2142,10 +2176,17 @@ class LiquidHandlerAbstract(LiquidHandlerMiddleware):
         mix_liquid_height: Optional[float] = None,
         delays: Optional[List[int]] = None,
         pre_aspirate_from_target: Optional[float] = None,
+        tip_disposal: Literal["trash", "return"] = "trash",
         none_keys: List[str] = [],
     ) -> TransferLiquidReturn:
         """Transfer liquid with automatic mode detection.
         """
+        tip_disposal = str(tip_disposal or "trash").strip().lower()
+        if tip_disposal not in {"trash", "return"}:
+            raise ValueError(
+                f"tip_disposal must be 'trash' or 'return', got {tip_disposal!r}."
+            )
+
         # 若传入 dict（含 uuid），解析为 PLR Container/TipRack
         sources = await self._resolve_to_plr_resources(sources)
         targets = await self._resolve_to_plr_resources(targets)
@@ -2272,6 +2313,7 @@ class LiquidHandlerAbstract(LiquidHandlerMiddleware):
                     'use_channels': use_channels,
                     'asp_vols': [asp_vols[i%len_asp_vols]],
                     'dis_vols': [dis_vols[i%len_dis_vols]],
+                    'tip_disposal': tip_disposal,
                 }
 
                 # 条件性添加可选参数
@@ -2376,6 +2418,7 @@ class LiquidHandlerAbstract(LiquidHandlerMiddleware):
                     'dis_vols': _col8(dis_vols, c),
                     'pick_up': True,
                     'drop': True,
+                    'tip_disposal': tip_disposal,
                 }
                 # 可选 per-well 参数：length-8 列切片（空 → 跳过）
                 for key, src in (
@@ -2423,6 +2466,7 @@ class LiquidHandlerAbstract(LiquidHandlerMiddleware):
         dis_vols: List[float],
         pick_up: bool = True,
         drop: bool = True,
+        tip_disposal: Literal["trash", "return"] = "trash",
         **kwargs
     ):
 
@@ -2604,7 +2648,14 @@ class LiquidHandlerAbstract(LiquidHandlerMiddleware):
             await self.custom_delay(seconds=delays[0])
         await self.touch_tip(targets[0])
         if drop:
-            await self.discard_tips(use_channels=use_channels)
+            if tip_disposal == "return":
+                await self.return_tips(use_channels=use_channels)
+            elif tip_disposal == "trash":
+                await self.discard_tips(use_channels=use_channels)
+            else:
+                raise ValueError(
+                    f"tip_disposal must be 'trash' or 'return', got {tip_disposal!r}."
+                )
 
     # except Exception as e:
     #     traceback.print_exc()
