@@ -158,7 +158,7 @@ class BaseOpcUaClient(UniversalDriver):
         
         返回: (节点列表, 英文到中文映射, 中文到英文映射)
         """
-        df = pd.read_csv(file_path)
+        df = pd.read_csv(file_path, encoding="utf-8-sig")
         df = df.drop_duplicates(subset='Name', keep='first')
         nodes = []
         
@@ -599,7 +599,7 @@ class OpcUaClientWithSubscription(BaseOpcUaClient):
             cache_age = time.time() - cache_entry['timestamp']
             
             if cache_entry.get('source') == 'subscription' or cache_age < self._cache_timeout:
-                logger.debug(f"从缓存读取: {chinese_name} = {cache_entry['value']} (age: {cache_age:.2f}s, source: {cache_entry.get('source', 'unknown')})")
+                logger.trace(f"从缓存读取: {chinese_name} = {cache_entry['value']} (age: {cache_age:.2f}s, source: {cache_entry.get('source', 'unknown')})")
                 return cache_entry['value']
         
         # 缓存过期或不存在，从服务器读取

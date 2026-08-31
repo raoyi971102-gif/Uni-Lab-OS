@@ -1,37 +1,60 @@
-"""
-AI4M 设备驱动
-继承自 OPC UA 通讯基类，实现具体的设备动作函数
-"""
+"""AI4M（OP10）工作站驱动。"""
 
-import json
-import time
-import traceback
-from typing import Optional
-import os
+from enum import IntEnum
+from pathlib import Path
 import threading
+import time
+from typing import Optional
 
-from unilabos.resources.resource_tracker import ResourceTreeSet, SampleUUIDsType, LabSample
-from unilabos.utils.log import logger
-from unilabos.utils.decorator import not_action
+from unilabos.devices.workstation.AI4M.base_opcua_client import (
+    OpcUaClientWithSubscription,
+)
 from unilabos.devices.workstation.AI4M.decks import AI4M_deck
-from unilabos.devices.workstation.AI4M.bottle_carriers import Hydrogel_Clean_1BottleCarrier
+from unilabos.registry.decorators import (
+    ActionInputHandle,
+    ActionOutputHandle,
+    DataSource,
+    action,
+    device,
+    not_action,
+)
+from unilabos.resources.resource_tracker import LabSample, SampleUUIDsType
+from unilabos.utils.log import logger
 
-# 导入通讯基类
-from unilabos.devices.workstation.AI4M.base_opcua_client import OpcUaClientWithSubscription
+
+OP10_NODE_TABLE = "opcua_nodes_OP10_UniLab.csv"
 
 
+class RobotTargetPosition(IntEnum):
+    """OP10 机械臂目标位置代码。"""
+
+    BEAKER_RACK = 1
+    REACTION_STATION = 2
+
+
+class RobotAction(IntEnum):
+    """OP10 机械臂动作代码。"""
+
+    PICK = 1
+    PLACE = 2
+
+
+@device(
+    id="AI4M_station",
+    display_name="AI4M OP10 工作站",
+    category=["workstation"],
+    description="AI4M OP10 水凝胶反应工作站",
+    icon="Electrode_Module.jpg",
+)
 class AI4MDevice(OpcUaClientWithSubscription):
-    """
-    AI4M 设备类
-    继承自 OpcUaClientWithSubscription，实现具体的设备动作函数
-    """
-    
+    """OP10 工作站；使用独立 OPC UA 客户端和 OP10 变量表。"""
+
     def __init__(
-        self, 
-        url: str, 
+        self,
+        url: str,
         deck: Optional[AI4M_deck] = None,
-        csv_path: str = None, 
-        username: str = None, 
+        csv_path: str = "opcua_nodes_OP10_UniLab.csv",
+        username: str = None,
         password: str = None,
         use_subscription: bool = True,
         cache_timeout: float = 5.0,
@@ -39,20 +62,20 @@ class AI4MDevice(OpcUaClientWithSubscription):
         *args,
         **kwargs,
     ):
-        """
-        初始化 AI4M 设备
-        
-        参数:
-            url: OPC UA 服务器地址
-            deck: AI4M 资源树配置
-            csv_path: 节点配置 CSV 文件路径
-            username: OPC UA 用户名
-            password: OPC UA 密码
-            use_subscription: 是否启用订阅模式
-            cache_timeout: 缓存超时时间（秒）
-            subscription_interval: 订阅发布间隔（毫秒）
-        """
-        # 调用父类构造函数
+        table_name = Path(csv_path or OP10_NODE_TABLE).name
+        if table_name != OP10_NODE_TABLE:
+            raise ValueError(
+                f"AI4M 只能使用 OP10 变量表 {OP10_NODE_TABLE}，当前为 {table_name}"
+            )
+
+        # AI4C 基类为兼容旧驱动保留了类级默认字典。这里显式创建实例字典，
+        # 防止 AI4M 与 AI4M002 的节点、缓存和订阅互相串用。
+        self._node_registry = {}
+        self._variables_to_find = {}
+        self._name_mapping = {}
+        self._reverse_mapping = {}
+        self._found_node_objects = {}
+
         super().__init__(
             url=url,
             username=username,
@@ -61,471 +84,370 @@ class AI4MDevice(OpcUaClientWithSubscription):
             cache_timeout=cache_timeout,
             subscription_interval=subscription_interval,
             *args,
-            **kwargs
+            **kwargs,
         )
 
-        # 处理 deck 参数
-        if deck is None or isinstance(deck.get("data") if isinstance(deck, dict) else deck, dict):
+        if deck is None or isinstance(
+            deck.get("data") if isinstance(deck, dict) else deck, dict
+        ):
             self.deck = AI4M_deck(setup=True)
         else:
             self.deck = deck.get("data") if isinstance(deck, dict) else deck
-
         if self.deck is None:
             raise ValueError("Deck 配置不能为空")
 
-        # 创建机器人操作的线程锁，防止 pick 和 place 同时执行
-        self._robot_lock = threading.Lock()
-        logger.info("✓ 机器人操作线程锁已初始化")
+        self._robot_lock = threading.RLock()
+        logger.info("AI4M OP10 机器人动作锁已初始化")
+        if hasattr(self.deck, "children"):
+            logger.info(f"AI4M Deck 初始化完成，加载 {len(self.deck.children)} 个资源")
 
-        # 统计仓库信息
-        warehouse_count = 0
-        if hasattr(self.deck, 'children'):
-            warehouse_count = len(self.deck.children)
-            logger.info(f"Deck 初始化完成，加载 {warehouse_count} 个资源")
-        
-        # 如果提供了 CSV 路径，则直接加载节点
-        if csv_path:
-            self.load_nodes_from_csv(csv_path)
+        self.load_nodes_from_csv(OP10_NODE_TABLE)
 
     @not_action
-    def post_init(self, ros_node):
-        """ROS2 节点就绪后的初始化"""
-        if not (hasattr(self, 'deck') and self.deck):
+    def post_init(self, ros_node) -> None:
+        """ROS2 节点就绪后注册资源树。"""
+        if not getattr(self, "deck", None):
             return
-            
-        if not (hasattr(ros_node, 'resource_tracker') and ros_node.resource_tracker):
-            logger.warning("resource_tracker 不存在，无法注册 deck")
+        if not getattr(ros_node, "resource_tracker", None):
+            logger.warning("resource_tracker 不存在，无法注册 AI4M deck")
             return
-        
-        # 保存 ros_node 引用
+
         self._ros_node = ros_node
-        
-        # 1. 本地注册（必需）
         ros_node.resource_tracker.add_resource(self.deck)
-        
-        # 2. 上传云端
+        self._sync_resource_to_frontend()
+
+    @not_action
+    def _sync_resource_to_frontend(self) -> None:
+        """同步物料资源树；同步失败不影响硬件动作。"""
+        if not getattr(self, "_ros_node", None):
+            return
         try:
             from unilabos.ros.nodes.base_device_node import ROS2DeviceNode
+
             ROS2DeviceNode.run_async_func(
-                ros_node.update_resource,
+                self._ros_node.update_resource,
                 True,
-                resources=[self.deck]
+                resources=[self.deck],
             )
-            logger.info("Deck 已上传到云端")
-        except Exception as e:
-            logger.error(f"上传失败: {e}")
+            logger.info("AI4M 资源树已同步到前端")
+        except Exception as exc:
+            logger.warning(f"AI4M 资源树同步失败（不影响硬件动作）: {exc}")
 
-    def _reset_station_process_flags(self, station_id: int) -> None:
-        """复位检测站工艺完成、开始、参数已执行（与 trigger_station_process 入口处写入一致）。"""
-        self.set_node_value(f"station_{station_id}_process_complete", False)
-        self.set_node_value(f"station_{station_id}_start", False)
-        self.set_node_value(f"station_{station_id}_params_received", False)
+    @not_action
+    def _write_node(self, name: str, value) -> None:
+        """写入 OPC UA 节点，并把通信失败转换为动作异常。"""
+        if not self.set_node_value(name, value):
+            raise RuntimeError(f"写入 OPC UA 节点失败: {name}={value}")
 
-    # ==================== 设备动作函数 ====================
-    
-    def start_manual_mode(self) -> dict:
-        """
-        指令作业模式函数：
-        - 将模式切换、手自动切换写false
-        - 等待自动模式为false
-        - 将模式切换写true
+    @not_action
+    def _read_bool(self, name: str) -> bool:
+        """读取布尔节点；通信失败时禁止把 None 当成 False。"""
+        value = self.get_node_value(name)
+        if value is None:
+            raise RuntimeError(f"读取 OPC UA 节点失败: {name}")
+        return bool(value)
 
-        Returns:
-            dict: 包含 success 和 message
-        """
-        logger.info("启动指令作业模式...")
+    @not_action
+    def _wait_until(
+        self,
+        node_name: str,
+        expected: bool,
+        description: str,
+        *,
+        fault_node: Optional[str] = None,
+        poll_interval: float = 1.0,
+    ) -> None:
+        """等待布尔状态达到目标值，同时监控可选故障节点。"""
+        while self._read_bool(node_name) is not expected:
+            if fault_node and self._read_bool(fault_node):
+                raise RuntimeError(f"{description}期间检测到设备故障")
+            logger.info(f"等待{description}...")
+            time.sleep(poll_interval)
 
-        # 将模式切换、手自动切换写true
-        logger.info("设置模式切换和手自动切换为true...")
-        self.set_node_value("mode_switch", True)
-        self.set_node_value("manual_auto_switch", False)
+    @not_action
+    def _run_robot_action(
+        self,
+        action_code: RobotAction,
+        target_position: RobotTargetPosition,
+        target_pick_place_code: int,
+        description: str,
+    ) -> None:
+        """执行一次 OP10 统一机械臂握手。调用方必须持有机器人锁。"""
+        self._wait_until("robot_idle", True, "机械臂空闲", fault_node="robot_fault")
+        if self._read_bool("robot_fault"):
+            raise RuntimeError("机械臂存在故障，无法执行动作")
 
-        # 等待自动模式为false
-        logger.info("等待自动模式为False...")
-        auto_mode = self.get_node_value("auto_mode")
-        while auto_mode:
-            logger.info("等待自动模式变为False...")
+        self._write_node("robot_action_trigger", False)
+        self._wait_until(
+            "robot_action_complete",
+            False,
+            f"{description}完成信号复位",
+            fault_node="robot_fault",
+        )
+        self._write_node("robot_action_code", int(action_code))
+        self._write_node("robot_target_position_code", int(target_position))
+        self._write_node("robot_target_pick_place_code", target_pick_place_code)
+        self._write_node("robot_action_trigger", True)
+        try:
+            self._wait_until(
+                "robot_action_complete",
+                True,
+                description,
+                fault_node="robot_fault",
+            )
+        finally:
+            self._write_node("robot_action_trigger", False)
+        self._wait_until(
+            "robot_action_complete",
+            False,
+            f"{description}完成信号复位",
+            fault_node="robot_fault",
+        )
+        logger.info(f"{description}完成")
+
+    @not_action
+    def _station_is_free(self, station_id: int) -> bool:
+        return not self._read_bool(f"station_{station_id}_occupied")
+
+    @not_action
+    def _wait_for_free_station(self, requested_station_id: Optional[int]) -> int:
+        """在获取机器人锁之前等待空闲工站，避免阻塞放料动作。"""
+        while True:
+            station_ids = (
+                (requested_station_id,)
+                if requested_station_id is not None
+                else (1, 2, 3)
+            )
+            for station_id in station_ids:
+                if self._station_is_free(station_id):
+                    return station_id
+            logger.info("没有空闲反应工站，等待中...")
             time.sleep(1.0)
-            auto_mode = self.get_node_value("auto_mode")
-        
-        logger.info("模式切换完成")
-        return {
-            "message": "指令作业模式启动成功",
-        }
 
+    @not_action
+    def _sample_results(self, sample_uuids: SampleUUIDsType, extra: dict) -> list:
+        return [
+            LabSample(
+                sample_uuid=sample_uuid,
+                oss_path="",
+                extra=extra if isinstance(content, str) else content.serialize(),
+            )
+            for sample_uuid, content in (
+                sample_uuids.items() if sample_uuids else {}
+            )
+        ]
+
+    @not_action
+    def _assign_to_station(self, carrier, station_id: int) -> None:
+        if carrier is None:
+            return
+        station = self.deck.warehouses[f"反应工站{station_id}"]
+        site_key = list(station._ordering.keys())[0]
+        station.assign_child_resource(
+            carrier,
+            location=station.child_locations[site_key],
+            spot=0,
+        )
+
+    @action(auto_prefix=True, description="启动 OP10 指令作业模式")
+    def start_manual_mode(self) -> dict:
+        """新 OP10 表只提供直接指令接口，该模式即为指令作业模式。"""
+        return {"message": "OP10 已处于直接指令作业模式"}
+
+    @action(
+        auto_prefix=True,
+        description="机器人从烧杯堆栈取烧杯并放到反应工站",
+        handles=[
+            ActionInputHandle(
+                key="beaker_input",
+                data_type="ai4m_beaker",
+                label="取烧杯编号",
+                data_key="pick_beaker_id",
+                data_source=DataSource.HANDLE,
+            ),
+            ActionOutputHandle(
+                key="station_output",
+                data_type="ai4m_station",
+                label="放置检测站编号",
+                data_key="place_station_id",
+                data_source=DataSource.EXECUTOR,
+            ),
+        ],
+    )
     def trigger_robot_pick_beaker(
         self,
         pick_beaker_id: int,
-        place_station_id: int = None,
+        place_station_id: Optional[int] = None,
         sample_uuids: SampleUUIDsType = None,
     ) -> dict:
-        """
-        机器人取烧杯并放到检测位：
-        - 使用线程锁保证同一时间只有一个机器人操作
-        - 查询机器人空闲状态，循环等待直到机器人空闲
-        - 如果未指定place_station_id，则查找空闲检测站，如果没有则等待后重试
-        - 先写入取烧杯编号，等待取烧杯完成
-        - 取完成后再写入放检测编号，等待对应的放检测完成信号
-        
-        Args:
-            pick_beaker_id: 取烧杯编号（1-5）
-            place_station_id: 放检测编号（1-3），如果为None则自动查找空闲检测站
-            
-        Returns:
-            dict: 包含 success, pick_beaker_id, place_station_id, message
-        """
-        # 校验输入范围
-        if pick_beaker_id not in (1, 2, 3, 4, 5):
-            error_msg = f"取烧杯编号必须在 1-5 范围内，当前值: {pick_beaker_id}"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
-        if place_station_id is not None and place_station_id not in (1, 2, 3):
-            error_msg = f"放检测编号必须在 1-3 范围内，当前值: {place_station_id}"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
+        if pick_beaker_id not in range(1, 6):
+            raise ValueError(f"取烧杯编号必须在 1-5 范围内: {pick_beaker_id}")
+        if place_station_id is not None and place_station_id not in range(1, 4):
+            raise ValueError(f"反应工站编号必须在 1-3 范围内: {place_station_id}")
 
-        # None 表示自动选站；非 None 表示调用方指定工站，冲突时只能等该站重新空闲
-        explicit_place_station_id = place_station_id
-
-        # 在获取锁之前，先检查是否有空闲检测站
-        # 如果没有空闲检测站，不进行锁的争抢
-        if place_station_id is None:
-            # 如果未指定检测站，则查找空闲检测站
-            place_station_id = None
-            for station_id in (1, 2, 3):
-                station_ready_node = f"station_{station_id}_ready"
-                station_ready = self.get_node_value(station_ready_node)
-                if station_ready:
-                    place_station_id = station_id
-                    logger.info(f"[机器人取烧杯{pick_beaker_id}] 找到空闲检测站{place_station_id}")
-                    break
-            
-            if place_station_id is None:
-                logger.info(f"[机器人取烧杯{pick_beaker_id}] 没有空闲检测站，不进行锁的争抢，等待中...")
-                # 循环等待直到找到空闲检测站
-                while place_station_id is None:
-                    for station_id in (1, 2, 3):
-                        station_ready_node = f"station_{station_id}_ready"
-                        station_ready = self.get_node_value(station_ready_node)
-                        if station_ready:
-                            place_station_id = station_id
-                            logger.info(f"[机器人取烧杯{pick_beaker_id}] 找到空闲检测站{place_station_id}")
-                            break
-                    
-                    if place_station_id is None:
-                        logger.info(f"[机器人取烧杯{pick_beaker_id}] 没有空闲检测站，等待中...")
-                        time.sleep(1.0)
-        else:
-            # 如果指定了检测站，检查该检测站是否空闲
-            station_ready_node = f"station_{place_station_id}_ready"
-            station_ready = self.get_node_value(station_ready_node)
-            if not station_ready:
-                logger.info(f"[机器人取烧杯{pick_beaker_id}] 检测站{place_station_id}不空闲，不进行锁的争抢，等待中...")
-                # 循环等待直到检测站空闲
-                while not station_ready:
-                    logger.info(f"[机器人取烧杯{pick_beaker_id}] 检测站{place_station_id}忙碌中，等待空闲...")
-                    time.sleep(1.0)
-                    station_ready = self.get_node_value(station_ready_node)
-                logger.info(f"[机器人取烧杯{pick_beaker_id}] 检测站{place_station_id}已空闲")
-
-        # 使用线程锁保证同一时间只有一个机器人操作
-        # 只有在确认有空闲检测站后，才进行锁的争抢
-        # 注意：等待循环在获取锁之前，等待时不持有锁，让其他操作（如place）有机会执行
-        # 一旦检测站空闲，立即尝试获取锁，但在获取锁之前再次确认检测站状态
+        requested_station_id = place_station_id
         while True:
-            # 再次确认检测站仍然空闲（防止在等待过程中检测站被占用）
-            if place_station_id is None:
-                # 重新查找空闲检测站
-                place_station_id = None
-                for station_id in (1, 2, 3):
-                    station_ready_node = f"station_{station_id}_ready"
-                    station_ready = self.get_node_value(station_ready_node)
-                    if station_ready:
-                        place_station_id = station_id
-                        break
-                if place_station_id is None:
-                    logger.info(f"[机器人取烧杯{pick_beaker_id}] 检测站状态变化，重新等待空闲检测站...")
-                    time.sleep(1.0)
-                    continue
-            else:
-                # 确认指定的检测站仍然空闲
-                station_ready_node = f"station_{place_station_id}_ready"
-                station_ready = self.get_node_value(station_ready_node)
-                if not station_ready:
-                    logger.info(f"[机器人取烧杯{pick_beaker_id}] 检测站{place_station_id}状态变化，重新等待...")
-                    time.sleep(1.0)
-                    continue
-            
-            # 检测站空闲，尝试获取锁（阻塞方式，但等待循环在获取锁之前，所以不会阻塞其他操作）
-            logger.info(f"[机器人取烧杯{pick_beaker_id}] 检测站{place_station_id}空闲，尝试获取机器人操作锁...")
-            retry_pick_station = False
+            place_station_id = self._wait_for_free_station(requested_station_id)
             with self._robot_lock:
-                logger.info(f"[机器人取烧杯{pick_beaker_id}] 已获取机器人操作锁，开始执行")
+                if not self._station_is_free(place_station_id):
+                    logger.info(f"反应工站{place_station_id}状态已变化，重新选择")
+                    continue
 
-                station_ready_node = f"station_{place_station_id}_ready"
-                # 等待机器人空闲；等待期间若目标检测站被占用则释放锁后重试（自动模式可改选其他站）
-                logger.info(f"[机器人取烧杯{pick_beaker_id}] 等待机器人空闲...")
-                while True:
-                    robot_ready = self.get_node_value("robot_ready")
-                    if robot_ready:
-                        break
-                    if not self.get_node_value(station_ready_node):
-                        logger.info(
-                            f"[机器人取烧杯{pick_beaker_id}] 等待机器人期间检测站{place_station_id}已不空闲，释放锁后重试"
-                        )
-                        if explicit_place_station_id is None:
-                            place_station_id = None
-                        retry_pick_station = True
-                        break
-                    logger.info(f"[机器人取烧杯{pick_beaker_id}] 机器人忙碌中，等待空闲...")
-                    time.sleep(1.0)
+                rack = self.deck.warehouses["水凝胶烧杯堆栈"]
+                rack_site_key = f"A{pick_beaker_id}"
+                carrier = rack[rack_site_key]
+                if carrier is None:
+                    raise ValueError(f"堆栈位置 {rack_site_key} 没有载具")
 
-                if not retry_pick_station:
-                    if not self.get_node_value(station_ready_node):
-                        logger.info(
-                            f"[机器人取烧杯{pick_beaker_id}] 检测站{place_station_id}在机器人空闲瞬间已不再空闲，释放锁后重试"
-                        )
-                        if explicit_place_station_id is None:
-                            place_station_id = None
-                        retry_pick_station = True
+                self._run_robot_action(
+                    RobotAction.PICK,
+                    RobotTargetPosition.BEAKER_RACK,
+                    pick_beaker_id,
+                    f"从堆栈位置{pick_beaker_id}取烧杯",
+                )
+                try:
+                    rack.unassign_child_resource(carrier)
+                except Exception as exc:
+                    logger.warning(f"从堆栈解绑载具失败（不影响硬件操作）: {exc}")
 
-                if retry_pick_station:
-                    logger.info(f"[机器人取烧杯{pick_beaker_id}] 释放机器人操作锁（重选/重等检测站）")
-                else:
-                    logger.info(
-                        f"[机器人取烧杯{pick_beaker_id}] 机器人已空闲，检测站{place_station_id}仍空闲，开始执行动作"
-                    )
-                    # 获取仓库资源
-                    rack_warehouse = self.deck.warehouses["水凝胶烧杯堆栈"]
-                    station_warehouse = self.deck.warehouses[f"反应工站{place_station_id}"]
-                    rack_site_key = f"A{pick_beaker_id}"
+                self._write_node(f"station_{place_station_id}_start", False)
+                self._write_node(f"station_{place_station_id}_params_downloaded", False)
+                self._run_robot_action(
+                    RobotAction.PLACE,
+                    RobotTargetPosition.REACTION_STATION,
+                    place_station_id,
+                    f"将烧杯放到反应工站{place_station_id}",
+                )
+                try:
+                    self._assign_to_station(carrier, place_station_id)
+                except Exception as exc:
+                    logger.warning(f"绑定载具到反应工站失败（不影响硬件操作）: {exc}")
+                self._sync_resource_to_frontend()
+                break
 
-                    # 在执行硬件操作之前，先检查载具是否存在
-                    carrier = rack_warehouse[rack_site_key]
-                    if carrier is None:
-                        error_msg = f"堆栈位置 {rack_site_key} 没有载具"
-                        logger.error(error_msg)
-                        raise ValueError(error_msg)
-
-                    pick_complete_node = f"robot_rack_pick_beaker_{pick_beaker_id}_complete"
-                    place_complete_node = f"robot_place_station_{place_station_id}_complete"
-
-                    # 阶段1：下发取烧杯编号并等待完成
-                    logger.info("下发取烧杯编号，等待完成...")
-                    self.set_node_value("robot_pick_beaker_id", pick_beaker_id)
-
-                    # 等待取烧杯完成
-                    pick_complete = self.get_node_value(pick_complete_node)
-                    while not pick_complete:
-                        logger.info("取烧杯中...")
-                        time.sleep(1.0)
-                        pick_complete = self.get_node_value(pick_complete_node)
-
-                    # 阶段1.5：机器人取烧杯完成后，从堆栈解绑载具
-                    try:
-                        rack_warehouse.unassign_child_resource(carrier)
-                        logger.info(f"✓ 已从堆栈解绑载具 {carrier.name}")
-                    except Exception as e:
-                        logger.warning(f"从堆栈解绑载具失败（不影响硬件操作）: {e}")
-
-                    # 阶段2：取完成后再下发放检测编号并等待完成（先复位该检测站 OPC 标志，再下发编号）
-                    logger.info("取完成，开始下发放检测编号...")
-                    self._reset_station_process_flags(place_station_id)
-                    self.set_node_value("robot_place_station_id", place_station_id)
-
-                    # 等待放检测完成
-                    place_complete = self.get_node_value(place_complete_node)
-                    while not place_complete:
-                        logger.info("放检测中...")
-                        time.sleep(1.0)
-                        place_complete = self.get_node_value(place_complete_node)
-
-                    # 阶段2.5：机器人放到检测站完成后，绑定载具到检测站
-                    try:
-                        station_site_idx = 0
-                        station_site_key = list(station_warehouse._ordering.keys())[station_site_idx]
-                        station_location = station_warehouse.child_locations[station_site_key]
-
-                        station_warehouse.assign_child_resource(
-                            carrier, location=station_location, spot=station_site_idx
-                        )
-                        logger.info(f"✓ 已绑定载具 {carrier.name} 到检测站{place_station_id}")
-                    except Exception as e:
-                        logger.warning(f"绑定载具到检测站失败（不影响硬件操作）: {e}")
-
-                    logger.info("放检测完成")
-
-                    # 更新资源树到前端
-                    if hasattr(self, '_ros_node') and self._ros_node:
-                        try:
-                            from unilabos.ros.nodes.base_device_node import ROS2DeviceNode
-
-                            ROS2DeviceNode.run_async_func(
-                                self._ros_node.update_resource, True, resources=[self.deck]
-                            )
-                            logger.info(f"✓ 已同步资源更新到前端")
-                        except Exception as e:
-                            logger.warning(f"前端资源更新失败: {e}")
-
-                    logger.info(f"[机器人取烧杯{pick_beaker_id}] 释放机器人操作锁")
-                    # 成功执行后退出外层循环
-                    break
-
-            if retry_pick_station:
-                continue
-
-        # 准备载具信息作为样本数据
-        carrier_info = {}
-        if carrier is not None:
-            carrier_info = {
+        extra = {
+            "carrier_info": {
                 "name": carrier.name,
                 "type": "carrier",
                 "rack_location": rack_site_key,
                 "station_id": place_station_id,
-            }
-
+            },
+            "pick_beaker_id": pick_beaker_id,
+            "place_station_id": place_station_id,
+        }
         return {
             "pick_beaker_id": pick_beaker_id,
             "place_station_id": place_station_id,
-            "message": f"机器人取烧杯{pick_beaker_id}并放到检测站{place_station_id}完成",
-            "unilabos_samples": [LabSample(sample_uuid=sample_uuid, oss_path="", extra={"carrier_info": carrier_info, "pick_beaker_id": pick_beaker_id, "place_station_id": place_station_id} if isinstance(content, str) else content.serialize()) for sample_uuid, content in (sample_uuids.items() if sample_uuids else {})]
+            "message": f"机器人取烧杯{pick_beaker_id}并放到反应工站{place_station_id}完成",
+            "unilabos_samples": self._sample_results(sample_uuids, extra),
         }
 
+    @action(
+        auto_prefix=True,
+        description="机器人从反应工站取烧杯并放回堆栈",
+        handles=[
+            ActionInputHandle(
+                key="station_input",
+                data_type="ai4m_station",
+                label="取检测站编号",
+                data_key="pick_station_id",
+                data_source=DataSource.HANDLE,
+            ),
+            ActionOutputHandle(
+                key="beaker_output",
+                data_type="ai4m_beaker",
+                label="放烧杯编号",
+                data_key="place_beaker_id",
+                data_source=DataSource.EXECUTOR,
+            ),
+        ],
+    )
     def trigger_robot_place_beaker(
         self,
         place_beaker_id: int,
         pick_station_id: int,
         sample_uuids: SampleUUIDsType = None,
     ) -> dict:
-        """
-        机器人从检测位取烧杯并放回：
-        - 使用线程锁保证同一时间只有一个机器人操作
-        - 查询机器人空闲状态，循环等待直到机器人空闲
-        - 先写入取检测编号，等待取检测完成
-        - 取完成后再写入放烧杯编号，等待对应的放烧杯完成信号
-        
-        Args:
-            place_beaker_id: 放烧杯编号（1-5）
-            pick_station_id: 取检测编号（1-3）
-            
-        Returns:
-            dict: 包含 success, place_beaker_id, pick_station_id, message
-        """
-        # 校验输入范围
-        if place_beaker_id not in (1, 2, 3, 4, 5):
-            error_msg = f"放烧杯编号必须在 1-5 范围内，当前值: {place_beaker_id}"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
-        if pick_station_id not in (1, 2, 3):
-            error_msg = f"取检测编号必须在 1-3 范围内，当前值: {pick_station_id}"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
+        if place_beaker_id not in range(1, 6):
+            raise ValueError(f"放烧杯编号必须在 1-5 范围内: {place_beaker_id}")
+        if pick_station_id not in range(1, 4):
+            raise ValueError(f"反应工站编号必须在 1-3 范围内: {pick_station_id}")
 
-        # 获取仓库资源
-        rack_warehouse = self.deck.warehouses["水凝胶烧杯堆栈"]
-        station_warehouse = self.deck.warehouses[f"反应工站{pick_station_id}"]
-        station_site_idx = 0
+        rack = self.deck.warehouses["水凝胶烧杯堆栈"]
+        station = self.deck.warehouses[f"反应工站{pick_station_id}"]
+        carrier = station.sites[0] if station.sites else None
+        if carrier is not None and type(carrier).__name__ == "ResourceHolder":
+            carrier = None
+        rack_site_key = f"C{place_beaker_id}"
 
-        # 使用线程锁保证同一时间只有一个机器人操作
-        logger.info(f"[机器人放烧杯{place_beaker_id}] 尝试获取机器人操作锁...")
         with self._robot_lock:
-            logger.info(f"[机器人放烧杯{place_beaker_id}] 已获取机器人操作锁，开始执行")
-            
-            # 互锁：循环等待直到机器人空闲
-            logger.info(f"[机器人放烧杯{place_beaker_id}] 等待机器人空闲...")
-            robot_ready = self.get_node_value("robot_ready")
-            while not robot_ready:
-                logger.info(f"[机器人放烧杯{place_beaker_id}] 机器人忙碌中，等待空闲...")
-                time.sleep(1.0)
-                robot_ready = self.get_node_value("robot_ready")
-            logger.info(f"[机器人放烧杯{place_beaker_id}] 机器人已空闲")
-
-            # 获取检测站的载具（如果存在）
-            try:
-                carrier = station_warehouse.sites[station_site_idx] if station_warehouse.sites else None
-            except Exception:
-                carrier = None
-            
-            # 确定堆栈目标位置
-            rack_site_key = f"C{place_beaker_id}"
-            # 预先计算 rack_site_idx，即使不执行绑定操作也需要这个值
-            try:
-                rack_site_idx = list(rack_warehouse._ordering.keys()).index(rack_site_key)
-            except Exception:
-                rack_site_idx = None
-
-            pick_complete_node = f"robot_pick_station_{pick_station_id}_complete"
-            place_complete_node = f"robot_rack_place_beaker_{place_beaker_id}_complete"
-
-            # 阶段1：下发取检测编号并等待完成
-            logger.info("下发取检测编号，等待完成...")
-            self.set_node_value("robot_pick_station_id", pick_station_id)
-            
-            # 等待取检测完成
-            pick_complete = self.get_node_value(pick_complete_node)
-            while not pick_complete:
-                logger.info("取检测中...")
-                time.sleep(1.0)
-                pick_complete = self.get_node_value(pick_complete_node)
-            
-            # 阶段1.5：机器人取检测完成后，从检测站解绑载具
-            if carrier is not None and type(carrier).__name__ != 'ResourceHolder':
+            self._run_robot_action(
+                RobotAction.PICK,
+                RobotTargetPosition.REACTION_STATION,
+                pick_station_id,
+                f"从反应工站{pick_station_id}取烧杯",
+            )
+            if carrier is not None:
                 try:
-                    station_warehouse.unassign_child_resource(carrier)
-                    logger.info(f"✓ 已从检测站{pick_station_id}解绑载具 {carrier.name}")
-                except Exception as e:
-                    logger.warning(f"从检测站解绑载具失败（不影响硬件操作）: {e}")
-            
-            # 阶段2：取完成后再下发放烧杯编号并等待完成
-            logger.info("取完成，开始下发放烧杯编号...")
-            self.set_node_value("robot_place_beaker_id", place_beaker_id)
-            
-            # 等待放烧杯完成
-            place_complete = self.get_node_value(place_complete_node)
-            while not place_complete:
-                logger.info("放烧杯中...")
-                time.sleep(1.0)
-                place_complete = self.get_node_value(place_complete_node)
-            
-            # 阶段2.5：机器人放烧杯完成后，绑定载具回堆栈
-            if carrier is not None and type(carrier).__name__ != 'ResourceHolder' and rack_site_idx is not None:
-                try:
-                    rack_location = rack_warehouse.child_locations[rack_site_key]
-                    
-                    rack_warehouse.assign_child_resource(carrier, location=rack_location, spot=rack_site_idx)
-                    logger.info(f"✓ 已绑定载具 {carrier.name} 回堆栈 {rack_site_key}")
-                except Exception as e:
-                    logger.warning(f"绑定载具回堆栈失败（不影响硬件操作）: {e}")
-            
-            logger.info("放烧杯完成")
-            
-            # 更新资源树到前端
-            if hasattr(self, '_ros_node') and self._ros_node:
-                try:
-                    from unilabos.ros.nodes.base_device_node import ROS2DeviceNode
-                    ROS2DeviceNode.run_async_func(self._ros_node.update_resource, True, resources=[self.deck])
-                    logger.info(f"✓ 已同步资源更新到前端")
-                except Exception as e:
-                    logger.warning(f"前端资源更新失败: {e}")
+                    station.unassign_child_resource(carrier)
+                except Exception as exc:
+                    logger.warning(f"从反应工站解绑载具失败（不影响硬件操作）: {exc}")
 
-            logger.info(f"[机器人放烧杯{place_beaker_id}] 释放机器人操作锁")
+            self._run_robot_action(
+                RobotAction.PLACE,
+                RobotTargetPosition.BEAKER_RACK,
+                place_beaker_id,
+                f"将烧杯放回堆栈位置{place_beaker_id}",
+            )
+            if carrier is not None:
+                try:
+                    rack_site_idx = list(rack._ordering.keys()).index(rack_site_key)
+                    rack.assign_child_resource(
+                        carrier,
+                        location=rack.child_locations[rack_site_key],
+                        spot=rack_site_idx,
+                    )
+                except Exception as exc:
+                    logger.warning(f"绑定载具回堆栈失败（不影响硬件操作）: {exc}")
+            self._sync_resource_to_frontend()
 
-        # 准备载具信息作为样本数据，记录保存样品数据
-        carrier_info = {
-            "name": carrier.name if carrier is not None else None,
-            "type": "carrier",
-            "rack_location": rack_site_key,
-            "station_id": pick_station_id,
-            "rack_site_index": rack_site_idx
+        extra = {
+            "carrier_info": {
+                "name": carrier.name if carrier is not None else None,
+                "type": "carrier",
+                "rack_location": rack_site_key,
+                "station_id": pick_station_id,
+            },
+            "place_beaker_id": place_beaker_id,
+            "pick_station_id": pick_station_id,
         }
-
         return {
             "place_beaker_id": place_beaker_id,
             "pick_station_id": pick_station_id,
-            "message": f"机器人从检测站{pick_station_id}取烧杯并放回位置{place_beaker_id}完成",
-            "unilabos_samples": [LabSample(sample_uuid=sample_uuid, oss_path="", extra={"carrier_info": carrier_info, "place_beaker_id": place_beaker_id, "pick_station_id": pick_station_id} if isinstance(content, str) else content.serialize()) for sample_uuid, content in (sample_uuids.items() if sample_uuids else {})]
+            "message": f"机器人从反应工站{pick_station_id}取烧杯并放回位置{place_beaker_id}完成",
+            "unilabos_samples": self._sample_results(sample_uuids, extra),
         }
 
+    @action(
+        auto_prefix=True,
+        description="等待 OP10 工站请求，下发参数并启动加工",
+        handles=[
+            ActionInputHandle(
+                key="process_station_input",
+                data_type="ai4m_station",
+                label="检测站编号",
+                data_key="station_id",
+                data_source=DataSource.HANDLE,
+            ),
+            ActionOutputHandle(
+                key="process_station_output",
+                data_type="ai4m_station",
+                label="完成的检测站编号",
+                data_key="station_id",
+                data_source=DataSource.EXECUTOR,
+            ),
+        ],
+    )
     def trigger_station_process(
         self,
         station_id: int,
@@ -535,303 +457,118 @@ class AI4MDevice(OpcUaClientWithSubscription):
         syringe_pump_abs_position_set: int,
         sample_uuids: SampleUUIDsType = None,
     ) -> dict:
-        """
-        执行检测工艺流程：
-        1. 等待检测站请求参数
-        2. 下发对应编号的搅拌仪和注射泵参数
-        3. 等待参数已执行
-        4. 给出检测开始信号
-        5. 等待检测工艺完成
-        
-        Args:
-            station_id: 检测编号（1-3）
-            mag_stir_stir_speed: 磁力搅拌仪搅拌速度
-            mag_stir_heat_temp: 磁力搅拌仪加热温度
-            mag_stir_time_set: 磁力搅拌仪时间设置
-            syringe_pump_abs_position_set: 注射泵绝对位置设置
-            
-        Returns:
-            dict: 包含 success, station_id, message
-        """
-        # 校验输入范围
-        if station_id not in (1, 2, 3):
-            error_msg = f"检测编号必须在 1-3 范围内，当前值: {station_id}"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
+        if station_id not in range(1, 4):
+            raise ValueError(f"检测站编号必须在 1-3 范围内: {station_id}")
 
-        # 检测站索引（0-2）
-        station_idx = station_id - 1
-        
-        # 节点名称
-        request_node = f"station_{station_id}_request_params"
-        params_received_node = f"station_{station_id}_params_received"
-        start_node = f"station_{station_id}_start"
-        complete_node = f"station_{station_id}_process_complete"
+        prefix = f"station_{station_id}"
+        self._write_node(f"{prefix}_start", False)
+        self._write_node(f"{prefix}_params_downloaded", False)
+        self._wait_until(f"{prefix}_request_process", True, f"检测站{station_id}请求加工")
 
-        self._reset_station_process_flags(station_id)
+        self._write_node(f"{prefix}_speed", mag_stir_stir_speed)
+        self._write_node(f"{prefix}_temperature", mag_stir_heat_temp)
+        self._write_node(f"{prefix}_time", mag_stir_time_set)
+        self._write_node(f"{prefix}_syringe_position", syringe_pump_abs_position_set)
+        self._write_node(f"{prefix}_params_downloaded", True)
+        self._wait_until(f"{prefix}_params_executed", True, f"检测站{station_id}参数执行")
+        self._write_node(f"{prefix}_params_downloaded", False)
 
-        # 阶段1：等待检测站请求参数
-        logger.info(f"等待检测{station_id}请求参数...")
-        request_params = self.get_node_value(request_node)
-        while not request_params:
-            logger.info(f"等待检测{station_id}请求参数中...")
-            time.sleep(1.0)
-            request_params = self.get_node_value(request_node)
-        
-        logger.info(f"检测{station_id}已请求参数，开始下发...")
-        
-        # 阶段2：下发对应编号的搅拌仪参数
-        self.set_node_value(f"mag_stirrer_c{station_idx}_stir_speed", mag_stir_stir_speed)
-        self.set_node_value(f"mag_stirrer_c{station_idx}_heat_temp", mag_stir_heat_temp)
-        self.set_node_value(f"mag_stirrer_c{station_idx}_time_set", mag_stir_time_set)
-        logger.info(f"已下发检测{station_id}磁力搅拌仪参数：速度={mag_stir_stir_speed}, 温度={mag_stir_heat_temp}, 时间={mag_stir_time_set}")
-        
-        # 下发对应编号的注射泵参数
-        self.set_node_value(f"syringe_pump_{station_idx}_abs_position_set", syringe_pump_abs_position_set)
-        logger.info(f"已下发检测{station_id}注射泵绝对位置设置：{syringe_pump_abs_position_set}")
+        self._write_node(f"{prefix}_start", True)
+        try:
+            self._wait_until(
+                f"{prefix}_complete",
+                True,
+                f"检测站{station_id}加工完成",
+                poll_interval=5.0,
+            )
+        finally:
+            self._write_node(f"{prefix}_start", False)
 
-        
-        # 阶段3：等待参数已执行
-        self.set_node_value(start_node, True)
-        logger.info(f"等待检测{station_id}参数已执行...")
-        params_received = self.get_node_value(params_received_node)
-        while not params_received:
-            logger.info(f"检测{station_id}参数执行中...")
-            time.sleep(1.0)
-            params_received = self.get_node_value(params_received_node)
-        
-        logger.info(f"检测{station_id}参数已执行")
-           
-        # 阶段4：等待检测工艺完成
-        logger.info(f"等待检测{station_id}工艺完成...")
-        process_complete = self.get_node_value(complete_node)
-        while not process_complete:
-            logger.info(f"检测{station_id}工艺执行中...")
-            time.sleep(5.0)
-            process_complete = self.get_node_value(complete_node)
-        
-        logger.info(f"检测{station_id}工艺完成")
-        self.set_node_value(start_node, False)
-
+        extra = {
+            "station_id": station_id,
+            "mag_stir_stir_speed": mag_stir_stir_speed,
+            "mag_stir_heat_temp": mag_stir_heat_temp,
+            "mag_stir_time_set": mag_stir_time_set,
+            "syringe_pump_abs_position_set": syringe_pump_abs_position_set,
+        }
         return {
             "station_id": station_id,
             "message": f"检测站{station_id}工艺执行完成",
-            "unilabos_samples": [LabSample(sample_uuid=sample_uuid, oss_path="", extra={"station_id": station_id, "mag_stir_stir_speed": mag_stir_stir_speed, "mag_stir_heat_temp": mag_stir_heat_temp, "mag_stir_time_set": mag_stir_time_set, "syringe_pump_abs_position_set": syringe_pump_abs_position_set} if isinstance(content, str) else content.serialize()) for sample_uuid, content in (sample_uuids.items() if sample_uuids else {})]
+            "unilabos_samples": self._sample_results(sample_uuids, extra),
         }
 
+    @action(auto_prefix=True, description="初始化 OP10 机械臂和三个反应工站")
     def trigger_init(self) -> dict:
-        """
-        初始化函数：
-        - 报警复位：alarm_reset 置 true，延时 1 秒后置 false
-        - 将手自动切换写false
-        - 等待自动模式为false
-        - 将初始化PC写true
-        - 等待初始化完成PC为true
-        - 将初始化PC写false
-        - 返回成功
-
-        Returns:
-            dict: 包含 success 和 message
-        """
-        logger.info("开始初始化...")
-        logger.info("报警复位...")
-        self.set_node_value("alarm_reset", True)
+        self._write_node("robot_action_trigger", False)
+        self._write_node("robot_reset", True)
         time.sleep(1.0)
-        self.set_node_value("alarm_reset", False)
+        self._write_node("robot_reset", False)
+        self._write_node("robot_initialize", False)
+        time.sleep(0.5)
+        self._write_node("robot_initialize", True)
+        self._wait_until(
+            "robot_initialization_complete",
+            True,
+            "机械臂初始化",
+            fault_node="robot_fault",
+        )
+        self._write_node("robot_initialize", False)
 
-        # 将手自动切换写false
-        logger.info("设置手自动切换为false...")
-        self.set_node_value("manual_auto_switch", False)
-        self.set_node_value("initialize", False)
-        time.sleep(1.0)
-        
-        # 等待自动模式为false
-        logger.info("等待自动模式为false...")
-        auto_mode = self.get_node_value("auto_mode")
-        while auto_mode:
-            logger.info("等待自动模式变为false...")
-            time.sleep(1.0)
-            auto_mode = self.get_node_value("auto_mode")
-        
-        # 将初始化PC写true
-        logger.info("自动模式已为false，设置初始化PC为true...")
-        self.set_node_value("initialize", True)
-        time.sleep(1.0)
-        self.set_node_value("initialize", False)
+        for station_id in (1, 2, 3):
+            node = f"station_{station_id}_initialize"
+            self._write_node(node, False)
+            time.sleep(0.2)
+            self._write_node(node, True)
+            self._wait_until(
+                f"station_{station_id}_initialization_complete",
+                True,
+                f"反应工站{station_id}初始化",
+            )
+            self._write_node(node, False)
+        return {"message": "OP10 机械臂和三个反应工站初始化完成"}
 
-        # 等待初始化完成PC为true
-        logger.info("等待初始化完成...")
-        init_finished = self.get_node_value("init finished")
-        while not init_finished:
-            logger.info("初始化中...")
-            time.sleep(1.0)
-            init_finished = self.get_node_value("init finished")
-        
-        # 将初始化PC写false
-        logger.info("初始化完成，设置初始化PC为false...")
-        self.set_node_value("initialize", False)
-        
-        return {
-            "message": "设备初始化完成",
-        }
-
+    @action(auto_prefix=True, description="向 OP10 三个反应工站批量下发参数")
     def download_auto_params(
         self,
         mag_stir_stir_speed: int,
         mag_stir_heat_temp: int,
         mag_stir_time_set: int,
         syringe_pump_abs_position_set: int,
-        auto_job_stop_delay: int
+        auto_job_stop_delay: int,
     ) -> dict:
-        """
-        自动模式参数下发函数：
-        - 将搅拌仪的搅拌速度、加热温度、时间设置、泵的绝对位置设置和自动作业停止等待时间作为传入参数
-        - 一起下发给3个搅拌仪和3个泵
-        - 下发后将自动作业参数已下发写true
-        - 等待自动作业参数已执行为true
-        - 将已下发写false
-        - 返回成功
+        logger.warning(
+            "OP10 新变量表没有 auto_job_stop_delay 节点，该兼容参数不会下发: "
+            f"{auto_job_stop_delay}"
+        )
+        for station_id in (1, 2, 3):
+            prefix = f"station_{station_id}"
+            self._write_node(f"{prefix}_params_downloaded", False)
+            self._write_node(f"{prefix}_speed", mag_stir_stir_speed)
+            self._write_node(f"{prefix}_temperature", mag_stir_heat_temp)
+            self._write_node(f"{prefix}_time", mag_stir_time_set)
+            self._write_node(f"{prefix}_syringe_position", syringe_pump_abs_position_set)
+            self._write_node(f"{prefix}_params_downloaded", True)
 
-        Args:
-            mag_stir_stir_speed: 磁力搅拌仪搅拌速度
-            mag_stir_heat_temp: 磁力搅拌仪加热温度
-            mag_stir_time_set: 磁力搅拌仪时间设置
-            syringe_pump_abs_position_set: 注射泵绝对位置设置
-            auto_job_stop_delay: 自动作业等待停止时间
+        for station_id in (1, 2, 3):
+            self._wait_until(
+                f"station_{station_id}_params_executed",
+                True,
+                f"反应工站{station_id}参数执行",
+            )
+            self._write_node(f"station_{station_id}_params_downloaded", False)
+        return {"message": "三个反应工站参数下发完成"}
 
-        Returns:
-            dict: 包含 success 和 message
-        """
-        logger.info("开始下发自动模式参数...")
-        self.set_node_value("auto_param_applied", False)
-        self.set_node_value("auto_param_downloaded", False)
-        self.set_node_value("mode_switch", False)
-        
-        # 下发3个磁力搅拌仪的参数
-        for c in (0, 1, 2):
-            self.set_node_value(f"mag_stirrer_c{c}_stir_speed", mag_stir_stir_speed)
-            self.set_node_value(f"mag_stirrer_c{c}_heat_temp", mag_stir_heat_temp)
-            self.set_node_value(f"mag_stirrer_c{c}_time_set", mag_stir_time_set)
-        logger.info(f"已下发3个磁力搅拌仪参数：速度={mag_stir_stir_speed}, 温度={mag_stir_heat_temp}, 时间={mag_stir_time_set}")
-
-        # 下发3个注射泵的绝对位置设置
-        for p in (0, 1, 2):
-            self.set_node_value(f"syringe_pump_{p}_abs_position_set", syringe_pump_abs_position_set)
-        logger.info(f"已下发3个注射泵绝对位置设置：{syringe_pump_abs_position_set}")
-
-        # 下发自动作业等待停止时间
-        self.set_node_value("auto_job_stop_delay", auto_job_stop_delay)
-        logger.info(f"已下发自动作业等待停止时间：{auto_job_stop_delay}")
-
-        # 将自动作业参数已下发写true
-        logger.info("设置自动作业参数已下发为true...")
-        self.set_node_value("auto_param_downloaded", True)
-
-        # 等待自动作业参数已执行为true
-        logger.info("等待自动作业参数已执行...")
-        param_applied = self.get_node_value("auto_param_applied")
-        while not param_applied:
-            logger.info("参数执行中...")
-            time.sleep(1.0)
-            param_applied = self.get_node_value("auto_param_applied")
-        
-        logger.info("自动作业参数已执行")
-        # 将已下发写false
-        self.set_node_value("auto_param_downloaded", False)
-
-        return {
-            "message": "自动模式参数下发完成",
-        }
-
+    @action(auto_prefix=True, description="兼容旧版自动作业入口")
     def start_auto_mode(self) -> dict:
-        """
-        自动作业模式函数：
-        - 将模式切换、手自动切换写true
-        - 等待自动模式为true
-        - 将自动作业开始触发写true
-        - 等待自动作业完成为true
-        - 返回成功
-
-        Returns:
-            dict: 包含 success 和 message
-        """
-        logger.info("启动自动作业模式...")
-
-        # 将模式切换、手自动切换写true
-        logger.info("设置模式切换和手自动切换为true...")
-        self.set_node_value("mode_switch", False)
-        self.set_node_value("manual_auto_switch", False)
-        self.set_node_value("auto_run_start_trigger", False)
-        self.set_node_value("auto_run_complete", False)
-        time.sleep(1.0)
-        self.set_node_value("manual_auto_switch", True)
-
-        # 等待自动模式为true
-        logger.info("等待自动模式为true...")
-        auto_mode = self.get_node_value("auto_mode")
-        while not auto_mode:
-            logger.info("等待自动模式变为true...")
-            time.sleep(1.0)
-            auto_mode = self.get_node_value("auto_mode")
-        
-        # 将自动作业开始触发写true
-        logger.info("自动模式已为true，设置自动作业开始触发为true...")
-        self.set_node_value("auto_run_start_trigger", True)
-
-        # 等待自动作业完成为true
-        logger.info("等待自动作业完成...")
-        auto_run_complete = self.get_node_value("auto_run_complete")
-        while not auto_run_complete:
-            logger.info("自动作业执行中...")
-            time.sleep(5.0)
-            auto_run_complete = self.get_node_value("auto_run_complete")
-        
-        logger.info("自动作业完成")
-        self.set_node_value("manual_auto_switch", False)
-
-        return {
-            "message": "自动作业模式执行完成",
-        }
+        raise RuntimeError(
+            "OP10 新变量表未提供自动模式切换、自动启动和自动完成节点；"
+            "请使用机器人动作与 trigger_station_process 组合执行"
+        )
 
 
-    
-
-if __name__ == '__main__':
-    # 调试用法
-    # A4 = AI4MDevice(
-    #     url="opc.tcp://127.0.0.1:49320",
-    #     csv_path="opcua_nodes_AI4M_sim.csv"
-    # )
-    A4 = AI4MDevice(
+if __name__ == "__main__":
+    device_instance = AI4MDevice(
         url="opc.tcp://192.168.1.10:4840",
-        csv_path="opcua_nodes_AI4M.csv"
+        csv_path=OP10_NODE_TABLE,
     )
-    
-    A4.trigger_init()
-    print("初始化完成")
-    
-
-    while True:
-        time.sleep(1)
-
-    # 给水凝胶堆栈A1位置添加clean物料
-    rack_warehouse = A4.deck.warehouses["水凝胶烧杯堆栈"]
-    clean_carrier = Hydrogel_Clean_1BottleCarrier("烧杯")
-    
-    # 获取A1位置的索引和位置信息
-    rack_site_key = "A1"
-    rack_site_idx = list(rack_warehouse._ordering.keys()).index(rack_site_key)
-    rack_location = rack_warehouse.child_locations[rack_site_key]
-    
-    # 将载具分配到A1位置
-    rack_warehouse.assign_child_resource(clean_carrier, location=rack_location, spot=rack_site_idx)
-    print(f"✓ 已添加clean物料到A1位置: {clean_carrier.name}")
-    
-    pick_result = A4.trigger_robot_pick_beaker(1, 1)
-    print("取烧杯完成")
-    
-    A4.trigger_robot_place_beaker(pick_result['pick_beaker_id'], pick_result['place_station_id'])
-    print("放烧杯完成")
-    
-    # while True:
-    #     time.sleep(1)
+    print(device_instance.trigger_init())
