@@ -335,3 +335,14 @@ ARM_STATUS_NODES = [
     "Robotic_Arm_Idle_1", "Robotic_Arm_Idle_2", "Robotic_Arm_Idle_3",
     "Robotic_Arm_Fault_1", "Robotic_Arm_Fault_2", "Robotic_Arm_Fault_3",
 ]
+
+# 加粉单元故障状态节点（PLC BOOL），与机械臂状态一起缓存并发布到前端。
+POWDER_FAULT_STATUS_NODES = [
+    "Powder_Injection_Turntable_Fault",
+    "Powder_X_Axis_Fault",
+    "Powder_Drop_Prevention_Motor_Fault",
+    "Powder_Z_Axis_Fault",
+    "Powder_Rotation_Axis_Fault",
+]
+
+PUBLISHED_BOOLEAN_STATUS_NODES = ARM_STATUS_NODES + POWDER_FAULT_STATUS_NODES

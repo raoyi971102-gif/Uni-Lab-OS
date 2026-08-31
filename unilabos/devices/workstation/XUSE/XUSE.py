@@ -40,7 +40,10 @@ from unilabos.devices.workstation.XUSE.XUSE_CONSTS import RoboticArmPickPlaceCod
 from unilabos.devices.workstation.XUSE.XUSE_CONSTS import RoboticArmPickPlaceCode_3
 from unilabos.devices.workstation.XUSE.XUSE_CONSTS import OpenCanActionCode, SieveActionCode, ScrapePowderActionCode
 from unilabos.devices.workstation.XUSE.XUSE_CONSTS import SmallCrucibleDischargePosition, LargeCrucibleFeedPosition
-from unilabos.devices.workstation.XUSE.XUSE_CONSTS import ARM_LOCK_MAP, ARM_STATUS_NODES
+from unilabos.devices.workstation.XUSE.XUSE_CONSTS import (
+    ARM_LOCK_MAP,
+    PUBLISHED_BOOLEAN_STATUS_NODES,
+)
 
 # 定义 XUSE 设备通信类
 # 包含三个机械臂，一个罐架区，一个加珠区，一个开罐区，一个刮粉区，一个过筛区，一个加粉区，一个球磨区，一个马弗炉区，一个出料区
@@ -156,9 +159,9 @@ class XUSEDevice(OpcUaClientWithSubscription):
         # （共享 OPC 锁、可能因动作占用而阻塞），部分发布回调会卡住，导致对应 topic 不发布、
         # host 扫不到、前端状态显示不全。这里用单一后台线程每 5 秒统一刷新缓存，
         # 状态方法只读缓存即时返回，保证机械臂状态和加粉重量都能稳定发布。
-        self._arm_status_nodes = list(ARM_STATUS_NODES)
+        self._arm_status_nodes = list(PUBLISHED_BOOLEAN_STATUS_NODES)
         # 启动时先同步读一次真实值初始化缓存（读失败才退回 False 兜底），
-        # 保证 6 个状态从一开始就是 OPC UA 的真实状态，且始终是具体 bool（永不 None、永远发布）。
+        # 保证所有布尔状态从一开始就是 OPC UA 的真实状态，且始终是具体 bool。
         self._arm_status_cache = {}
         for _n in self._arm_status_nodes:
             try:
@@ -585,11 +588,11 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError("机械臂ID必须为1,2,3")
         return self.get_node_value(f"Robotic_Arm_Idle_{arm_id}")
 
-    # =================== 设备节点状态（前端显示：机械臂空闲/故障） ===================
+    # =================== 设备节点状态（前端显示） ===================
 
     @not_action
     def _read_bool_node(self, node_name: str) -> bool:
-        """读取机械臂状态缓存：非阻塞、永不抛错、永不返回 None（默认 False）。"""
+        """读取布尔状态缓存：非阻塞、永不抛错、永不返回 None（默认 False）。"""
         return bool(self._arm_status_cache.get(node_name, False))
 
     @topic_config(period=5.0)
@@ -621,6 +624,31 @@ class XUSEDevice(OpcUaClientWithSubscription):
     def robotic_arm_3_fault(self) -> bool:
         """机械臂3故障状态"""
         return self._read_bool_node("Robotic_Arm_Fault_3")
+
+    @topic_config(period=5.0)
+    def powder_injection_turntable_fault(self) -> bool:
+        """注粉转盘故障状态"""
+        return self._read_bool_node("Powder_Injection_Turntable_Fault")
+
+    @topic_config(period=5.0)
+    def powder_x_axis_fault(self) -> bool:
+        """加粉 X 轴故障状态"""
+        return self._read_bool_node("Powder_X_Axis_Fault")
+
+    @topic_config(period=5.0)
+    def powder_drop_prevention_motor_fault(self) -> bool:
+        """防掉粉电机故障状态"""
+        return self._read_bool_node("Powder_Drop_Prevention_Motor_Fault")
+
+    @topic_config(period=5.0)
+    def powder_z_axis_fault(self) -> bool:
+        """加粉 Z 轴故障状态"""
+        return self._read_bool_node("Powder_Z_Axis_Fault")
+
+    @topic_config(period=5.0)
+    def powder_rotation_axis_fault(self) -> bool:
+        """加粉旋转轴故障状态"""
+        return self._read_bool_node("Powder_Rotation_Axis_Fault")
 
     @topic_config(period=5.0)
     def powder_weight(self) -> float:
