@@ -22,7 +22,7 @@
                 }
             },
             "config": {
-                "url": "opc.tcp://127.0.0.1:49320",
+                "url": "opc.tcp://127.0.0.1:4855/xuse_sim/",
                 "csv_path": "opcua_nodes_OP10_UniLab.csv",
                 "deck": {
                     "data": {
@@ -74,7 +74,7 @@
                 }
             },
             "config": {
-                "url": "opc.tcp://127.0.0.1:49320",
+                "url": "opc.tcp://127.0.0.1:4855/xuse_sim/",
                 "csv_path": "opcua_nodes_OP20_UniLab.csv",
                 "deck": {
                     "data": {

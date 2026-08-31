@@ -44,7 +44,7 @@ class RobotAction(IntEnum):
     display_name="AI4M OP10 工作站",
     category=["workstation"],
     description="AI4M OP10 水凝胶反应工作站",
-    icon="Electrode_Module.jpg",
+    icon="Hydrogel module.webp",
 )
 class AI4MDevice(OpcUaClientWithSubscription):
     """OP10 工作站；使用独立 OPC UA 客户端和 OP10 变量表。"""
@@ -141,8 +141,8 @@ class AI4MDevice(OpcUaClientWithSubscription):
 
     @not_action
     def _read_bool(self, name: str) -> bool:
-        """读取布尔节点；通信失败时禁止把 None 当成 False。"""
-        value = self.get_node_value(name)
+        """强制读取布尔节点，避免使用过期的订阅缓存。"""
+        value = self.get_node_value(name, force_read=True)
         if value is None:
             raise RuntimeError(f"读取 OPC UA 节点失败: {name}")
         return bool(value)
@@ -156,11 +156,17 @@ class AI4MDevice(OpcUaClientWithSubscription):
         *,
         fault_node: Optional[str] = None,
         poll_interval: float = 1.0,
+        timeout: float = 300.0,
     ) -> None:
-        """等待布尔状态达到目标值，同时监控可选故障节点。"""
+        """按 AI4C 的强制轮询模式等待状态，并监控超时和故障。"""
+        started_at = time.monotonic()
         while self._read_bool(node_name) is not expected:
             if fault_node and self._read_bool(fault_node):
                 raise RuntimeError(f"{description}期间检测到设备故障")
+            if time.monotonic() - started_at >= timeout:
+                raise TimeoutError(
+                    f"等待{description}超时（{timeout}秒，节点 {node_name} 未变为 {expected}）"
+                )
             logger.info(f"等待{description}...")
             time.sleep(poll_interval)
 
@@ -177,13 +183,6 @@ class AI4MDevice(OpcUaClientWithSubscription):
         if self._read_bool("robot_fault"):
             raise RuntimeError("机械臂存在故障，无法执行动作")
 
-        self._write_node("robot_action_trigger", False)
-        self._wait_until(
-            "robot_action_complete",
-            False,
-            f"{description}完成信号复位",
-            fault_node="robot_fault",
-        )
         self._write_node("robot_action_code", int(action_code))
         self._write_node("robot_target_position_code", int(target_position))
         self._write_node("robot_target_pick_place_code", target_pick_place_code)
@@ -257,6 +256,7 @@ class AI4MDevice(OpcUaClientWithSubscription):
     @action(
         auto_prefix=True,
         description="机器人从烧杯堆栈取烧杯并放到反应工站",
+        goal_default={"pick_beaker_id": None, "place_station_id": None},
         handles=[
             ActionInputHandle(
                 key="beaker_input",
@@ -345,6 +345,7 @@ class AI4MDevice(OpcUaClientWithSubscription):
     @action(
         auto_prefix=True,
         description="机器人从反应工站取烧杯并放回堆栈",
+        goal_default={"place_beaker_id": None, "pick_station_id": None},
         handles=[
             ActionInputHandle(
                 key="station_input",
@@ -431,6 +432,7 @@ class AI4MDevice(OpcUaClientWithSubscription):
     @action(
         auto_prefix=True,
         description="等待 OP10 工站请求，下发参数并启动加工",
+        goal_default={"station_id": None},
         handles=[
             ActionInputHandle(
                 key="process_station_input",
@@ -461,9 +463,8 @@ class AI4MDevice(OpcUaClientWithSubscription):
             raise ValueError(f"检测站编号必须在 1-3 范围内: {station_id}")
 
         prefix = f"station_{station_id}"
-        self._write_node(f"{prefix}_start", False)
-        self._write_node(f"{prefix}_params_downloaded", False)
         self._wait_until(f"{prefix}_request_process", True, f"检测站{station_id}请求加工")
+        self._wait_until(f"{prefix}_occupied", True, f"检测站{station_id}占位")
 
         self._write_node(f"{prefix}_speed", mag_stir_stir_speed)
         self._write_node(f"{prefix}_temperature", mag_stir_heat_temp)
@@ -472,6 +473,11 @@ class AI4MDevice(OpcUaClientWithSubscription):
         self._write_node(f"{prefix}_params_downloaded", True)
         self._wait_until(f"{prefix}_params_executed", True, f"检测站{station_id}参数执行")
         self._write_node(f"{prefix}_params_downloaded", False)
+        self._wait_until(
+            f"{prefix}_params_executed",
+            False,
+            f"检测站{station_id}参数执行信号复位",
+        )
 
         self._write_node(f"{prefix}_start", True)
         try:
@@ -483,6 +489,11 @@ class AI4MDevice(OpcUaClientWithSubscription):
             )
         finally:
             self._write_node(f"{prefix}_start", False)
+        self._wait_until(
+            f"{prefix}_complete",
+            False,
+            f"检测站{station_id}加工完成信号复位",
+        )
 
         extra = {
             "station_id": station_id,
@@ -504,7 +515,12 @@ class AI4MDevice(OpcUaClientWithSubscription):
         time.sleep(1.0)
         self._write_node("robot_reset", False)
         self._write_node("robot_initialize", False)
-        time.sleep(0.5)
+        self._wait_until(
+            "robot_initialization_complete",
+            False,
+            "机械臂初始化完成信号复位",
+            fault_node="robot_fault",
+        )
         self._write_node("robot_initialize", True)
         self._wait_until(
             "robot_initialization_complete",
@@ -517,7 +533,11 @@ class AI4MDevice(OpcUaClientWithSubscription):
         for station_id in (1, 2, 3):
             node = f"station_{station_id}_initialize"
             self._write_node(node, False)
-            time.sleep(0.2)
+            self._wait_until(
+                f"station_{station_id}_initialization_complete",
+                False,
+                f"反应工站{station_id}初始化完成信号复位",
+            )
             self._write_node(node, True)
             self._wait_until(
                 f"station_{station_id}_initialization_complete",
@@ -542,7 +562,6 @@ class AI4MDevice(OpcUaClientWithSubscription):
         )
         for station_id in (1, 2, 3):
             prefix = f"station_{station_id}"
-            self._write_node(f"{prefix}_params_downloaded", False)
             self._write_node(f"{prefix}_speed", mag_stir_stir_speed)
             self._write_node(f"{prefix}_temperature", mag_stir_heat_temp)
             self._write_node(f"{prefix}_time", mag_stir_time_set)
@@ -556,6 +575,11 @@ class AI4MDevice(OpcUaClientWithSubscription):
                 f"反应工站{station_id}参数执行",
             )
             self._write_node(f"station_{station_id}_params_downloaded", False)
+            self._wait_until(
+                f"station_{station_id}_params_executed",
+                False,
+                f"反应工站{station_id}参数执行信号复位",
+            )
         return {"message": "三个反应工站参数下发完成"}
 
     @action(auto_prefix=True, description="兼容旧版自动作业入口")

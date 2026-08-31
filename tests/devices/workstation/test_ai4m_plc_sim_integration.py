@@ -122,9 +122,9 @@ class _AI4MPlcScan:
             return
         action = int(self.get("三轴动作代码"))
         position = int(self.get("三轴目标位置代码"))
-        cell_id = {3: 1, 2: 2}.get(position)
-        if cell_id is not None:
-            self.set(f"磁搅控制[{cell_id - 1}].磁搅占位", action == 2)
+        stirrer_index = {2: 1, 3: 0}.get(position)
+        if stirrer_index is not None:
+            self.set(f"磁搅控制[{stirrer_index}].磁搅占位", action == 2)
 
     def _scan_processes(self) -> None:
         for index in range(3):
@@ -143,11 +143,13 @@ class _AI4MPlcScan:
         for index in range(2):
             downloaded = bool(self.get(f"磁搅控制[{index}].磁搅参数已下发"))
             started = bool(self.get(f"磁搅控制[{index}].磁搅开始加工"))
+            cell_id = 2 if index == 0 else 1
+            bts_completed = bool(self.get(f"电解池{cell_id}加工完成"))
             self.set(f"磁搅控制[{index}].磁搅参数已执行", downloaded)
             complete_name = f"磁搅控制[{index}].磁搅加工完成"
             self.set(
                 complete_name,
-                started or complete_name in self.forced_true,
+                (started and bts_completed) or complete_name in self.forced_true,
             )
 
     def _run(self) -> None:
@@ -197,12 +199,14 @@ def test_ai4m_and_ai4m002_against_unilab_plc_sim() -> None:
         )
 
         assert len(op10.get_node_registry()) == 46
-        assert len(op20.get_node_registry()) == 36
+        assert len(op20.get_node_registry()) == 38
         assert op10.get_node_registry() is not op20.get_node_registry()
         assert "机械臂空闲" in op10.get_node_registry()
         assert "机械臂空闲" not in op20.get_node_registry()
         assert "三轴空闲" in op20.get_node_registry()
         assert "三轴空闲" not in op10.get_node_registry()
+        assert "电解池1加工完成" in op20.get_node_registry()
+        assert "电解池2加工完成" in op20.get_node_registry()
 
         assert op10.trigger_init()["message"].endswith("初始化完成")
         picked = op10.trigger_robot_pick_beaker(1, 1)
@@ -222,10 +226,13 @@ def test_ai4m_and_ai4m002_against_unilab_plc_sim() -> None:
         moved = op20.trigger_3axis_pick_from_raw_and_place_to_electrolytic_cell(1, 1)
         assert moved["electrolytic_cell_id"] == 1
         assert op20.set_stirrer_params(1, 100, 30, 2)["station_id"] == 1
-        with pytest.raises(RuntimeError, match="BTS 启动失败"):
-            op20.trigger_electrolytic_cell_bts_reaction(1, duration_sec=1)
-
-        scan.force_true("磁搅控制[0].磁搅加工完成")
+        bts_result = op20.trigger_electrolytic_cell_bts_reaction(
+            1,
+            duration_sec=1,
+            simulate_bts=True,
+        )
+        assert bts_result["bts_result"]["simulated"] is True
+        assert scan.get("电解池1加工完成") is True
         finished = op20.trigger_3axis_pick_from_electrolytic_cell_and_place_to_finished(
             1,
             cleaning_time=1,
@@ -233,6 +240,7 @@ def test_ai4m_and_ai4m002_against_unilab_plc_sim() -> None:
             place_code=1,
         )
         assert finished["place_code"] == 1
+        assert scan.get("电解池1加工完成") is False
         direct = op20.trigger_3axis_pick_from_raw_and_process_to_finished(
             pick_code=2,
             pickling_time=1,

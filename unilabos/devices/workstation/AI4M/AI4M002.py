@@ -28,11 +28,11 @@ OP20_NODE_TABLE = "opcua_nodes_OP20_UniLab.csv"
 
 
 class AxisTargetPosition(IntEnum):
-    """OP20 三轴目标位置代码，沿用原 PLC 动作约定。"""
+    """OP20 三轴目标位置代码：磁搅[1]为工位1，磁搅[0]为工位2。"""
 
     RAW_ELECTRODE = 1
-    STIRRER_2 = 2
-    STIRRER_1 = 3
+    STIRRER_1 = 2
+    STIRRER_2 = 3
     ACID_WASH = 4
     WATER_WASH = 5
     FINISHED_ELECTRODE = 6
@@ -150,8 +150,8 @@ class AI4M002Device(OpcUaClientWithSubscription):
 
     @not_action
     def _read_bool(self, name: str) -> bool:
-        """读取布尔节点；通信失败时禁止把 None 当成 False。"""
-        value = self.get_node_value(name)
+        """强制读取布尔节点，避免使用过期的订阅缓存。"""
+        value = self.get_node_value(name, force_read=True)
         if value is None:
             raise RuntimeError(f"读取 OPC UA 节点失败: {name}")
         return bool(value)
@@ -165,10 +165,16 @@ class AI4M002Device(OpcUaClientWithSubscription):
         *,
         fault_node: Optional[str] = None,
         poll_interval: float = 1.0,
+        timeout: float = 300.0,
     ) -> None:
+        started_at = time.monotonic()
         while self._read_bool(node_name) is not expected:
             if fault_node and self._read_bool(fault_node):
                 raise RuntimeError(f"{description}期间检测到设备故障")
+            if time.monotonic() - started_at >= timeout:
+                raise TimeoutError(
+                    f"等待{description}超时（{timeout}秒，节点 {node_name} 未变为 {expected}）"
+                )
             logger.info(f"等待{description}...")
             time.sleep(poll_interval)
 
@@ -185,13 +191,6 @@ class AI4M002Device(OpcUaClientWithSubscription):
         if self._read_bool("axis_fault"):
             raise RuntimeError("三轴存在故障，无法执行动作")
 
-        self._write_node("axis_action_trigger", False)
-        self._wait_until(
-            "axis_action_complete",
-            False,
-            f"{description}完成信号复位",
-            fault_node="axis_fault",
-        )
         self._write_node("axis_action_code", int(action_code))
         self._write_node("axis_target_position_code", int(target_position))
         if target_pick_place_code is not None:
@@ -285,7 +284,12 @@ class AI4M002Device(OpcUaClientWithSubscription):
         time.sleep(1.0)
         self._write_node("axis_reset", False)
         self._write_node("axis_initialize", False)
-        time.sleep(0.5)
+        self._wait_until(
+            "axis_initialization_complete",
+            False,
+            "三轴初始化完成信号复位",
+            fault_node="axis_fault",
+        )
         self._write_node("axis_initialize", True)
         self._wait_until(
             "axis_initialization_complete",
@@ -298,7 +302,11 @@ class AI4M002Device(OpcUaClientWithSubscription):
         for station_id in (1, 2):
             node = f"stirrer_{station_id}_initialize"
             self._write_node(node, False)
-            time.sleep(0.2)
+            self._wait_until(
+                f"stirrer_{station_id}_initialization_complete",
+                False,
+                f"磁搅工站{station_id}初始化完成信号复位",
+            )
             self._write_node(node, True)
             self._wait_until(
                 f"stirrer_{station_id}_initialization_complete",
@@ -311,6 +319,7 @@ class AI4M002Device(OpcUaClientWithSubscription):
     @action(
         auto_prefix=True,
         description="从原始电极堆栈取料并放到电解池",
+        goal_default={"pick_code": None, "electrolytic_cell_id": None},
         handles=[
             ActionInputHandle(
                 key="raw_electrode_input",
@@ -372,6 +381,7 @@ class AI4M002Device(OpcUaClientWithSubscription):
                     1,
                     f"将电极放到电解池{target_cell_id}",
                 )
+                self._write_node(f"Electrolytic_Cell_{target_cell_id}_Done", False)
                 cell_site_key = list(cell._ordering.keys())[0]
                 self._assign_material(cell, material, cell_site_key, f"电解池{target_cell_id}")
                 self._sync_resource_to_frontend()
@@ -389,6 +399,7 @@ class AI4M002Device(OpcUaClientWithSubscription):
     @action(
         auto_prefix=True,
         description="从电解池取料，经水洗后放到完成电极堆栈",
+        goal_default={"electrolytic_cell_id": None, "place_code": None},
         handles=[
             ActionInputHandle(
                 key="electrolytic_cell_input",
@@ -420,7 +431,7 @@ class AI4M002Device(OpcUaClientWithSubscription):
             raise ValueError(f"完成电极位置必须在 1-15 范围内: {place_code}")
 
         self._wait_until(
-            f"stirrer_{electrolytic_cell_id}_complete",
+            f"Electrolytic_Cell_{electrolytic_cell_id}_Done",
             True,
             f"电解池{electrolytic_cell_id}加工完成",
         )
@@ -436,6 +447,7 @@ class AI4M002Device(OpcUaClientWithSubscription):
                 1,
                 f"从电解池{electrolytic_cell_id}取料",
             )
+            self._write_node(f"Electrolytic_Cell_{electrolytic_cell_id}_Done", False)
             self._unassign_material(cell, material, f"电解池{electrolytic_cell_id}")
 
             self._write_node("cleaning_time", cleaning_time)
@@ -476,6 +488,7 @@ class AI4M002Device(OpcUaClientWithSubscription):
     @action(
         auto_prefix=True,
         description="从原始电极取料，经酸洗、水洗后放到完成电极堆栈",
+        goal_default={"pick_code": None, "place_code": None},
         handles=[
             ActionInputHandle(
                 key="raw_electrode_input",
@@ -584,13 +597,19 @@ class AI4M002Device(OpcUaClientWithSubscription):
         if station_id not in (1, 2):
             raise ValueError(f"磁搅工站编号必须为 1 或 2: {station_id}")
         prefix = f"stirrer_{station_id}"
-        self._write_node(f"{prefix}_params_downloaded", False)
+        self._wait_until(f"{prefix}_request_process", True, f"磁搅工站{station_id}请求加工")
+        self._wait_until(f"{prefix}_occupied", True, f"磁搅工站{station_id}占位")
         self._write_node(f"{prefix}_speed", stir_speed)
         self._write_node(f"{prefix}_temperature", heat_temp)
         self._write_node(f"{prefix}_time", time_set)
         self._write_node(f"{prefix}_params_downloaded", True)
         self._wait_until(f"{prefix}_params_executed", True, f"磁搅工站{station_id}参数执行")
         self._write_node(f"{prefix}_params_downloaded", False)
+        self._wait_until(
+            f"{prefix}_params_executed",
+            False,
+            f"磁搅工站{station_id}参数执行信号复位",
+        )
 
         extra = {
             "station_id": station_id,
@@ -607,6 +626,7 @@ class AI4M002Device(OpcUaClientWithSubscription):
     @action(
         auto_prefix=True,
         description="触发电解池 BTS 反应，并与 OP20 加工信号联动",
+        goal_default={"electrolytic_cell_id": None, "simulate_bts": False},
         handles=[
             ActionInputHandle(
                 key="electrolytic_cell_input",
@@ -630,6 +650,7 @@ class AI4M002Device(OpcUaClientWithSubscription):
         sample_uuids: SampleUUIDsType = None,
         duration_sec: int = 20,
         current: float = 50.0,
+        simulate_bts: bool = False,
     ) -> dict:
         if electrolytic_cell_id not in (1, 2):
             raise ValueError(f"电解池编号必须为 1 或 2: {electrolytic_cell_id}")
@@ -640,63 +661,64 @@ class AI4M002Device(OpcUaClientWithSubscription):
             True,
             f"电解池{electrolytic_cell_id}请求加工",
         )
-        self._write_node(f"{prefix}_start", False)
-
-        result_holder: dict = {}
-        finished = threading.Event()
-
-        def run_bts() -> None:
-            try:
-                result_holder["result"] = self.bts_start_cp_test(
-                    chl_list=[electrolytic_cell_id - 1],
-                    duration_sec=duration_sec,
-                    current=current,
-                )
-            except Exception as exc:
-                result_holder["exception"] = exc
-            finally:
-                finished.set()
-
-        thread = threading.Thread(
-            target=run_bts,
-            name=f"AI4M002-BTS-{electrolytic_cell_id}",
-            daemon=True,
+        self._wait_until(
+            f"{prefix}_occupied",
+            True,
+            f"电解池{electrolytic_cell_id}占位",
         )
-        thread.start()
-
-        # 给校验、设备发现和启动接口留出快速失败窗口。
-        finished.wait(timeout=1.0)
-        if "exception" in result_holder:
-            raise RuntimeError(f"BTS 启动失败: {result_holder['exception']}")
-        early_result = result_holder.get("result")
-        if early_result is not None and not early_result.get("success", False):
-            raise RuntimeError(f"BTS 启动失败: {early_result.get('message')}")
-
+        done_node = f"Electrolytic_Cell_{electrolytic_cell_id}_Done"
+        self._write_node(done_node, False)
         self._write_node(f"{prefix}_start", True)
         plc_completed = False
         try:
-            while True:
-                plc_completed = plc_completed or self._read_bool(f"{prefix}_complete")
-                if finished.is_set():
-                    if "exception" in result_holder:
-                        raise RuntimeError(f"BTS 执行失败: {result_holder['exception']}")
-                    bts_result = result_holder.get("result", {})
-                    if not bts_result.get("success", False):
-                        raise RuntimeError(
-                            f"BTS 执行失败: {bts_result.get('message', '未知错误')}"
-                        )
-                    if plc_completed:
-                        break
-                logger.info(f"等待电解池{electrolytic_cell_id} BTS/PLC 加工完成...")
-                time.sleep(1.0)
+            if simulate_bts:
+                logger.info(f"电解池{electrolytic_cell_id}启用 BTS 仿真，跳过 API 调用")
+                bts_result = {
+                    "success": True,
+                    "message": "BTS仿真完成",
+                    "simulated": True,
+                    "test_id": None,
+                }
+            else:
+                try:
+                    bts_result = self.bts_start_cp_test(
+                        chl_list=[electrolytic_cell_id - 1],
+                        duration_sec=duration_sec,
+                        current=current,
+                    )
+                except Exception as exc:
+                    raise RuntimeError(f"BTS 执行失败: {exc}") from exc
+                if not bts_result.get("success", False):
+                    raise RuntimeError(
+                        f"BTS 执行失败: {bts_result.get('message', '未知错误')}"
+                    )
+
+            self._write_node(done_node, True)
+            logger.info(f"BTS完成，已写入电解池{electrolytic_cell_id}加工完成信号")
+            self._wait_until(
+                f"{prefix}_complete",
+                True,
+                f"电解池{electrolytic_cell_id} PLC 加工完成确认",
+                timeout=max(300.0, float(duration_sec) + 120.0),
+            )
+            plc_completed = True
         finally:
             self._write_node(f"{prefix}_start", False)
+        if plc_completed:
+            self._wait_until(
+                f"{prefix}_complete",
+                False,
+                f"电解池{electrolytic_cell_id} PLC 加工完成信号复位",
+            )
 
-        extra = {"electrolytic_cell_id": electrolytic_cell_id}
+        extra = {
+            "electrolytic_cell_id": electrolytic_cell_id,
+            "simulate_bts": simulate_bts,
+        }
         return {
             "electrolytic_cell_id": electrolytic_cell_id,
             "message": f"电解池{electrolytic_cell_id} BTS反应完成",
-            "bts_result": result_holder.get("result"),
+            "bts_result": bts_result,
             "unilabos_samples": self._sample_results(sample_uuids, extra),
         }
 
