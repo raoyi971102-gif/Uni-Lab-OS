@@ -166,13 +166,14 @@ class AI4M002Device(OpcUaClientWithSubscription):
         *,
         fault_node: Optional[str] = None,
         poll_interval: float = 1.0,
-        timeout: float = 300.0,
+        timeout: Optional[float] = None,
     ) -> None:
+        """按强制轮询模式等待状态；默认不设置超时，仅监控设备故障。"""
         started_at = time.monotonic()
         while self._read_bool(node_name) is not expected:
             if fault_node and self._read_bool(fault_node):
                 raise RuntimeError(f"{description}期间检测到设备故障")
-            if time.monotonic() - started_at >= timeout:
+            if timeout is not None and time.monotonic() - started_at >= timeout:
                 raise TimeoutError(
                     f"等待{description}超时（{timeout}秒，节点 {node_name} 未变为 {expected}）"
                 )
@@ -714,7 +715,6 @@ class AI4M002Device(OpcUaClientWithSubscription):
                 f"{prefix}_complete",
                 True,
                 f"电解池{electrolytic_cell_id} PLC 加工完成确认",
-                timeout=max(300.0, float(duration_sec) + 120.0),
             )
             plc_completed = True
         finally:
