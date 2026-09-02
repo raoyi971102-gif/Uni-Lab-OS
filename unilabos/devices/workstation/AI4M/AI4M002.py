@@ -1,5 +1,6 @@
 """AI4M002（OP20）工作站驱动。"""
 
+from concurrent.futures import ThreadPoolExecutor
 from enum import IntEnum
 from pathlib import Path
 import threading
@@ -28,11 +29,11 @@ OP20_NODE_TABLE = "opcua_nodes_OP20_UniLab.csv"
 
 
 class AxisTargetPosition(IntEnum):
-    """OP20 三轴目标位置代码：磁搅[1]为工位1，磁搅[0]为工位2。"""
+    """OP20 三轴目标位置代码：位置代码 2 对应工位 2，代码 3 对应工位 1。"""
 
     RAW_ELECTRODE = 1
-    STIRRER_1 = 2
-    STIRRER_2 = 3
+    STIRRER_2 = 2
+    STIRRER_1 = 3
     ACID_WASH = 4
     WATER_WASH = 5
     FINISHED_ELECTRODE = 6
@@ -179,6 +180,31 @@ class AI4M002Device(OpcUaClientWithSubscription):
             time.sleep(poll_interval)
 
     @not_action
+    def _initialize_component(
+        self,
+        initialize_node: str,
+        homing_node: str,
+        home_done_node: str,
+        description: str,
+        *,
+        fault_node: Optional[str] = None,
+    ) -> None:
+        """检测到组件进入 Homing 后复位初始化信号，并等待回零完成。"""
+        self._wait_until(
+            homing_node,
+            True,
+            f"{description} Homing",
+            fault_node=fault_node,
+        )
+        self._write_node(initialize_node, False)
+        self._wait_until(
+            home_done_node,
+            True,
+            f"{description}初始化完成",
+            fault_node=fault_node,
+        )
+
+    @not_action
     def _run_axis_action(
         self,
         action_code: AxisAction,
@@ -277,44 +303,44 @@ class AI4M002Device(OpcUaClientWithSubscription):
             logger.info("两个电解池均有占位，等待空闲...")
             time.sleep(1.0)
 
-    @action(auto_prefix=True, description="初始化 OP20 三轴和两个磁搅工站")
+    @action(auto_prefix=True, description="初始化 OP20 三轴、两个电解工位和清洗模块")
     def trigger_s02_init(self) -> dict:
+        # 状态索引映射：0 三轴，1 电解工位1，2 电解工位2，3 清洗。
+        components = (
+            ("axis_initialize", "axis_homing", "axis_home_done", "三轴", "axis_fault"),
+            ("stirrer_1_initialize", "stirrer_1_homing", "stirrer_1_home_done", "电解工位1", None),
+            ("stirrer_2_initialize", "stirrer_2_homing", "stirrer_2_home_done", "电解工位2", None),
+            ("cleaning_initialize", "cleaning_homing", "cleaning_home_done", "清洗", None),
+        )
         self._write_node("axis_action_trigger", False)
         self._write_node("axis_reset", True)
         time.sleep(1.0)
         self._write_node("axis_reset", False)
-        self._write_node("axis_initialize", False)
-        self._wait_until(
-            "axis_initialization_complete",
-            False,
-            "三轴初始化完成信号复位",
-            fault_node="axis_fault",
-        )
-        self._write_node("axis_initialize", True)
-        self._wait_until(
-            "axis_initialization_complete",
-            True,
-            "三轴初始化",
-            fault_node="axis_fault",
-        )
-        self._write_node("axis_initialize", False)
+        # 同时置位四路初始化信号，各组件进入 Homing 后由独立线程复位自身信号。
+        for initialize_node, *_ in components:
+            self._write_node(initialize_node, True)
+        with ThreadPoolExecutor(max_workers=len(components)) as executor:
+            futures = [
+                executor.submit(
+                    self._initialize_component,
+                    initialize_node,
+                    homing_node,
+                    home_done_node,
+                    description,
+                    fault_node=fault_node,
+                )
+                for (
+                    initialize_node,
+                    homing_node,
+                    home_done_node,
+                    description,
+                    fault_node,
+                ) in components
+            ]
+            for future in futures:
+                future.result()
+        return {"message": "OP20 三轴、两个电解工位和清洗模块初始化完成"}
 
-        for station_id in (1, 2):
-            node = f"stirrer_{station_id}_initialize"
-            self._write_node(node, False)
-            self._wait_until(
-                f"stirrer_{station_id}_initialization_complete",
-                False,
-                f"磁搅工站{station_id}初始化完成信号复位",
-            )
-            self._write_node(node, True)
-            self._wait_until(
-                f"stirrer_{station_id}_initialization_complete",
-                True,
-                f"磁搅工站{station_id}初始化",
-            )
-            self._write_node(node, False)
-        return {"message": "OP20 三轴和两个磁搅工站初始化完成"}
 
     @action(
         auto_prefix=True,
@@ -585,15 +611,14 @@ class AI4M002Device(OpcUaClientWithSubscription):
             "unilabos_samples": self._sample_results(sample_uuids, extra),
         }
 
-    @action(auto_prefix=True, description="向指定 OP20 磁搅工站下发参数")
-    def set_stirrer_params(
+    @not_action
+    def _download_stirrer_params(
         self,
         station_id: int,
         stir_speed: int,
         heat_temp: int,
         time_set: int,
-        sample_uuids: SampleUUIDsType = None,
-    ) -> dict:
+    ) -> None:
         if station_id not in (1, 2):
             raise ValueError(f"磁搅工站编号必须为 1 或 2: {station_id}")
         prefix = f"stirrer_{station_id}"
@@ -611,21 +636,10 @@ class AI4M002Device(OpcUaClientWithSubscription):
             f"磁搅工站{station_id}参数执行信号复位",
         )
 
-        extra = {
-            "station_id": station_id,
-            "stir_speed": stir_speed,
-            "heat_temp": heat_temp,
-            "time_set": time_set,
-        }
-        return {
-            **extra,
-            "message": f"磁搅工站{station_id}参数设置完成",
-            "unilabos_samples": self._sample_results(sample_uuids, extra),
-        }
-
     @action(
         auto_prefix=True,
-        description="触发电解池 BTS 反应，并与 OP20 加工信号联动",
+        always_free=True,
+        description="向电解池下发搅拌参数并触发 BTS 反应",
         goal_default={"electrolytic_cell_id": None, "simulate_bts": False},
         handles=[
             ActionInputHandle(
@@ -647,6 +661,9 @@ class AI4M002Device(OpcUaClientWithSubscription):
     def trigger_electrolytic_cell_bts_reaction(
         self,
         electrolytic_cell_id: int,
+        stir_speed: int,
+        heat_temp: int,
+        time_set: int,
         sample_uuids: SampleUUIDsType = None,
         duration_sec: int = 20,
         current: float = 50.0,
@@ -655,17 +672,15 @@ class AI4M002Device(OpcUaClientWithSubscription):
         if electrolytic_cell_id not in (1, 2):
             raise ValueError(f"电解池编号必须为 1 或 2: {electrolytic_cell_id}")
 
+        # 电解池编号与磁搅工站 station_id 一一对应，先完成参数下发再触发 BTS。
+        self._download_stirrer_params(
+            station_id=electrolytic_cell_id,
+            stir_speed=stir_speed,
+            heat_temp=heat_temp,
+            time_set=time_set,
+        )
+
         prefix = f"stirrer_{electrolytic_cell_id}"
-        self._wait_until(
-            f"{prefix}_request_process",
-            True,
-            f"电解池{electrolytic_cell_id}请求加工",
-        )
-        self._wait_until(
-            f"{prefix}_occupied",
-            True,
-            f"电解池{electrolytic_cell_id}占位",
-        )
         done_node = f"Electrolytic_Cell_{electrolytic_cell_id}_Done"
         self._write_node(done_node, False)
         self._write_node(f"{prefix}_start", True)
@@ -712,10 +727,15 @@ class AI4M002Device(OpcUaClientWithSubscription):
             )
 
         extra = {
+            "station_id": electrolytic_cell_id,
             "electrolytic_cell_id": electrolytic_cell_id,
+            "stir_speed": stir_speed,
+            "heat_temp": heat_temp,
+            "time_set": time_set,
             "simulate_bts": simulate_bts,
         }
         return {
+            "station_id": electrolytic_cell_id,
             "electrolytic_cell_id": electrolytic_cell_id,
             "message": f"电解池{electrolytic_cell_id} BTS反应完成",
             "bts_result": bts_result,

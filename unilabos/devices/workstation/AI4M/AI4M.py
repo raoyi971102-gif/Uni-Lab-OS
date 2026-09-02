@@ -1,5 +1,6 @@
 """AI4M（OP10）工作站驱动。"""
 
+from concurrent.futures import ThreadPoolExecutor
 from enum import IntEnum
 from pathlib import Path
 import threading
@@ -26,10 +27,28 @@ OP10_NODE_TABLE = "opcua_nodes_OP10_UniLab.csv"
 
 
 class RobotTargetPosition(IntEnum):
-    """OP10 机械臂目标位置代码。"""
+    """OP10 机械臂目标位置代码。
 
-    BEAKER_RACK = 1
-    REACTION_STATION = 2
+    OP10 PLC 将取放路径拆分为五个目标位置：从烧杯堆栈取料为 1，
+    放回烧杯堆栈为 2，三个检测工位依次为 3、4、5。
+    """
+
+    PICK_BEAKER = 1
+    PLACE_BEAKER_RACK = 2
+    DETECTION_STATION_1 = 3
+    DETECTION_STATION_2 = 4
+    DETECTION_STATION_3 = 5
+
+    # 保留旧名称作为兼容别名；实际动作使用上面的语义化常量。
+    BEAKER_RACK = PICK_BEAKER
+    REACTION_STATION = DETECTION_STATION_1
+
+    @classmethod
+    def detection_station(cls, station_id: int) -> "RobotTargetPosition":
+        """将检测工位编号（1-3）转换为 PLC 目标位置代码（3-5）。"""
+        if station_id not in (1, 2, 3):
+            raise ValueError(f"检测工位编号必须在 1-3 范围内: {station_id}")
+        return cls(2 + station_id)
 
 
 class RobotAction(IntEnum):
@@ -171,6 +190,31 @@ class AI4MDevice(OpcUaClientWithSubscription):
             time.sleep(poll_interval)
 
     @not_action
+    def _initialize_component(
+        self,
+        initialize_node: str,
+        homing_node: str,
+        home_done_node: str,
+        description: str,
+        *,
+        fault_node: Optional[str] = None,
+    ) -> None:
+        """检测到组件进入 homing 后复位初始化信号，并等待回零完成。"""
+        self._wait_until(
+            homing_node,
+            True,
+            f"{description}Homing",
+            fault_node=fault_node,
+        )
+        self._write_node(initialize_node, False)
+        self._wait_until(
+            home_done_node,
+            True,
+            f"{description}初始化完成",
+            fault_node=fault_node,
+        )
+
+    @not_action
     def _run_robot_action(
         self,
         action_code: RobotAction,
@@ -301,7 +345,7 @@ class AI4MDevice(OpcUaClientWithSubscription):
 
                 self._run_robot_action(
                     RobotAction.PICK,
-                    RobotTargetPosition.BEAKER_RACK,
+                    RobotTargetPosition.PICK_BEAKER,
                     pick_beaker_id,
                     f"从堆栈位置{pick_beaker_id}取烧杯",
                 )
@@ -314,7 +358,7 @@ class AI4MDevice(OpcUaClientWithSubscription):
                 self._write_node(f"station_{place_station_id}_params_downloaded", False)
                 self._run_robot_action(
                     RobotAction.PLACE,
-                    RobotTargetPosition.REACTION_STATION,
+                    RobotTargetPosition.detection_station(place_station_id),
                     place_station_id,
                     f"将烧杯放到反应工站{place_station_id}",
                 )
@@ -384,7 +428,7 @@ class AI4MDevice(OpcUaClientWithSubscription):
         with self._robot_lock:
             self._run_robot_action(
                 RobotAction.PICK,
-                RobotTargetPosition.REACTION_STATION,
+                RobotTargetPosition.detection_station(pick_station_id),
                 pick_station_id,
                 f"从反应工站{pick_station_id}取烧杯",
             )
@@ -396,7 +440,7 @@ class AI4MDevice(OpcUaClientWithSubscription):
 
             self._run_robot_action(
                 RobotAction.PLACE,
-                RobotTargetPosition.BEAKER_RACK,
+                RobotTargetPosition.PLACE_BEAKER_RACK,
                 place_beaker_id,
                 f"将烧杯放回堆栈位置{place_beaker_id}",
             )
@@ -431,6 +475,7 @@ class AI4MDevice(OpcUaClientWithSubscription):
 
     @action(
         auto_prefix=True,
+        always_free=True,
         description="等待 OP10 工站请求，下发参数并启动加工",
         goal_default={"station_id": None},
         handles=[
@@ -473,12 +518,7 @@ class AI4MDevice(OpcUaClientWithSubscription):
         self._write_node(f"{prefix}_params_downloaded", True)
         self._wait_until(f"{prefix}_params_executed", True, f"检测站{station_id}参数执行")
         self._write_node(f"{prefix}_params_downloaded", False)
-        self._wait_until(
-            f"{prefix}_params_executed",
-            False,
-            f"检测站{station_id}参数执行信号复位",
-        )
-
+        # PLC 确认参数已执行后无需等待该信号复位，直接进入加工流程。
         self._write_node(f"{prefix}_start", True)
         try:
             self._wait_until(
@@ -489,11 +529,6 @@ class AI4MDevice(OpcUaClientWithSubscription):
             )
         finally:
             self._write_node(f"{prefix}_start", False)
-        self._wait_until(
-            f"{prefix}_complete",
-            False,
-            f"检测站{station_id}加工完成信号复位",
-        )
 
         extra = {
             "station_id": station_id,
@@ -508,43 +543,75 @@ class AI4MDevice(OpcUaClientWithSubscription):
             "unilabos_samples": self._sample_results(sample_uuids, extra),
         }
 
+    @action(auto_prefix=True, description="初始化 OP10 机械臂")
+    def trigger_robot_init(self) -> dict:
+        """单独初始化机器人，不触发三个检测工位。"""
+        self._write_node("robot_action_trigger", False)
+        self._write_node("robot_reset", True)
+        time.sleep(1.0)
+        self._write_node("robot_reset", False)
+        self._write_node("robot_initialize", True)
+        self._initialize_component(
+            "robot_initialize",
+            "robot_homing",
+            "robot_home_done",
+            "机械臂",
+            fault_node="robot_fault",
+        )
+        return {"message": "OP10 机械臂初始化完成"}
+
     @action(auto_prefix=True, description="初始化 OP10 机械臂和三个反应工站")
     def trigger_init(self) -> dict:
         self._write_node("robot_action_trigger", False)
         self._write_node("robot_reset", True)
         time.sleep(1.0)
         self._write_node("robot_reset", False)
-        self._write_node("robot_initialize", False)
-        self._wait_until(
-            "robot_initialization_complete",
-            False,
-            "机械臂初始化完成信号复位",
-            fault_node="robot_fault",
-        )
-        self._write_node("robot_initialize", True)
-        self._wait_until(
-            "robot_initialization_complete",
-            True,
-            "机械臂初始化",
-            fault_node="robot_fault",
-        )
-        self._write_node("robot_initialize", False)
 
-        for station_id in (1, 2, 3):
-            node = f"station_{station_id}_initialize"
-            self._write_node(node, False)
-            self._wait_until(
-                f"station_{station_id}_initialization_complete",
-                False,
-                f"反应工站{station_id}初始化完成信号复位",
-            )
-            self._write_node(node, True)
-            self._wait_until(
-                f"station_{station_id}_initialization_complete",
-                True,
-                f"反应工站{station_id}初始化",
-            )
-            self._write_node(node, False)
+        # 先同时触发机器人（状态索引 0）和三个工位（状态索引 1-3）的初始化。
+        components = (
+            (
+                "robot_initialize",
+                "robot_homing",
+                "robot_home_done",
+                "机械臂",
+                "robot_fault",
+            ),
+            *(
+                (
+                    f"station_{station_id}_initialize",
+                    f"station_{station_id}_homing",
+                    f"station_{station_id}_home_done",
+                    f"反应工站{station_id}",
+                    None,
+                )
+                for station_id in (1, 2, 3)
+            ),
+        )
+        for initialize_node, *_ in components:
+            self._write_node(initialize_node, True)
+
+        # 各组件独立监测 Homing，进入回零后立即复位自身初始化信号。
+        with ThreadPoolExecutor(max_workers=len(components)) as executor:
+            futures = [
+                executor.submit(
+                    self._initialize_component,
+                    initialize_node,
+                    homing_node,
+                    home_done_node,
+                    description,
+                    fault_node=fault_node,
+                )
+                for (
+                    initialize_node,
+                    homing_node,
+                    home_done_node,
+                    description,
+                    fault_node,
+                ) in components
+            ]
+            for future in futures:
+                future.result()
+
         return {"message": "OP10 机械臂和三个反应工站初始化完成"}
 
     @action(auto_prefix=True, description="向 OP10 三个反应工站批量下发参数")

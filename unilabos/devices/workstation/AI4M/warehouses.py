@@ -74,7 +74,7 @@ def Station_3_warehouse_1x1x1(name: str) -> WareHouse:
 
 
 def Raw_electrode_warehouse_3x5x1(name: str) -> WareHouse:
-    """创建原始电极 3x5x1仓库（序号从右往左：右=1, 中=2, 左=3）"""
+    """创建原始电极 3x5x1 仓库，编号按每排从左到右、再从上到下递增。"""
     return warehouse_factory(
         name=name,
         num_items_x=3,
@@ -88,11 +88,12 @@ def Raw_electrode_warehouse_3x5x1(name: str) -> WareHouse:
         item_dz=120.0,
         category="warehouse",
         naming_mode="continuous_number",
-        reverse_col_order=True,
+        layout="row-major",
+        reverse_col_order=False,
     )
 
 def Finished_electrode_warehouse_3x5x1(name: str) -> WareHouse:
-    """创建完成电极 3x5x1仓库（序号从右往左：右=1, 中=2, 左=3）"""
+    """创建完成电极 3x5x1 仓库，编号按每排从左到右、再从上到下递增。"""
     return warehouse_factory(
         name=name,
         num_items_x=3,
@@ -106,7 +107,8 @@ def Finished_electrode_warehouse_3x5x1(name: str) -> WareHouse:
         item_dz=120.0,
         category="warehouse",
         naming_mode="continuous_number",
-        reverse_col_order=True,
+        layout="row-major",
+        reverse_col_order=False,
     )
 
 def Stir_1_warehouse_1x1x1(name: str) -> WareHouse:
