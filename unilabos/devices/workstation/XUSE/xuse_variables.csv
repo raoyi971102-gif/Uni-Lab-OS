@@ -15,9 +15,9 @@
 机械臂初始化_3,Robotic_Arm_Initialize_3,VARIABLE,BOOLEAN,Chinese,ns=4;s=uniab|机械臂初始化_3
 机械臂初始化完成_3,Robotic_Arm_Initialize_Complete_3,VARIABLE,BOOLEAN,Chinese,ns=4;s=uniab|机械臂初始化完成_3
 注粉转盘出现故障,Powder_Injection_Turntable_Fault,VARIABLE,BOOLEAN,Chinese,ns=4;s=uniab|注粉转盘出现故障
-加粉x轴出现故障,Powder_X_Axis_Fault,VARIABLE,BOOLEAN,Chinese,ns=4;s=uniab|加粉x轴出现故障
+加粉X轴出现故障,Powder_X_Axis_Fault,VARIABLE,BOOLEAN,Chinese,ns=4;s=uniab|加粉X轴出现故障
 防掉粉电机出现故障,Powder_Drop_Prevention_Motor_Fault,VARIABLE,BOOLEAN,Chinese,ns=4;s=uniab|防掉粉电机出现故障
-加粉z轴出现故障,Powder_Z_Axis_Fault,VARIABLE,BOOLEAN,Chinese,ns=4;s=uniab|加粉z轴出现故障
+加粉Z轴出现故障,Powder_Z_Axis_Fault,VARIABLE,BOOLEAN,Chinese,ns=4;s=uniab|加粉Z轴出现故障
 加粉旋转旋转轴出现故障,Powder_Rotation_Axis_Fault,VARIABLE,BOOLEAN,Chinese,ns=4;s=uniab|加粉旋转旋转轴出现故障
 开罐初始化,Open_Lid_Initialize,VARIABLE,BOOLEAN,Chinese,ns=4;s=uniab|开罐初始化
 开罐初始化完成,Open_Lid_Initialize_Complete,VARIABLE,BOOLEAN,Chinese,ns=4;s=uniab|开罐初始化完成

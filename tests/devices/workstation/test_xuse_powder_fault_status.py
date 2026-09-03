@@ -15,13 +15,13 @@ FAULT_VARIABLES = [
         "Powder_Injection_Turntable_Fault",
         "powder_injection_turntable_fault",
     ),
-    ("加粉x轴出现故障", "Powder_X_Axis_Fault", "powder_x_axis_fault"),
+    ("加粉X轴出现故障", "Powder_X_Axis_Fault", "powder_x_axis_fault"),
     (
         "防掉粉电机出现故障",
         "Powder_Drop_Prevention_Motor_Fault",
         "powder_drop_prevention_motor_fault",
     ),
-    ("加粉z轴出现故障", "Powder_Z_Axis_Fault", "powder_z_axis_fault"),
+    ("加粉Z轴出现故障", "Powder_Z_Axis_Fault", "powder_z_axis_fault"),
     (
         "加粉旋转旋转轴出现故障",
         "Powder_Rotation_Axis_Fault",
