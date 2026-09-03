@@ -302,7 +302,8 @@ class AI4M002Device(OpcUaClientWithSubscription):
                 if not self._read_bool(f"stirrer_{cell_id}_occupied"):
                     return cell_id
             logger.info("两个电解池均有占位，等待空闲...")
-            time.sleep(1.0)
+            # 空闲电解池等待属于资源轮询，降低查询频率避免持续占用 OPC UA。
+            time.sleep(5.0)
 
     @action(auto_prefix=True, description="初始化 OP20 三轴、两个电解工位和清洗模块")
     def trigger_s02_init(self) -> dict:

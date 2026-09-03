@@ -881,9 +881,22 @@ class MessageProcessor:
             if existing_job.status in (JobStatus.READY, JobStatus.STARTED):
                 response_type, free, need_more = "query_action_status", True, 0
             elif existing_job.status == JobStatus.QUEUE:
-                response_type, free, need_more = "query_action_status", False, 10
+                # 排队中的同名动作也使用与运行中 job 相同的续期窗口，避免服务端按
+                # device/action 聚合租约时被较短的 10 秒窗口覆盖。
+                keepalive_seconds = (
+                    self.queue_processor.keepalive_need_more_s
+                    if self.queue_processor is not None
+                    else 20
+                )
+                response_type, free, need_more = "query_action_status", False, keepalive_seconds
             else:
-                response_type, free, need_more = "job_call_back_status", False, 10
+                # 终态 job 的迟到查询也不要带较短窗口，避免覆盖同名活动 job 的租约。
+                keepalive_seconds = (
+                    self.queue_processor.keepalive_need_more_s
+                    if self.queue_processor is not None
+                    else 20
+                )
+                response_type, free, need_more = "job_call_back_status", False, keepalive_seconds
             await self._send_action_state_response(
                 existing_job.device_id,
                 existing_job.action_name,
@@ -961,7 +974,11 @@ class MessageProcessor:
                 job_id,
                 "query_action_status",
                 False,
-                10,
+                (
+                    self.queue_processor.keepalive_need_more_s
+                    if self.queue_processor is not None
+                    else 20
+                ),
                 notebook_id=notebook_id,
             )
             logger.trace(f"[MessageProcessor] Job {job_log} queued")
@@ -1594,7 +1611,9 @@ class QueueProcessor:
                     "job_id": job_info.job_id,
                     "notebook_id": job_info.notebook_id,
                     "free": False,
-                    "need_more": 10 + 1,
+                    # 与 STARTED job 的 keepalive 使用同一个窗口；不要发送较短的 11，
+                    # 否则同名动作并存时可能覆盖 21 秒续期。
+                    "need_more": self.keepalive_need_more_s + 1,
                 },
             }
             self.message_processor.send_message(message)
@@ -1665,7 +1684,8 @@ class QueueProcessor:
                     "job_id": job_info.job_id,
                     "notebook_id": job_info.notebook_id,
                     "free": False,
-                    "need_more": 10 + 1,
+                    # 与运行中 job 统一续期窗口，避免同名动作的排队状态覆盖运行中租约。
+                    "need_more": self.keepalive_need_more_s + 1,
                 },
             }
             success = self.message_processor.send_message(message)

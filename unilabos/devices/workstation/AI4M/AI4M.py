@@ -265,7 +265,8 @@ class AI4MDevice(OpcUaClientWithSubscription):
                 if self._station_is_free(station_id):
                     return station_id
             logger.info("没有空闲反应工站，等待中...")
-            time.sleep(1.0)
+            # 空闲工位等待属于资源轮询，降低查询频率避免持续占用 OPC UA。
+            time.sleep(5.0)
 
     @not_action
     def _sample_results(self, sample_uuids: SampleUUIDsType, extra: dict) -> list:
