@@ -108,6 +108,27 @@ def _augment_states_with_liquid_history(
     _walk(resource)
 
 
+def _normalize_states_for_plr(states: Dict[str, Any]) -> None:
+    """兼容缺少 ``pending_liquids`` 的旧版物料状态。
+
+    部分旧版 Edge/前端同步的液体状态包含 ``liquids``，但缺少
+    ``pending_liquids``。当前 pylabrobot 的 ``VolumeTracker.load_state``
+    会直接读取 ``pending_liquids``，因此这里在进入 PLR 前补充空列表。
+
+    仅处理看起来属于液体 tracker 的状态，并为补字段的状态创建浅拷贝，
+    不修改 ResourceTree 中原有的状态对象。已有 ``pending_liquids`` 的
+    AI4C、PRCXI 以及其他设备状态保持原样。
+    """
+    for name, state in list(states.items()):
+        if not isinstance(state, dict):
+            continue
+        if "pending_liquids" in state:
+            continue
+        if "liquids" not in state:
+            continue
+        states[name] = {**state, "pending_liquids": []}
+
+
 class LabSample(TypedDict):
     sample_uuid: str
     oss_path: str
@@ -920,6 +941,7 @@ class ResourceTreeSet(object):
             name_to_extra: Dict[str, dict] = {}
             effective_names = build_plr_name_aliases(tree)
             collect_node_data(tree.root_node, effective_names, name_to_uuid, all_states, name_to_extra)
+            _normalize_states_for_plr(all_states)
             has_model = tree.root_node.res_content.type != "deck"
             plr_dict = node_to_plr_dict(tree.root_node, has_model, effective_names)
             try:

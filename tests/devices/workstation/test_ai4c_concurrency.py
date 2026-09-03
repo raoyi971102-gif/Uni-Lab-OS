@@ -3,6 +3,7 @@ import time
 
 from unilabos.devices.workstation.AI4C.AI4C import (
     AI4CDevice,
+    _INITIALIZATION_COMPONENTS,
     _ROBOTIC_ARM_ACTIONS,
 )
 from unilabos.registry.decorators import get_action_meta
@@ -16,6 +17,26 @@ def _bare_device() -> AI4CDevice:
 def test_all_configured_robotic_arm_actions_exist() -> None:
     missing = [name for name in _ROBOTIC_ARM_ACTIONS if not callable(getattr(AI4CDevice, name, None))]
     assert missing == []
+
+
+def test_initialization_actions_and_status_mapping_exist() -> None:
+    assert [component[3] for component in _INITIALIZATION_COMPONENTS] == [
+        "机械手",
+        "固体称量",
+        "磁搅",
+    ]
+    assert [component[1] for component in _INITIALIZATION_COMPONENTS] == [
+        "robot_homing",
+        "solid_weighing_homing",
+        "magnetic_stirrer_homing",
+    ]
+    for action_name in (
+        "init_workstation",
+        "trigger_robot_init",
+        "trigger_solid_weighing_init",
+        "trigger_magnetic_stirrer_init",
+    ):
+        assert callable(getattr(AI4CDevice, action_name, None))
 
 
 def test_operation_lock_serializes_calls() -> None:

@@ -8,6 +8,7 @@ import json
 import re
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Sequence
 import os
 import threading
@@ -110,6 +111,32 @@ _ROBOTIC_ARM_ACTIONS = (
 _ROBOTIC_ARM_STATUS_NODES = (
     "Robotic_Arm_Idle",
     "Robotic_Arm_Fault",
+)
+
+# 新版 PLC 的工位状态数组：0=机械手，1=固体称量，2=磁搅。
+# 初始化信号在检测到对应工位进入 Homing 后立即复位，再等待 HomeDone。
+_INITIALIZATION_COMPONENTS = (
+    (
+        "Robotic_Arm_Initialize",
+        "robot_homing",
+        "robot_home_done",
+        "机械手",
+        "robot_error_flag",
+    ),
+    (
+        "Solid_Weighing_Initialize",
+        "solid_weighing_homing",
+        "solid_weighing_home_done",
+        "固体称量",
+        None,
+    ),
+    (
+        "Magnetic_Stirrer_Initialize",
+        "magnetic_stirrer_homing",
+        "magnetic_stirrer_home_done",
+        "磁搅",
+        None,
+    ),
 )
 
 
@@ -444,49 +471,125 @@ class AI4CDevice(OpcUaClientWithSubscription):
             logger.warning(f"资源放料迁移失败（不影响硬件操作）: {e}")
 
     # 初始化工站
-    @action(auto_prefix=True, description="步骤1：初始化 AI4C 工站")
+    @not_action
+    def _legacy_init_workstation(self) -> dict:
+        """保留旧的内部入口，统一转到并行初始化实现。"""
+        return self.init_workstation()
+
+    @not_action
+    def _initialize_component(
+        self,
+        initialize_node: str,
+        homing_node: str,
+        home_done_node: str,
+        description: str,
+        fault_node: Optional[str] = None,
+    ) -> None:
+        """检测到组件进入 Homing 后复位初始化信号，并等待 HomeDone。"""
+        if fault_node and self.get_node_value(fault_node, force_read=True):
+            raise RuntimeError(f"{description} 初始化期间检测到设备故障")
+        if not self._wait_until_true(
+            homing_node,
+            description=f"{description} Homing",
+        ):
+            raise ValueError(f"{description} 未进入 Homing")
+        if fault_node and self.get_node_value(fault_node, force_read=True):
+            raise RuntimeError(f"{description} 初始化期间检测到设备故障")
+        if not self.set_node_value(initialize_node, False):
+            raise RuntimeError(f"复位 {description} 初始化信号失败")
+        if not self._wait_until_true(
+            home_done_node,
+            description=f"{description} 初始化完成",
+        ):
+            raise ValueError(f"{description} 初始化失败")
+
+    @not_action
+    def _initialize_hydration_workstation(self) -> None:
+        """等待水合工站 PC 初始化完成，完成后复位请求信号。"""
+        if not self._wait_until_false(
+            "Hydration_Workstation_Initialization_Complete",
+            description="等待水合工站初始化完成信号复位",
+        ):
+            raise ValueError("水合工站初始化信号复位失败")
+        if not self._wait_until_true(
+            "Hydration_Workstation_Initialization_Complete",
+            description="水合工站初始化完成",
+        ):
+            raise ValueError("水合工站初始化失败")
+        if not self.set_node_value("Hydration_Workstation_PC_Initialization", False):
+            raise RuntimeError("复位水合工站初始化信号失败")
+
+    @not_action
+    def _start_initialization_component(
+        self,
+        component: tuple[str, str, str, str, Optional[str]],
+    ) -> None:
+        initialize_node, homing_node, home_done_node, description, fault_node = component
+        if not self.set_node_value(initialize_node, True):
+            raise RuntimeError(f"触发{description}初始化失败")
+        self._initialize_component(
+            initialize_node,
+            homing_node,
+            home_done_node,
+            description,
+            fault_node,
+        )
+
+    @action(auto_prefix=True, description="初始化 AI4C 工站（机械手、固体称量、磁搅）")
     def init_workstation(self) -> dict:
-        """
-        初始化工作站函数：
-        - 水合工站初始化PC
-        - 等待水合工站初始化完成
-        - 返回成功
-
-        Returns:
-            dict: 包含 success 和 message
-        """
-        logger.info("停止机械臂触发...")
+        """并行初始化机械手、固体称量、磁搅和水合工站 PC。"""
+        logger.info("停止机械臂动作触发并复位机械手")
         self.set_node_value("Robotic_Arm_Action_Trigger", False)
+        self.set_node_value("Robotic_Arm_Reset", True)
+        time.sleep(1.0)
+        self.set_node_value("Robotic_Arm_Reset", False)
 
-        logger.info("水合工站初始化...")
+        # 水合 PC 初始化与三个设备初始化同时启动。
         self.set_node_value("Hydration_Workstation_PC_Initialization", False)
         time.sleep(1.0)
         self.set_node_value("Hydration_Workstation_PC_Initialization", True)
+        for component in _INITIALIZATION_COMPONENTS:
+            if not self.set_node_value(component[0], True):
+                raise RuntimeError(f"触发{component[3]}初始化失败")
+
+        components = list(_INITIALIZATION_COMPONENTS)
+        with ThreadPoolExecutor(max_workers=len(components) + 1) as executor:
+            futures = [
+                executor.submit(self._initialize_component, *component)
+                for component in components
+            ]
+            futures.append(executor.submit(self._initialize_hydration_workstation))
+            for future in futures:
+                future.result()
+
+        self.m_robot_arm_current_step = self.get_node_value("Robotic_Arm_Current_Step")
+        self.m_solid_weighing_current_step = self.get_node_value("Solid_Weighing_Current_Step")
+        self.m_magnetic_stirrer_current_step = self.get_node_value("Magnetic_Stirrer_Current_Step")
+        self.m_initialized = True
+        return {"success": True, "message": "AI4C 工站初始化完成"}
+
+    @action(auto_prefix=True, description="初始化 AI4C 机械手")
+    def trigger_robot_init(self) -> dict:
+        """单独初始化机械手。"""
+        self.set_node_value("Robotic_Arm_Action_Trigger", False)
+        self.set_node_value("Robotic_Arm_Reset", True)
         time.sleep(1.0)
-        if not self._wait_until_false('Hydration_Workstation_Initialization_Complete', description="水合工站初始化完成"):
-            raise ValueError("水合工站初始化失败")
-        if self._wait_until_true('Hydration_Workstation_Initialization_Complete', description="水合工站初始化完成"):
-            logger.info("水合工站初始化完成")
+        self.set_node_value("Robotic_Arm_Reset", False)
+        self._start_initialization_component(_INITIALIZATION_COMPONENTS[0])
+        return {"success": True, "message": "AI4C 机械手初始化完成"}
 
-            self.m_robot_arm_current_step = self.get_node_value("Robotic_Arm_Current_Step")
-            logger.info(f"机械臂当前步骤: {self.m_robot_arm_current_step}")
-            self.m_solid_weighing_current_step = self.get_node_value("Solid_Weighing_Current_Step")
-            logger.info(f"固体称量当前步骤: {self.m_solid_weighing_current_step}")
-            self.m_magnetic_stirrer_current_step = self.get_node_value("Magnetic_Stirrer_Current_Step")
-            logger.info(f"磁搅当前步骤: {self.m_magnetic_stirrer_current_step}")
+    @action(auto_prefix=True, description="初始化 AI4C 固体称量")
+    def trigger_solid_weighing_init(self) -> dict:
+        """单独初始化固体称量设备。"""
+        self._start_initialization_component(_INITIALIZATION_COMPONENTS[1])
+        return {"success": True, "message": "AI4C 固体称量初始化完成"}
 
-            self.m_initialized = True
+    @action(auto_prefix=True, description="初始化 AI4C 磁搅")
+    def trigger_magnetic_stirrer_init(self) -> dict:
+        """单独初始化磁搅设备。"""
+        self._start_initialization_component(_INITIALIZATION_COMPONENTS[2])
+        return {"success": True, "message": "AI4C 磁搅初始化完成"}
 
-            self.set_node_value("Hydration_Workstation_PC_Initialization", False) # 初始化完成，复位
-            return {
-                "success": True,
-                "message": "水合工站初始化完成",
-            }
-        else:
-            self.m_initialized = False
-            raise ValueError("水合工站初始化失败")
-
-        
     @not_action
     def is_robotic_arm_initialization_complete(self)-> bool:
         """

@@ -10,7 +10,10 @@ from typing import Any, Dict, List
 
 import pytest
 
-from unilabos.resources.resource_tracker import _augment_states_with_liquid_history
+from unilabos.resources.resource_tracker import (
+    _augment_states_with_liquid_history,
+    _normalize_states_for_plr,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -135,3 +138,34 @@ class TestAugmentStatesWithLiquidHistory:
         _augment_states_with_liquid_history(well, states)
 
         assert states["well_A1"]["liquid_history"] == []
+
+
+class TestNormalizeStatesForPlr:
+    def test_missing_pending_liquids_is_defaulted(self) -> None:
+        states: Dict[str, Any] = {
+            "electrode": {"liquids": [], "liquid_history": []},
+        }
+
+        _normalize_states_for_plr(states)
+
+        assert states["electrode"]["pending_liquids"] == []
+        assert states["electrode"]["liquids"] == []
+
+    def test_existing_pending_liquids_is_unchanged(self) -> None:
+        pending = [["Sample", 100]]
+        state = {"liquids": pending, "pending_liquids": pending}
+        states: Dict[str, Any] = {"well_A1": state}
+
+        _normalize_states_for_plr(states)
+
+        assert states["well_A1"] is state
+        assert states["well_A1"]["pending_liquids"] is pending
+
+    def test_non_liquid_state_is_unchanged(self) -> None:
+        state = {"max_volume": 500000}
+        states: Dict[str, Any] = {"electrode": state}
+
+        _normalize_states_for_plr(states)
+
+        assert states["electrode"] is state
+        assert "pending_liquids" not in states["electrode"]
