@@ -293,7 +293,7 @@ class AI4MDevice(OpcUaClientWithSubscription):
             spot=0,
         )
 
-    @action(auto_prefix=True, description="启动 OP10 指令作业模式")
+    @not_action
     def start_manual_mode(self) -> dict:
         """新 OP10 表只提供直接指令接口，该模式即为指令作业模式。"""
         return {"message": "OP10 已处于直接指令作业模式"}
@@ -615,7 +615,7 @@ class AI4MDevice(OpcUaClientWithSubscription):
 
         return {"message": "OP10 机械臂和三个反应工站初始化完成"}
 
-    @action(auto_prefix=True, description="向 OP10 三个反应工站批量下发参数")
+    @not_action
     def download_auto_params(
         self,
         mag_stir_stir_speed: int,
@@ -650,7 +650,7 @@ class AI4MDevice(OpcUaClientWithSubscription):
             )
         return {"message": "三个反应工站参数下发完成"}
 
-    @action(auto_prefix=True, description="兼容旧版自动作业入口")
+    @not_action
     def start_auto_mode(self) -> dict:
         raise RuntimeError(
             "OP10 新变量表未提供自动模式切换、自动启动和自动完成节点；"

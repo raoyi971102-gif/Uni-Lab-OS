@@ -106,16 +106,12 @@ def test_decorator_registry_keeps_original_action_sets() -> None:
 
     assert set(registry["devices"]) == {"AI4M_station", "AI4M002_station"}
     assert set(registry["devices"]["AI4M_station"]["actions"]) == {
-        "download_auto_params",
-        "start_auto_mode",
-        "start_manual_mode",
         "trigger_init",
         "trigger_robot_pick_beaker",
         "trigger_robot_place_beaker",
         "trigger_station_process",
     }
     assert set(registry["devices"]["AI4M002_station"]["actions"]) == {
-        "set_stirrer_params",
         "trigger_electrolytic_cell_bts_reaction",
         "trigger_3axis_pick_from_electrolytic_cell_and_place_to_finished",
         "trigger_3axis_pick_from_raw_and_place_to_electrolytic_cell",

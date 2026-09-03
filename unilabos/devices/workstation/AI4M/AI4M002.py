@@ -149,6 +149,11 @@ class AI4M002Device(OpcUaClientWithSubscription):
         if not self.set_node_value(name, value):
             raise RuntimeError(f"写入 OPC UA 节点失败: {name}={value}")
 
+    @staticmethod
+    def _time_to_plc_ms(value: int) -> int:
+        """将动作入参的秒数转换为 PLC 使用的毫秒数。"""
+        return int(value) * 1000
+
     @not_action
     def _read_bool(self, name: str) -> bool:
         """强制读取布尔节点，避免使用过期的订阅缓存。"""
@@ -452,6 +457,7 @@ class AI4M002Device(OpcUaClientWithSubscription):
         nitrogen_time: int,
         place_code: int,
         sample_uuids: SampleUUIDsType = None,
+        peristaltic_pump_valve_number: int = 0,
     ) -> dict:
         if electrolytic_cell_id not in (1, 2):
             raise ValueError(f"电解池编号必须为 1 或 2: {electrolytic_cell_id}")
@@ -478,8 +484,11 @@ class AI4M002Device(OpcUaClientWithSubscription):
             self._write_node(f"Electrolytic_Cell_{electrolytic_cell_id}_Done", False)
             self._unassign_material(cell, material, f"电解池{electrolytic_cell_id}")
 
-            self._write_node("cleaning_time", cleaning_time)
-            self._write_node("blowing_time", nitrogen_time)
+            self._write_node(
+                "peristaltic_pump_valve_number", int(peristaltic_pump_valve_number)
+            )
+            self._write_node("cleaning_time", self._time_to_plc_ms(cleaning_time))
+            self._write_node("blowing_time", self._time_to_plc_ms(nitrogen_time))
             self._run_axis_action(
                 AxisAction.HOLD_AND_PROCESS,
                 AxisTargetPosition.WATER_WASH,
@@ -505,6 +514,7 @@ class AI4M002Device(OpcUaClientWithSubscription):
             "cleaning_time": cleaning_time,
             "nitrogen_time": nitrogen_time,
             "place_code": place_code,
+            "peristaltic_pump_valve_number": peristaltic_pump_valve_number,
         }
         return {
             **extra,
@@ -542,6 +552,7 @@ class AI4M002Device(OpcUaClientWithSubscription):
         nitrogen_time: int,
         place_code: int,
         sample_uuids: SampleUUIDsType = None,
+        peristaltic_pump_valve_number: int = 0,
     ) -> dict:
         if pick_code not in range(1, 16) or place_code not in range(1, 16):
             raise ValueError("原始电极和完成电极位置必须在 1-15 范围内")
@@ -566,7 +577,7 @@ class AI4M002Device(OpcUaClientWithSubscription):
             )
             self._unassign_material(raw, material, f"原始电极位置{pick_code}")
 
-            self._write_node("soaking_time", pickling_time)
+            self._write_node("soaking_time", self._time_to_plc_ms(pickling_time))
             self._run_axis_action(
                 AxisAction.HOLD_AND_PROCESS,
                 AxisTargetPosition.ACID_WASH,
@@ -578,8 +589,11 @@ class AI4M002Device(OpcUaClientWithSubscription):
             self._sync_resource_to_frontend()
             self._unassign_material(acid, material, "酸洗池")
 
-            self._write_node("cleaning_time", cleaning_time)
-            self._write_node("blowing_time", nitrogen_time)
+            self._write_node(
+                "peristaltic_pump_valve_number", int(peristaltic_pump_valve_number)
+            )
+            self._write_node("cleaning_time", self._time_to_plc_ms(cleaning_time))
+            self._write_node("blowing_time", self._time_to_plc_ms(nitrogen_time))
             self._run_axis_action(
                 AxisAction.HOLD_AND_PROCESS,
                 AxisTargetPosition.WATER_WASH,
@@ -606,6 +620,7 @@ class AI4M002Device(OpcUaClientWithSubscription):
             "cleaning_time": cleaning_time,
             "nitrogen_time": nitrogen_time,
             "place_code": place_code,
+            "peristaltic_pump_valve_number": peristaltic_pump_valve_number,
         }
         return {
             **extra,
@@ -623,6 +638,7 @@ class AI4M002Device(OpcUaClientWithSubscription):
     ) -> None:
         if station_id not in (1, 2):
             raise ValueError(f"磁搅工站编号必须为 1 或 2: {station_id}")
+        # 交互变量映射：工位 1 使用磁搅控制[0]，工位 2 使用磁搅控制[1]；节点表已映射为 stirrer_1/2。
         prefix = f"stirrer_{station_id}"
         self._wait_until(f"{prefix}_request_process", True, f"磁搅工站{station_id}请求加工")
         self._wait_until(f"{prefix}_occupied", True, f"磁搅工站{station_id}占位")
@@ -632,11 +648,7 @@ class AI4M002Device(OpcUaClientWithSubscription):
         self._write_node(f"{prefix}_params_downloaded", True)
         self._wait_until(f"{prefix}_params_executed", True, f"磁搅工站{station_id}参数执行")
         self._write_node(f"{prefix}_params_downloaded", False)
-        self._wait_until(
-            f"{prefix}_params_executed",
-            False,
-            f"磁搅工站{station_id}参数执行信号复位",
-        )
+        # 参数已执行后不再等待执行信号复位，直接由上层触发加工。
 
     @action(
         auto_prefix=True,
@@ -686,7 +698,6 @@ class AI4M002Device(OpcUaClientWithSubscription):
         done_node = f"Electrolytic_Cell_{electrolytic_cell_id}_Done"
         self._write_node(done_node, False)
         self._write_node(f"{prefix}_start", True)
-        plc_completed = False
         try:
             if simulate_bts:
                 logger.info(f"电解池{electrolytic_cell_id}启用 BTS 仿真，跳过 API 调用")
@@ -717,15 +728,9 @@ class AI4M002Device(OpcUaClientWithSubscription):
                 True,
                 f"电解池{electrolytic_cell_id} PLC 加工完成确认",
             )
-            plc_completed = True
         finally:
             self._write_node(f"{prefix}_start", False)
-        if plc_completed:
-            self._wait_until(
-                f"{prefix}_complete",
-                False,
-                f"电解池{electrolytic_cell_id} PLC 加工完成信号复位",
-            )
+        # PLC 加工完成信号的复位由 PLC 自行处理，动作不再等待其回落。
 
         extra = {
             "station_id": electrolytic_cell_id,
