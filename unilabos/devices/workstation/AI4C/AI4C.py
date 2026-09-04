@@ -326,15 +326,46 @@ class AI4CDevice(OpcUaClientWithSubscription):
     @not_action
     def post_init(self, ros_node):
         """ROS2 节点就绪后注册 AI4C deck。"""
-        if not (hasattr(self, "deck") and self.deck):
-            return
-
         if not (hasattr(ros_node, "resource_tracker") and ros_node.resource_tracker):
             logger.warning("resource_tracker 不存在，无法注册 deck")
             return
 
         self._ros_node = ros_node
-        ros_node.resource_tracker.add_resource(self.deck)
+
+        # DeviceClassCreator 会先把配置中的 AI4C_deck（包含启动时从云端
+        # 合并下来的仓库和物料）转换后放入 resource_tracker，再调用这里。
+        # 构造函数收到的 deck 参数只是 {_resource_child_name: ...} 引用，
+        # 直接按 setup=True 新建的 deck 没有这些物料，导致取料时总是报
+        # “前端没有资源”。优先复用 tracker 中已转换的那棵树，保证动作
+        # 使用与前端相同的 UUID 和仓位对象。
+        registered_deck = None
+        try:
+            candidates = ros_node.resource_tracker.figure_resource(
+                {"name": getattr(self.deck, "name", "AI4C_deck")}, try_mode=True
+            )
+            if not isinstance(candidates, list):
+                candidates = [candidates]
+            for candidate in candidates:
+                if candidate is self.deck:
+                    continue
+                if getattr(candidate, "name", None) == getattr(self.deck, "name", "AI4C_deck"):
+                    registered_deck = candidate
+                    break
+        except Exception as exc:
+            logger.debug(f"查找已注册 AI4C deck 失败: {exc}")
+
+        if registered_deck is not None:
+            self.deck = registered_deck
+            logger.info(
+                f"已绑定已同步的 AI4C deck: {getattr(self.deck, 'name', 'AI4C_deck')}，"
+                f"包含 {len(getattr(self.deck, 'children', []))} 个子资源"
+            )
+        elif hasattr(self, "deck") and self.deck:
+            # 没有配置树时仍保留原有行为（例如单独直接实例化驱动）。
+            ros_node.resource_tracker.add_resource(self.deck)
+        else:
+            logger.warning("AI4C deck 为空，无法注册")
+            return
 
         try:
             from unilabos.ros.nodes.base_device_node import ROS2DeviceNode
