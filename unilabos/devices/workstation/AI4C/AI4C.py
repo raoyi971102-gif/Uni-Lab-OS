@@ -354,16 +354,52 @@ class AI4CDevice(OpcUaClientWithSubscription):
         except Exception as exc:
             logger.debug(f"查找已注册 AI4C deck 失败: {exc}")
 
+        # AI4C 的 Deck 结构固定包含 7 个工位仓库。远端资源树在新实验室或
+        # 父节点尚未同步时可能只有一个空的 Deck 壳，不能用它替换本地已经
+        # setup 完成的 Deck，否则上传后前端只会看到没有堆栈的空 Deck。
         if registered_deck is not None:
-            self.deck = registered_deck
-            logger.info(
-                f"已绑定已同步的 AI4C deck: {getattr(self.deck, 'name', 'AI4C_deck')}，"
-                f"包含 {len(getattr(self.deck, 'children', []))} 个子资源"
-            )
-        elif hasattr(self, "deck") and self.deck:
+            local_children = {
+                str(getattr(child, "name", ""))
+                for child in getattr(self.deck, "children", []) or []
+                if getattr(child, "name", None)
+            }
+            remote_children = {
+                str(getattr(child, "name", ""))
+                for child in getattr(registered_deck, "children", []) or []
+                if getattr(child, "name", None)
+            }
+            remote_warehouses = {
+                str(name)
+                for name in (getattr(registered_deck, "warehouses", {}) or {}).keys()
+            }
+            if local_children and (
+                not local_children.issubset(remote_children)
+                or not local_children.issubset(remote_warehouses)
+            ):
+                missing = ", ".join(sorted(local_children - remote_children))
+                logger.warning(
+                    f"远端 AI4C deck 缺少工位仓库（{missing}），保留本地完整 Deck，"
+                    f"远端候选包含 {len(remote_children)} 个子资源"
+                )
+                # 避免空壳 Deck 继续留在 tracker 中，后续按名称查找时与
+                # 本地完整 Deck 发生歧义。远端记录不在这里删除，待完整
+                # Deck 上传后由同 UUID/父节点更新流程覆盖。
+                try:
+                    ros_node.resource_tracker.remove_resource(registered_deck)
+                except Exception as exc:
+                    logger.debug(f"清理不完整远端 AI4C deck 失败: {exc}")
+                registered_deck = None
+            else:
+                self.deck = registered_deck
+                logger.info(
+                    f"已绑定已同步的 AI4C deck: {getattr(self.deck, 'name', 'AI4C_deck')}，"
+                    f"包含 {len(getattr(self.deck, 'children', []))} 个子资源"
+                )
+
+        if registered_deck is None and hasattr(self, "deck") and self.deck:
             # 没有配置树时仍保留原有行为（例如单独直接实例化驱动）。
             ros_node.resource_tracker.add_resource(self.deck)
-        else:
+        elif registered_deck is None:
             logger.warning("AI4C deck 为空，无法注册")
             return
 

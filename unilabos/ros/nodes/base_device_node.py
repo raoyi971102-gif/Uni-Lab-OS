@@ -1160,6 +1160,15 @@ class BaseROS2DeviceNode(Node, Generic[T]):
                     original_parent_resource_uuid != target_parent_resource_uuid
                     and original_parent_resource is not None
                 )
+                # 设备驱动内部持有的 Deck（如 PRCXI_Deck）在 PLR 中可能没有
+                # 可追踪的父对象，但云端树的合法父节点就是当前设备本身。
+                # 这种更新不需要再次执行跨父节点迁移；否则迁移函数会因
+                # parent_uuid == self.uuid 返回 None，进而破坏反馈序列化。
+                if (
+                    target_parent_resource_uuid == self.uuid
+                    and original_parent_resource_uuid in (None, self.uuid)
+                ):
+                    not_same_parent = False
                 old_name = original_instance.name
                 new_name = plr_resource.name
                 parent_appended = False
@@ -1190,8 +1199,17 @@ class BaseROS2DeviceNode(Node, Generic[T]):
                 # 如果父节点变化，需要重新挂载
                 if not_same_parent:
                     parent = self.transfer_to_new_resource(original_instance, tree, additional_add_params)
-                    original_instances.append(parent)
-                    parent_appended = True
+                    # 目标父节点是当前设备时，transfer_to_new_resource 会拒绝
+                    # 再次挂载并返回 None（设备驱动内部已经持有该资源）。
+                    # 不能把 None 放入 original_instances，否则后续资源树
+                    # 序列化会访问 None.parent 并中断整个更新。
+                    if parent is not None:
+                        original_instances.append(parent)
+                        parent_appended = True
+                    else:
+                        self.lab_logger().debug(
+                            f"资源 {original_instance.name} 未发生可序列化的父节点迁移，保留原对象"
+                        )
                 else:
                     # 判断是否变更了resource_site，重新登记
                     target_site = original_instance.unilabos_extra.get("update_resource_site")
@@ -1308,24 +1326,33 @@ class BaseROS2DeviceNode(Node, Generic[T]):
                                 plr_resources.append(ResourceTreeSet([tree]).to_plr_resources()[0])
                         result, original_instances = _handle_update(plr_resources, tree_set, additional_add_params)
                         if not BasicConfig.no_update_feedback:
-                            new_tree_set = ResourceTreeSet.from_plr_resources(original_instances)  # 去重
-                            for tree in new_tree_set.trees:
-                                if tree.root_node.res_content.uuid_parent is None and self.node_name != "host_node":
-                                    tree.root_node.res_content.parent_uuid = self.uuid
-                            r = SerialCommand.Request()
-                            r.command = json.dumps(
-                                {"data": {"data": new_tree_set.dump()}, "action": "update"}
-                            )  # 和Update Resource一致
-                            response: SerialCommand_Response = await self._resource_clients[
-                                "c2s_update_resource_tree"
-                            ].call_async(
-                                r
-                            )  # type: ignore
-                            if response.response:
-                                uuid_maps = json.loads(response.response)
-                                if isinstance(uuid_maps, dict):
-                                    self.resource_tracker.loop_update_uuid(original_instances, uuid_maps)
-                            self.lab_logger().trace(f"确认资源云端 Update 结果: {response.response}")
+                            serializable_instances = [
+                                resource for resource in original_instances if resource is not None
+                            ]
+                            if serializable_instances:
+                                new_tree_set = ResourceTreeSet.from_plr_resources(serializable_instances)  # 去重
+                                for tree in new_tree_set.trees:
+                                    if (
+                                        tree.root_node.res_content.uuid_parent is None
+                                        and self.node_name != "host_node"
+                                    ):
+                                        tree.root_node.res_content.parent_uuid = self.uuid
+                                r = SerialCommand.Request()
+                                r.command = json.dumps(
+                                    {"data": {"data": new_tree_set.dump()}, "action": "update"}
+                                )  # 和Update Resource一致
+                                response: SerialCommand_Response = await self._resource_clients[
+                                    "c2s_update_resource_tree"
+                                ].call_async(
+                                    r
+                                )  # type: ignore
+                                if response.response:
+                                    uuid_maps = json.loads(response.response)
+                                    if isinstance(uuid_maps, dict):
+                                        self.resource_tracker.loop_update_uuid(serializable_instances, uuid_maps)
+                                self.lab_logger().trace(f"确认资源云端 Update 结果: {response.response}")
+                            else:
+                                self.lab_logger().debug("资源更新没有可反馈的资源对象，跳过云端反馈")
                         results.append(result)
                     elif action == "remove":
                         result = _handle_remove(resources_uuid)
