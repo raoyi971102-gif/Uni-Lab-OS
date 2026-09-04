@@ -1253,6 +1253,36 @@ class LiquidHandlerAbstract(LiquidHandlerMiddleware):
                 )
             return resolved_locals
 
+        async def _resolve_from_remote_by_references() -> List[Union[Container, TipRack]]:
+            """UUID 失效时按动作携带的资源路径/名称从 Host 查询。
+
+            Edge 重启并重新上传资源后，云端可能为同一物料返回新的 UUID，
+            但前端或正在执行的任务仍可能携带旧 UUID。此时仅按 UUID 查询会
+            返回空树；动作参数中的 ``id`` 是完整资源路径，可以作为稳定回退。
+            """
+            resolved_refs: List[Union[Container, TipRack]] = []
+            for _, resource_data in dict_items:
+                resource_ref = resource_data.get("id") or resource_data.get("name")
+                if not resource_ref:
+                    raise ValueError("资源数据缺少可用于回退查询的 id/name")
+                root_resource = await self._ros_node.get_resource_with_dir(
+                    resource_id=str(resource_ref), with_children=True
+                )
+                wanted_uuid = resource_data.get("uuid") or resource_data.get("unilabos_uuid")
+                wanted_name = resource_data.get("name")
+                candidates = [root_resource, *list(root_resource.get_all_children())]
+                matched = next(
+                    (
+                        candidate
+                        for candidate in candidates
+                        if (wanted_uuid and getattr(candidate, "unilabos_uuid", None) == wanted_uuid)
+                        or (wanted_name and getattr(candidate, "name", None) == wanted_name)
+                    ),
+                    None,
+                )
+                resolved_refs.append(cast(Union[Container, TipRack], matched or root_resource))
+            return resolved_refs
+
         # 优先走远端资源树查询；若远端为空或 requested_uuids 无法解析，则降级到本地 tracker 按 UUID 解析。
         resolved = []
         try:
@@ -1294,7 +1324,11 @@ class LiquidHandlerAbstract(LiquidHandlerMiddleware):
                     f"远端资源解析数量不匹配: requested={len(uuids)}, resolved={len(resolved)}"
                 )
         except Exception:
-            resolved = _resolve_from_local_by_uuids()
+            try:
+                # UUID 查询为空时，使用动作中的完整 id/name 查询当前云端资源。
+                resolved = await _resolve_from_remote_by_references()
+            except Exception:
+                resolved = _resolve_from_local_by_uuids()
 
         result = list(items)
         for (idx, orig_dict), res in zip(dict_items, resolved):
