@@ -17,6 +17,7 @@
             "parent": null,
             "type": "device",
             "class": "gn_workstation",
+            "icon": "gn_full_station_icon.webp",
             "position": {
                 "x": 0,
                 "y": 0,
@@ -31,7 +32,7 @@
             },
             "config": {
                 "url": "opc.tcp://192.168.6.6:4840",
-                "csv_path": "opcua_gn1.3.6.csv",
+                "csv_path": "opcua_gn1.3.7.csv",
                 "use_subscription": false,
                 "protocol_type": []
             },
@@ -58,7 +59,7 @@
             },
             "config": {
                 "url": "opc.tcp://192.168.6.6:4840",
-                "csv_path": "opcua_gn1.3.6.csv",
+                "csv_path": "opcua_gn1.3.7.csv",
                 "use_subscription": false
             },
             "data": {}
@@ -84,7 +85,7 @@
             },
             "config": {
                 "url": "opc.tcp://192.168.6.6:4840",
-                "xlsx_path": "opcua_gn1.3.6.csv",
+                "xlsx_path": "opcua_gn1.3.7.csv",
                 "use_subscription": false
             },
             "data": {}
@@ -110,7 +111,7 @@
             },
             "config": {
                 "url": "opc.tcp://192.168.6.6:4840",
-                "csv_path": "opcua_gn1.3.6.csv",
+                "csv_path": "opcua_gn1.3.7.csv",
                 "use_subscription": false
             },
             "data": {}
@@ -136,7 +137,7 @@
             },
             "config": {
                 "url": "opc.tcp://192.168.6.6:4840",
-                "xlsx_path": "opcua_gn1.3.6.csv",
+                "xlsx_path": "opcua_gn1.3.7.csv",
                 "use_subscription": false
             },
             "data": {}
@@ -162,7 +163,7 @@
             },
             "config": {
                 "url": "opc.tcp://192.168.6.6:4840",
-                "csv_path": "opcua_gn1.3.6.csv",
+                "csv_path": "opcua_gn1.3.7.csv",
                 "use_subscription": false
             },
             "data": {}
@@ -188,7 +189,7 @@
             },
             "config": {
                 "url": "opc.tcp://192.168.6.6:4840",
-                "csv_path": "opcua_gn1.3.6.csv",
+                "csv_path": "opcua_gn1.3.7.csv",
                 "use_subscription": false
             },
             "data": {}
@@ -214,7 +215,7 @@
             },
             "config": {
                 "url": "opc.tcp://192.168.6.6:4840",
-                "csv_path": "opcua_gn1.3.6.csv",
+                "csv_path": "opcua_gn1.3.7.csv",
                 "use_subscription": false
             },
             "data": {}
@@ -240,7 +241,7 @@
             },
             "config": {
                 "url": "opc.tcp://192.168.6.6:4840",
-                "xlsx_path": "opcua_gn1.3.6.csv",
+                "xlsx_path": "opcua_gn1.3.7.csv",
                 "use_subscription": false
             },
             "data": {}

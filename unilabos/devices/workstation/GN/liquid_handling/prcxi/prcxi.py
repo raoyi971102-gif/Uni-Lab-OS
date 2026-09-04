@@ -10,7 +10,7 @@ import socket
 import time
 import uuid
 import warnings
-from typing import Any, List, Dict, Optional, Tuple, TypedDict, Union, Sequence, Iterator, Literal, Callable, Awaitable
+from typing import Any, List, Dict, Optional, Tuple, TypedDict, Union, Sequence, Iterator, Literal, Callable, Awaitable, Set, cast
 from pylabrobot.liquid_handling.standard import GripDirection
 
 from pylabrobot.liquid_handling import (
@@ -68,6 +68,7 @@ from unilabos.devices.workstation.GN.liquid_handling.prcxi.flatten_utils import 
 )
 from unilabos.registry.placeholder_type import ResourceSlot
 from unilabos.resources.itemized_carrier import ItemizedCarrier
+from unilabos.resources.plr_naming import retarget_itemized_child_names
 from unilabos.resources.resource_tracker import ResourceTreeSet
 from unilabos.ros.nodes.base_device_node import BaseROS2DeviceNode, ROS2DeviceNode
 
@@ -236,13 +237,19 @@ def legacy_steps_to_v04_solution_steps(steps: Sequence[Dict[str, Any]]) -> List[
         elif function == "DefectiveLift":
             source = _as_int(step.get("PlateNo"), 1)
             destination = source
-            put_down_position = _as_int(step.get("Hierarchy"), 1)
-            force = _as_int(step.get("Force"), 1)
+            pinch_it_up_position = _as_int(
+                step.get("PinchItUpPosition", step.get("Hierarchy")), 1
+            )
+            put_down_position = pinch_it_up_position
+            force = _as_int(step.get("Force"), 5)
             if idx + 1 < len(steps_list) and steps_list[idx + 1].get("Function") == "PutDown":
                 next_step = steps_list[idx + 1]
                 destination = _as_int(next_step.get("PlateNo"), destination)
-                put_down_position = _as_int(next_step.get("Hierarchy"), put_down_position)
-                # 合并 PutDown 时若其带 Force 则覆盖（仍默认 1）
+                put_down_position = _as_int(
+                    next_step.get("PutDownPosition", next_step.get("Hierarchy")),
+                    put_down_position,
+                )
+                # 合并 PutDown 时若其带 Force 则覆盖（仍默认 5）
                 if next_step.get("Force") is not None:
                     force = _as_int(next_step.get("Force"), force)
                 idx += 1
@@ -251,20 +258,26 @@ def legacy_steps_to_v04_solution_steps(steps: Sequence[Dict[str, Any]]) -> List[
                 "Kind": "MvKit",
                 "Source": source,
                 "Destination": destination,
-                "PinchItUpPosition": _as_int(step.get("Hierarchy"), 1),
+                "PinchItUpPosition": pinch_it_up_position,
                 "PutDownPosition": put_down_position,
                 "Force": force,
             }
         elif function == "PutDown":
             destination = _as_int(step.get("PlateNo"), 1)
+            put_down_position = _as_int(
+                step.get("PutDownPosition", step.get("Hierarchy")), 1
+            )
+            pinch_it_up_position = _as_int(
+                step.get("PinchItUpPosition", put_down_position), put_down_position
+            )
             data = {
                 **base,
                 "Kind": "MvKit",
                 "Source": destination,
                 "Destination": destination,
-                "PinchItUpPosition": _as_int(step.get("Hierarchy"), 1),
-                "PutDownPosition": _as_int(step.get("Hierarchy"), 1),
-                "Force": _as_int(step.get("Force"), 1),
+                "PinchItUpPosition": pinch_it_up_position,
+                "PutDownPosition": put_down_position,
+                "Force": _as_int(step.get("Force"), 5),
             }
         elif function == "Shaking":
             data = {
@@ -975,13 +988,37 @@ class MatrixInfo(TypedDict):
     WorkTablets: list[WorkTablets]
 
 
+def _parse_slot_number(value: Any) -> Optional[int]:
+    """从 int / ``Tn`` / ``T16`` 等解析 1-based 槽位号。"""
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value > 0 else None
+    if isinstance(value, float):
+        iv = int(value)
+        return iv if iv > 0 else None
+    digits = "".join(c for c in str(value) if c.isdigit())
+    return int(digits) if digits else None
+
+
+def _slot_from_mapping_extra(extra: Any) -> Optional[int]:
+    if not isinstance(extra, dict):
+        return None
+    for key in ("slot", "update_resource_site", "site"):
+        parsed = _parse_slot_number(extra.get(key))
+        if parsed is not None:
+            return parsed
+    return None
+
+
 def _get_slot_number(resource, deck: Optional["PRCXI9300Deck"] = None) -> Optional[int]:
     """从 resource 的 ``update_resource_site`` 或位置反算 1-based 槽位号。"""
     extra = getattr(resource, "unilabos_extra", {}) or {}
-    site = extra.get("update_resource_site", "")
-    if site:
-        digits = "".join(c for c in str(site) if c.isdigit())
-        return int(digits) if digits else None
+    parsed = _slot_from_mapping_extra(extra)
+    if parsed is not None:
+        return parsed
 
     loc = getattr(resource, "location", None)
 
@@ -1447,6 +1484,10 @@ class PRCXI9300Deck(Deck):
             if occupant is not None and occupant is not resource and occupant.parent is not None:
                 occupant.parent.unassign_child_resource(occupant)
 
+        # 板名改过后孔名仍可能停在类名前缀（如 PRCXI_96_DeepWell_well_A1）。
+        # 挂板前先把台上已有孔板 + 即将挂入的板的子孔名对齐到当前板名，避免 deck 全局撞名。
+        retarget_itemized_child_names(self)
+        retarget_itemized_child_names(resource)
 
         loc = self._get_site_location(idx)
         super().assign_child_resource(resource, location=loc, reassign=reassign)
@@ -2072,6 +2113,8 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         protocol_version: Literal["v03", "v04"] = "v03",
         reset_status_inverted: Optional[bool] = None,
         wait_finish_timeout_s: Optional[float] = None,
+        slot_only_mode: bool = False,
+        slot_only_layout: Optional[Dict[str, int]] = None,
     ):
         # 枪头轴配置：``{"left": {"vol": 100, "channels": 8}, "right": {"vol": 1000, "channels": 1}}``
         # 代表左轴 100µL/8 通道、右轴 1000µL/1 通道。None → 走 legacy 路由（≤10µL→右单通道[1]、
@@ -2150,6 +2193,18 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         self.skip_position_recalc_when_matrix_exists = bool(
             skip_position_recalc_when_matrix_exists
         )
+        # slot_only_mode：仅按 Tn 槽位驱动 move_plate / transfer_liquid，不校验 deck 占用、
+        # 不上行云端物料；槽位由 from/to、显式 slot 参数或运行时注册表维护（适配金四面体等工作流）。
+        # 吸放液 / 转板固定开启：不做 deck reparent、不 update_resource，避免影响前排仪器耗材 UI。
+        self.slot_only_mode: bool = True
+        self._slot_only_registry: Dict[str, int] = {}
+        # workflow uuid 在 tracker/云端 miss 时，按 name 实例化的 PLR 缓存（同板多次 transfer 复用）
+        self._slot_only_ephemeral_cache: Dict[str, Resource] = {}
+        if slot_only_layout:
+            for key, slot in slot_only_layout.items():
+                parsed = _parse_slot_number(slot)
+                if parsed is not None and key:
+                    self._slot_only_registry[str(key)] = parsed
 
         if calibration_points is not None:
             self.calibrate_from_points(calibration_points, labware_type=self.calibration_labware_type)
@@ -2228,6 +2283,252 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
             and self._matrix_id_has_value()
         )
 
+    def _slot_only_log(self, msg: str) -> None:
+        if hasattr(self, "_ros_node") and self._ros_node is not None:
+            try:
+                self._ros_node.lab_logger().info(f"[PRCXI][slot_only] {msg}")
+            except Exception:
+                print(f"[PRCXI][slot_only] {msg}")
+        else:
+            print(f"[PRCXI][slot_only] {msg}")
+
+    @staticmethod
+    def _slot_only_resource_keys(resource: Optional[Resource]) -> List[str]:
+        if resource is None:
+            return []
+        keys: List[str] = []
+        extra = getattr(resource, "unilabos_extra", {}) or {}
+        for val in (
+            extra.get("uuid"),
+            extra.get("unilabos_uuid"),
+            getattr(resource, "name", None),
+        ):
+            if val:
+                keys.append(str(val))
+        return keys
+
+    def _slot_only_register(self, resource: Optional[Resource], slot: int) -> None:
+        parsed = _parse_slot_number(slot)
+        if resource is None or parsed is None:
+            return
+        for key in self._slot_only_resource_keys(resource):
+            self._slot_only_registry[key] = parsed
+
+    def _lookup_slot_only_position(self, resource: Optional[Resource]) -> Optional[int]:
+        if resource is None:
+            return None
+        for key in self._slot_only_resource_keys(resource):
+            if key in self._slot_only_registry:
+                return self._slot_only_registry[key]
+        top = self._top_level_consumable(resource)
+        if top is not resource:
+            for key in self._slot_only_resource_keys(top):
+                if key in self._slot_only_registry:
+                    return self._slot_only_registry[key]
+        return _get_slot_number(top or resource, deck=self.deck)
+
+    def _stamp_slot_on_resource(self, resource: Optional[Resource], slot: int) -> None:
+        parsed = _parse_slot_number(slot)
+        if resource is None or parsed is None:
+            return
+        site = f"T{parsed}"
+        for node in (resource, self._top_level_consumable(resource)):
+            if node is None:
+                continue
+            extra = getattr(node, "unilabos_extra", None)
+            if not isinstance(extra, dict):
+                extra = {}
+            extra = dict(extra)
+            extra["update_resource_site"] = site
+            setattr(node, "unilabos_extra", extra)
+
+    @staticmethod
+    def _normalize_slot_list(
+        slots: Optional[Union[int, Sequence[int]]],
+        count: int,
+    ) -> List[Optional[int]]:
+        if slots is None:
+            return [None] * count
+        if isinstance(slots, int):
+            return [_parse_slot_number(slots)] * count
+        out: List[Optional[int]] = []
+        for i in range(count):
+            if i < len(slots):
+                out.append(_parse_slot_number(slots[i]))
+            else:
+                out.append(None)
+        return out
+
+    def _apply_slot_only_stamps(
+        self,
+        items: Sequence[Resource],
+        slots: Optional[Union[int, Sequence[int]]] = None,
+    ) -> None:
+        slot_list = self._normalize_slot_list(slots, len(items))
+        for item, slot in zip(items, slot_list):
+            top = self._top_level_consumable(item)
+            target_slot = slot
+            if target_slot is None and top is not None:
+                target_slot = self._lookup_slot_only_position(top)
+            if target_slot is None:
+                continue
+            self._stamp_slot_on_resource(item, target_slot)
+            if top is not None:
+                self._slot_only_register(top, target_slot)
+
+    @staticmethod
+    def _resource_name_from_mapping(orig: Dict[str, Any]) -> Optional[str]:
+        name = orig.get("name")
+        if isinstance(name, str) and name.strip():
+            return name.strip()
+        raw_id = orig.get("id")
+        if isinstance(raw_id, str) and raw_id.strip():
+            return raw_id.rstrip("/").split("/")[-1]
+        return None
+
+    def _find_deck_child_by_name(self, name: str) -> Optional[Resource]:
+        deck = self.deck
+        if deck is None or not name:
+            return None
+        stack = list(getattr(deck, "children", None) or [])
+        while stack:
+            node = stack.pop()
+            if getattr(node, "name", None) == name:
+                return node
+            stack.extend(getattr(node, "children", None) or [])
+        return None
+
+    @staticmethod
+    def _match_prcxi_labware_factory(name: str) -> Optional[Callable[..., Resource]]:
+        """按 workflow 资源名最长前缀匹配 prcxi_labware 工厂（如 PRCXI_96_DeepWell_3 → PRCXI_96_DeepWell）。"""
+        from .prcxi_labware import PRCXI_TEMPLATE_FACTORY_KINDS
+
+        best: Optional[Callable[..., Resource]] = None
+        best_len = 0
+        for factory, _kind in PRCXI_TEMPLATE_FACTORY_KINDS:
+            fn = factory.__name__
+            if name == fn:
+                matched = True
+            elif name.startswith(fn + "_"):
+                matched = True
+            elif name.startswith(fn) and name[len(fn) :].isdigit():
+                matched = True
+            else:
+                matched = False
+            if matched and len(fn) > best_len:
+                best = factory
+                best_len = len(fn)
+        return best
+
+    def _instantiate_slot_only_plr_resource(self, orig: Dict[str, Any]) -> Union[Container, TipRack]:
+        """slot_only 降级：deck 同名实例 → labware 工厂按 name 实例化（不挂 deck、不上行）。"""
+        name = self._resource_name_from_mapping(orig)
+        if not name:
+            raise ValueError("slot_only 降级解析需要 dict 含 name 或 id")
+
+        cached = self._slot_only_ephemeral_cache.get(name)
+        if cached is not None:
+            return cast(Union[Container, TipRack], cached)
+
+        on_deck = self._find_deck_child_by_name(name)
+        if on_deck is not None:
+            self._slot_only_ephemeral_cache[name] = on_deck
+            return cast(Union[Container, TipRack], on_deck)
+
+        factory = self._match_prcxi_labware_factory(name)
+        if factory is None:
+            raise ValueError(
+                f"slot_only: 无法从 name={name!r} 匹配 prcxi_labware 工厂，"
+                "请检查 workflow 资源命名或在 graph 中挂载同名耗材"
+            )
+
+        if factory.__name__ == "PRCXI_trash":
+            res: Resource = factory()
+            if name and getattr(res, "name", None) != name:
+                res.name = name
+        else:
+            res = factory(name)
+
+        uid = orig.get("uuid") or orig.get("unilabos_uuid")
+        if uid:
+            extra = getattr(res, "unilabos_extra", None)
+            extra = dict(extra) if isinstance(extra, dict) else {}
+            extra.setdefault("uuid", uid)
+            extra.setdefault("unilabos_uuid", uid)
+            setattr(res, "unilabos_extra", extra)
+
+        self._slot_only_ephemeral_cache[name] = res
+        self._slot_only_log(f"按 name 实例化 PLR 资源: {name} ({factory.__name__})")
+        return cast(Union[Container, TipRack], res)
+
+    def _stamp_slot_only_resolved(
+        self,
+        res: Resource,
+        hint: Optional[int],
+    ) -> None:
+        if hint is not None:
+            self._stamp_slot_on_resource(res, hint)
+            top = self._top_level_consumable(res)
+            if top is not None:
+                self._slot_only_register(top, hint)
+        else:
+            self._apply_slot_only_stamps([res], None)
+
+    async def _resolve_to_plr_resources(
+        self,
+        items: Sequence[Union[Container, TipRack, Dict[str, Any]]],
+    ) -> List[Union[Container, TipRack]]:
+        if items is None:
+            return []
+        slot_hints: List[Optional[int]] = []
+        for item in items:
+            hint: Optional[int] = None
+            if isinstance(item, dict):
+                hint = _parse_slot_number(item.get("slot"))
+                if hint is None:
+                    hint = _slot_from_mapping_extra(item.get("extra") or {})
+                if hint is None:
+                    hint = _slot_from_mapping_extra(item)
+            slot_hints.append(hint)
+
+        if not self.slot_only_mode:
+            return await super()._resolve_to_plr_resources(items)
+
+        result: List[Union[Container, TipRack]] = []
+        for item, hint in zip(items, slot_hints):
+            if not isinstance(item, dict):
+                result.append(item)
+                continue
+            try:
+                resolved_one = await super()._resolve_to_plr_resources([item])
+                res = resolved_one[0]
+            except Exception as exc:
+                self._slot_only_log(
+                    f"tracker/远端未命中 {item.get('name') or item.get('uuid')}，"
+                    f"slot_only 降级: {exc}"
+                )
+                res = self._instantiate_slot_only_plr_resource(item)
+            self._stamp_slot_only_resolved(res, hint)
+            result.append(res)
+        return result
+
+    def _resolve_move_plate_src_slot(
+        self,
+        plate: Optional[Resource],
+        from_: Optional[int],
+    ) -> int:
+        explicit = _parse_slot_number(from_)
+        if explicit is not None:
+            return explicit
+        if plate is not None:
+            looked = self._lookup_slot_only_position(plate)
+            if looked is not None:
+                return looked
+        raise ValueError(
+            "slot_only_mode 下 move_plate 需要非 0 的 from，"
+            "或 plate 已在运行时槽位注册表 / update_resource_site 中"
+        )
+
     def _top_level_consumable(self, resource):
         """从任意 PLR 资源沿 parent 向上找"放在 deck 上的那一层耗材"。"""
         if resource is None:
@@ -2245,26 +2546,44 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
             cur = parent
         return None
 
-    def _attach_resources_to_deck_if_needed(self, items: Sequence[Resource]) -> None:
-        """把通过 _resolve_to_plr_resources 拿回的"游离"耗材自动挂到 self.deck。
+    def _attach_resources_to_deck_if_needed(self, items: Sequence[Resource]) -> List[Resource]:
+        """把游离耗材对齐到 self.deck 上已挂载的同名实例；无同名则尝试挂载。
 
-        - 已经在 PRCXI9300Deck 上（含 name 同名）的跳过；
-        - 优先按 ``unilabos_extra.update_resource_site`` 的 Tn 解析槽位；
-        - 否则交给 ``Deck.assign_child_resource`` 找空槽。
-        - 任意失败仅打印告警，不中断主流程（backend 仍可走名字兜底）。
+        远端 ``get_resource`` / ``to_plr`` 常把板/枪头架解成 ``parent=None`` 的孤儿副本，
+        与 deck 上已有同名实例并存。若继续用孤儿去做 ``update_resource``，
+        ``parent_uuid`` 会被强制写成设备 UUID，前端就会看到物料变成 Deck 同级。
+
+        Returns:
+            与 ``items`` 等长的列表：尽量换成 deck 上的板/孔/TipSpot，保持父子关系正确。
         """
         deck = getattr(self, "deck", None)
         if not isinstance(deck, PRCXI9300Deck):
-            return
-        existing_names = {getattr(c, "name", None) for c in deck.children}
+            return list(items)
+        by_name = {getattr(c, "name", None): c for c in deck.children}
+        existing_names = set(by_name.keys())
+        out: List[Resource] = []
         for item in items:
             top = self._top_level_consumable(item)
             if top is None or not isinstance(top, Resource):
+                out.append(item)
                 continue
             if isinstance(getattr(top, "parent", None), PRCXI9300Deck):
+                out.append(item)
                 continue
             top_name = getattr(top, "name", None)
-            if top_name in existing_names:
+            deck_top = by_name.get(top_name)
+            if deck_top is not None:
+                # 同名已在 deck：改用 deck 实例（板本身或对应子孔/TipSpot）
+                if item is top:
+                    remapped: Resource = deck_top
+                else:
+                    child_name = getattr(item, "name", None)
+                    remapped = next(
+                        (c for c in (getattr(deck_top, "children", None) or [])
+                         if getattr(c, "name", None) == child_name),
+                        item,
+                    )
+                out.append(remapped)
                 continue
             spot_idx: Optional[int] = None
             extra = getattr(top, "unilabos_extra", {}) or {}
@@ -2277,8 +2596,148 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
             try:
                 deck.assign_child_resource(top, spot=spot_idx, reassign=False)
                 existing_names.add(top_name)
+                by_name[top_name] = top
             except Exception as e:
                 print(f"[PRCXI] 自动挂载到 deck 失败: name={top_name}, site={site or '?'}, err={e}")
+            out.append(item)
+        return out
+
+    def _is_on_deck_subtree(self, resource: Optional[Resource]) -> bool:
+        cur = resource
+        while cur is not None:
+            if isinstance(cur, PRCXI9300Deck):
+                return True
+            cur = getattr(cur, "parent", None)
+        return False
+
+    def _default_trash_slot_number(self, deck: PRCXI9300Deck) -> int:
+        """9320 废弃槽默认 T16；其它布局取 sites 最大编号。"""
+        if deck.sites:
+            return max(int(s.get("number", i + 1)) for i, s in enumerate(deck.sites))
+        return 16
+
+    def _ensure_transfer_consumables_on_deck(self, *groups: Sequence[Resource]) -> None:
+        """transfer_liquid：游离耗材按声明槽位挂到 deck（仿 move_plate 对空槽 reassign）。"""
+        deck = getattr(self, "deck", None)
+        if not isinstance(deck, PRCXI9300Deck):
+            return
+        seen_names: Set[str] = set()
+        for group in groups:
+            for item in group:
+                top = self._top_level_consumable(item)
+                if top is None:
+                    continue
+                top_name = getattr(top, "name", None) or str(id(top))
+                if top_name in seen_names:
+                    continue
+                seen_names.add(top_name)
+                if self._is_on_deck_subtree(top):
+                    continue
+                extra = getattr(top, "unilabos_extra", None)
+                if not isinstance(extra, dict):
+                    extra = {}
+                site = str(extra.get("update_resource_site", "") or "")
+                digits = "".join(c for c in site if c.isdigit())
+                slot_no: Optional[int] = int(digits) if digits else None
+                is_trash = getattr(top, "category", "") == "trash" or getattr(top, "name", "") == "trash"
+                if slot_no is None and is_trash:
+                    slot_no = self._default_trash_slot_number(deck)
+                    extra = dict(extra)
+                    extra["update_resource_site"] = f"T{slot_no}"
+                    setattr(top, "unilabos_extra", extra)
+                if slot_no is None:
+                    continue
+                try:
+                    deck.assign_child_at_slot(top, slot_no, reassign=True)
+                except Exception as exc:
+                    msg = (
+                        f"[PRCXI] transfer_liquid 挂载 {top_name} 到 T{slot_no} 失败: {exc}"
+                    )
+                    if hasattr(self, "_ros_node") and self._ros_node is not None:
+                        self._ros_node.lab_logger().warning(msg)
+                    else:
+                        print(msg)
+
+    def _resolve_transfer_plate_slot_no(self, plate: Resource) -> int:
+        """transfer 路径槽位解析：与 move_plate/backend 一致，沿 parent 链读 update_resource_site。"""
+        return self._unilabos_backend._deck_plate_slot_no(plate, self.deck)
+
+    def _build_empty_slot_pipetting_position(self, number: int, *, is_trash: bool = False) -> Dict[str, Any]:
+        """空槽位移液坐标（与 _match_and_create_matrix 空 slot 分支一致）。"""
+        default_h = float(PRCXI9300Deck._DEFAULT_SITE_SIZE.get("height", 86.0))
+        slot_pos = self._slot_prcxi_xy(number)
+        pip_x = slot_pos[0] - 40
+        pip_y = slot_pos[1] - default_h / 2
+        z_base = self.deck_z - 70
+        pip_bottom, pip_mouth, pip2_bottom, pip2_mouth = self._pipetting_z_from_base(
+            z_base, z_base
+        )
+        if is_trash:
+            pip_bottom = max(pip_bottom - _TRASH_Z_RAISE_MM, 0.0)
+            pip_mouth = max(pip_mouth - _TRASH_Z_RAISE_MM, 0.0)
+            pip2_bottom = max(pip2_bottom - _TRASH_Z_RAISE_MM, 0.0)
+            pip2_mouth = max(pip2_mouth - _TRASH_Z_RAISE_MM, 0.0)
+        _ps = getattr(self, "pip_setting", None) or {}
+        left_vol_enum = _to_volume_enum((_ps.get("left") or {}).get("vol"))
+        right_vol_enum = _to_volume_enum((_ps.get("right") or {}).get("vol"))
+        return {
+            "Number": number,
+            "VolumeEnum": left_vol_enum,
+            "VolumeEnum2": right_vol_enum,
+            "XPos": min(max(0, pip_x), self.deck_x),
+            "YPos": min(max(0, pip_y), self.deck_y),
+            "ZPos": pip_bottom,
+            "bottleMouthPosition": pip_mouth,
+            "X2Pos": min(max(0, pip_x + self.right_2_left.x), self.deck_x),
+            "Y2Pos": min(max(0, pip_y + self.right_2_left.y), self.deck_y),
+            "Z2Pos": pip2_bottom,
+            "bottleMouthPosition2": pip2_mouth,
+        }
+
+    def _default_well_for_transfer(self, plate: Plate, *, prefer_liquid: bool = False) -> Well:
+        """网页选整板时展开为默认孔：储液槽 A1；源板优先首个有液孔，否则 A1。"""
+        if prefer_liquid:
+            for well in self._plate_wells(plate):
+                tracker = getattr(well, "tracker", None)
+                if tracker is not None:
+                    try:
+                        if float(tracker.get_used_volume()) > 1e-9:
+                            return well
+                    except Exception:
+                        pass
+                    liqs = getattr(tracker, "liquids", None) or []
+                    if liqs:
+                        return well
+        try:
+            return self._safe_get_well(plate, "A1")
+        except Exception:
+            wells = self._plate_wells(plate)
+            if not wells:
+                raise ValueError(
+                    f"transfer_liquid: 板 {getattr(plate, 'name', '?')} 无法解析默认孔位"
+                )
+            return wells[0]
+
+    def _expand_transfer_plates_to_wells(
+        self,
+        items: Sequence[Resource],
+        *,
+        prefer_liquid: bool = False,
+    ) -> List[Container]:
+        """将 sources/targets 中的 Plate 展开为 Well，兼容网页整板选取。"""
+        expanded: List[Container] = []
+        for item in items:
+            if isinstance(item, Plate) and not isinstance(item, Well):
+                well = self._default_well_for_transfer(item, prefer_liquid=prefer_liquid)
+                if hasattr(self, "_ros_node") and self._ros_node is not None:
+                    self._ros_node.lab_logger().info(
+                        f"[PRCXI] transfer_liquid 整板→孔: "
+                        f"{getattr(item, 'name', '?')} → {getattr(well, 'name', '?')}"
+                    )
+                expanded.append(well)
+            else:
+                expanded.append(item)  # type: ignore[arg-type]
+        return expanded
 
     @staticmethod
     def _is_success(res: Any) -> bool:
@@ -2377,8 +2836,97 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         }
         return board, matrix_info
 
+    def _publish_all_slot_geometry(self, matrix_id: str) -> None:
+        """为布局内全部槽位下发默认夹爪/移液几何坐标（不依赖 deck 上是否有物料）。"""
+        backend = self._unilabos_backend
+        api = backend.api_client
+        default_w = float(PRCXI9300Deck._DEFAULT_SITE_SIZE.get("width", 128.0))
+        default_h = float(PRCXI9300Deck._DEFAULT_SITE_SIZE.get("height", 86.0))
+        _ps = getattr(self, "pip_setting", None) or {}
+        left_vol_enum = _to_volume_enum((_ps.get("left") or {}).get("vol"))
+        right_vol_enum = _to_volume_enum((_ps.get("right") or {}).get("vol"))
+        if isinstance(self.deck, PRCXI9300Deck):
+            all_slot_numbers = [int(s["number"]) for s in self.deck.sites]
+        else:
+            all_slot_numbers = sorted(self._slot_prcxi_positions) or list(range(1, 17))
+        pipetting_positions = []
+        claw_positions = []
+        for number in all_slot_numbers:
+            slot_pos = self._slot_prcxi_xy(number)
+            claw_z = self.deck_z + self.left_2_claw.z
+            claw_x = slot_pos[0] - default_w / 2 + self.left_2_claw.x
+            claw_y = slot_pos[1] - default_h / 2 + self.left_2_claw.y
+            claw_positions.append({
+                "Number": number,
+                "XPos": min(max(0, claw_x), self.deck_x),
+                "YPos": min(max(0, claw_y), self.deck_y),
+                "ZPos": max(min(claw_z, self.max_z_claw), 0),
+            })
+            pipetting_positions.append(
+                self._build_empty_slot_pipetting_position(number, is_trash=False)
+            )
+        if pipetting_positions:
+            api.update_pipetting_position(matrix_id, pipetting_positions)
+        backend.claw_positions = claw_positions
+        if claw_positions:
+            api.update_clamp_jaw_position(matrix_id, claw_positions)
+
+    def _match_and_create_matrix_slot_only(self) -> None:
+        """slot_only：不扫描 deck 物料，按布局创建空 matrix 并初始化全槽位几何坐标。"""
+        backend = self._unilabos_backend
+        api = backend.api_client
+        if backend.matrix_id:
+            return
+        if isinstance(self.deck, PRCXI9300Deck):
+            all_slot_numbers = [int(s["number"]) for s in self.deck.sites]
+        else:
+            all_slot_numbers = list(range(1, 17))
+        default_material = {
+            "uuid": "730067cf07ae43849ddf4034299030e9",
+            "id_v4": "238c27e6-0ad7-4718-81cc-03f80b993de7",
+            "Code": "q1",
+            "Name": "废弃槽",
+            "materialEnum": 0,
+            "SupplyType": 1,
+        }
+        is_v04 = bool(getattr(api, "is_v04", False))
+        number_to_material: Dict[int, Dict[str, Any]] = {
+            int(n): ({} if is_v04 else dict(default_material))
+            for n in all_slot_numbers
+        }
+        use_prc_board = (
+            getattr(backend, "is_9320", False)
+            and getattr(api, "is_v04", False)
+        )
+        if use_prc_board:
+            board, matrix_info = self._build_prc_sites_board(number_to_material)
+            matrix_id = board.id
+            res = api.add_board_v04(board)
+            self._log_v04_board(matrix_id, tag="after-create-slot-only")
+        else:
+            matrix_id = str(uuid.uuid4())
+            empty_tablets = [
+                {"Number": number, "Material": ({} if is_v04 else dict(default_material))}
+                for number in all_slot_numbers
+            ]
+            matrix_info = {
+                "MatrixId": matrix_id,
+                "MatrixName": "matrix_slot_only_" + str(time.time()),
+                "WorkTablets": empty_tablets,
+            }
+            res = api.add_WorkTablet_Matrix(matrix_info)
+        if self._is_success(res):
+            backend.matrix_id = matrix_id
+            backend.matrix_info = matrix_info
+            self._publish_all_slot_geometry(matrix_id)
+            self._slot_only_log(f"已创建 slot-only matrix: {matrix_id}")
+
     def _match_and_create_matrix(self):
         """首次 transfer_liquid 时，根据 deck 上的 resource 自动匹配耗材并创建 WorkTabletMatrix。"""
+        if self.slot_only_mode:
+            self._match_and_create_matrix_slot_only()
+            return
+
         backend = self._unilabos_backend
         api = backend.api_client
 
@@ -2901,6 +3449,11 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
     def post_init(self, ros_node: BaseROS2DeviceNode):
         super().post_init(ros_node)
         self._unilabos_backend.post_init(ros_node)
+        # 启动时把已在 deck 上的孔板/枪头架子孔名对齐到当前板名，避免同类板孔名撞车。
+        if isinstance(self.deck, PRCXI9300Deck):
+            n = retarget_itemized_child_names(self.deck)
+            if n:
+                ros_node.lab_logger().info(f"已按板名重写 {n} 个子孔/TipSpot 名称")
 
     def set_liquid(self, wells: list[Well], liquid_names: list[str], volumes: list[float]) -> SetLiquidReturn:
         return super().set_liquid(wells, liquid_names, volumes)
@@ -2941,7 +3494,12 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         self._unilabos_backend.create_protocol(protocol_name)
 
     async def run_protocol(self, protocol_id: str = None):
-        return await self._unilabos_backend.run_protocol_async(protocol_id)
+        result = await self._unilabos_backend.run_protocol_async(protocol_id)
+        # workflow auto-run_protocol：结束后等待 3s 再返回，避免下一动作过快下发。
+        # step_mode / 复合 transfer 内部 run_protocol 不等待。
+        if not self.step_mode and not getattr(self, "_step_protocol_open", False):
+            time.sleep(3)
+        return result
 
     async def remove_liquid(
         self,
@@ -3069,6 +3627,10 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
                     except Exception:
                         pass
         # 兜底：无论物理丢弃成败，清空 PLR head 软件状态，保证下次 pickup 不再报 'Channel has tip'
+        self._clear_head_state_safe()
+
+    def _clear_head_state_safe(self) -> None:
+        """清空 PLR head 软件态（真机是否仍有枪头不在此判断）。"""
         try:
             self.clear_head_state()
         except Exception:
@@ -3100,6 +3662,9 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         delays: Optional[List[int]] = None,
         pre_aspirate_from_target: Optional[float] = None,
         none_keys: List[str] = [],
+        source_slots: Optional[Union[List[int], int]] = None,
+        target_slots: Optional[Union[List[int], int]] = None,
+        tip_rack_slots: Optional[Union[List[int], int]] = None,
     ) -> TransferLiquidReturn:
         # 必须在 _match_and_create_matrix 之前判断：
         # _match_and_create_matrix 会在首次 transfer 时创建 matrix_id，若在其后判断会恒为「有值」。
@@ -3135,14 +3700,34 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
             raise ValueError(
                 "transfer_liquid requires at least one tip rack, but got empty tip_racks."
             )
+        # 连续 transfer 时真机已 UnLoad 但 PLR head 仍标记有 tip，会跳过 pick_up。
+        # 每次 transfer 开始前清软件态；同一次 transfer 内部的 tip 复用不受影响。
+        self._clear_head_state_safe()
         # 本次 transfer 独占 protocol 生命周期：置位后内部 mix 不再各自建/跑协议，避免其
         # create_protocol 清空本 transfer 已累计的取头/吸液/放液步骤（否则机器只执行 mix）。
         # 置于两个提前退出（空 transfer / 空 tip_rack）之后，确保只有真正执行的 96 / 非 96
         # 路径才置位，且它们各自的 finally 会复位，杜绝标志泄漏。
         if self.step_mode:
             self._step_protocol_open = True
-        # 远端解析回来的 PLR 实例可能未挂到 self.deck，主动绑定一次，避免 backend 取 plate.parent==None
-        self._attach_resources_to_deck_if_needed(list(sources) + list(targets) + list(tip_racks))
+        # 物料追踪已关闭：仅按槽位维护运行时注册表，不挂 deck、不上行云端/UI。
+        self._apply_slot_only_stamps(sources, source_slots)
+        self._apply_slot_only_stamps(targets, target_slots)
+        self._apply_slot_only_stamps(tip_racks, tip_rack_slots)
+        # if self.slot_only_mode:
+        #     self._apply_slot_only_stamps(sources, source_slots)
+        #     self._apply_slot_only_stamps(targets, target_slots)
+        #     self._apply_slot_only_stamps(tip_racks, tip_rack_slots)
+        # else:
+        #     # 远端解析回来的 PLR 实例可能未挂到 self.deck：对齐到 deck 同名实例，避免孤儿板上行
+        #     sources = self._attach_resources_to_deck_if_needed(list(sources))
+        #     targets = self._attach_resources_to_deck_if_needed(list(targets))
+        #     tip_racks = self._attach_resources_to_deck_if_needed(list(tip_racks))
+        #     # 仿 move_plate：声明 Tn 但 deck 槽位为空时仍挂到目标 slot，便于 backend 反查槽号。
+        #     self._ensure_transfer_consumables_on_deck(sources, targets, tip_racks)
+        # 网页/工作流常传整板 uuid；非 96 整板模式下 PLR 需要 Well/Container。
+        if not is_96_well:
+            sources = self._expand_transfer_plates_to_wells(sources, prefer_liquid=True)
+            targets = self._expand_transfer_plates_to_wells(targets, prefer_liquid=False)
         if isinstance(tip_racks[0], TipRack):
             tip_rack = tip_racks[0]
         else:
@@ -3176,6 +3761,9 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
                 delays=delays,
                 pre_aspirate_from_target=pre_aspirate_from_target,
                 none_keys=none_keys,
+                source_slots=source_slots,
+                target_slots=target_slots,
+                tip_rack_slots=tip_rack_slots,
             )
 
         # === P1 v5：8 通道扁平化 ===
@@ -3369,9 +3957,29 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
 
         change_slots_positions = []
         for slot in change_slots:
-            number = self._get_slot_number(slot, deck=self.deck)
+            number = self._resolve_transfer_plate_slot_no(slot)
+            if self.slot_only_mode:
+                is_trash = getattr(slot, "category", "") == "trash" or getattr(slot, "name", "") == "trash"
+                change_slots_positions.append(
+                    self._build_empty_slot_pipetting_position(number, is_trash=is_trash)
+                )
+                continue
+            deck_obj = self.deck
+            idx = deck_obj.slot_index(number) if isinstance(deck_obj, PRCXI9300Deck) else None
+            physically_empty = (
+                isinstance(deck_obj, PRCXI9300Deck)
+                and idx is not None
+                and deck_obj._get_site_resource(idx) is None
+            )
+            is_trash = getattr(slot, "category", "") == "trash" or getattr(slot, "name", "") == "trash"
+            children = getattr(slot, "children", None) or []
+            if physically_empty or is_trash or not children:
+                change_slots_positions.append(
+                    self._build_empty_slot_pipetting_position(number, is_trash=is_trash)
+                )
+                continue
 
-            well = slot.children[0]
+            well = children[0]
             # 板叠放在 module/plate_adapter 上时，移液头按「无支撑基准 - support」抬高一层；
             # support 取支撑层真实高度（云端反序列化的 get_size_z 常为 0，需 _recover_height 还原）。
             slot_parent = getattr(slot, "parent", None)
@@ -3459,6 +4067,9 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         delays: Optional[List[int]] = None,
         pre_aspirate_from_target: Optional[float] = None,
         none_keys: List[str] = [],
+        source_slots: Optional[Union[List[int], int]] = None,
+        target_slots: Optional[Union[List[int], int]] = None,
+        tip_rack_slots: Optional[Union[List[int], int]] = None,
     ) -> TransferLiquidReturn:
         """96 孔整板转移路由：选定 96 通道轴 → 板位坐标同步 → 走抽象层整板 96 头 API。
 
@@ -3675,6 +4286,7 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         self,
         plate: List[ResourceSlot],
         to: int,
+        from_: Optional[int] = None,
         intermediate_locations: Optional[List[Coordinate]] = None,
         pickup_offset: Coordinate = Coordinate.zero(),
         destination_offset: Coordinate = Coordinate.zero(),
@@ -3682,94 +4294,93 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         pickup_direction: GripDirection = GripDirection.FRONT,
         pickup_distance_from_top: float = 13.2 - 3.33,
         hierarchy: int = 1,
-        force: int = 1,
+        pinch_it_up_position: int = 1,
+        put_down_position: int = 1,
+        force: int = 5,
         **backend_kwargs,
     ):
         """把 ``plate`` 搬到 ``to`` 号 slot。
 
         ``to`` 现在是目标 **slot 号（int）**，不再要求传 Resource：
-        - 取板仍沿用移液那套逻辑，从 ``plate`` 物料反推它当前所在 slot；
+        - 取板：``from_`` / schema 字段 ``from`` 为 None 或 0 时，从 ``plate`` 物料
+          反推当前所在 slot（沿用原逻辑）；为非 0 int 时，直接以该值作为取板 slot；
+        - ``plate`` 可为 null：此时必须提供非 0 的 ``from``，从该 slot 上取板上物料做 reparent；
         - 放板按 ``to`` 号位下发 pick+drop；
         - 放置后把 ``plate`` 在资源树里 reparent 到目标 slot；若该 slot 上有
           plate_adapter 或 module，则 plate 最终挂到该 adapter/module 上，并同步更新物料。
 
-        ``hierarchy``：夹爪夹取/放下高度档位，默认 1。
-        ``force``：MvKit 夹持力，默认 1。
+        ``from_``：源 slot 号。``from`` 是 Python 关键字，故形参名为 ``from_``；
+        schema/API 传入的 ``"from"`` 经 ``**backend_kwargs`` 同样生效。
+        ``pinch_it_up_position``：MvKit 夹取高度档位（V04 ``PinchItUpPosition``），默认 1，可单独设其他整数。
+        ``put_down_position``：MvKit 放下高度档位（V04 ``PutDownPosition``），默认 1，可单独设其他整数。
+        ``hierarchy``：兼容旧字段，不再覆盖 pinch/put_down。
+        ``force``：MvKit 夹持力，默认 5。
 
         因 pylabrobot 的 ``move_plate/move_resource`` 需要 ``to`` 是 Resource/Coordinate
         来做坐标计算与 reparent，``to:int`` 时不再委托父类，由本方法直接驱动 backend +
         手动 reparent。
+
+        ``slot_only_mode=True`` 时仅按 ``from``/``to`` 槽号下发夹爪动作，不校验 deck
+        占用、不做 reparent/云端上行；搬动后在运行时注册表记录 plate 当前 Tn（供后续
+        transfer_liquid / move_plate 反查）。金四面体等工作流建议在 param 中显式传
+        ``from``（如 T11→T16 传 ``from: 11, to: 16``）。
         """
         # 注册 schema 中 plate 为「资源数组」（与 transfer_liquid 的 sources 一致，便于网页选取），
-        # 运行期解析回来可能是单元素 list；这里统一取首个 Plate。
+        # 运行期解析回来可能是单元素 list / null；这里统一成单个 Plate 或 None。
         if isinstance(plate, (list, tuple)):
-            if not plate:
-                raise ValueError("move_plate 需要一个 plate，但收到空列表")
-            plate = plate[0]
+            plate = plate[0] if plate else None
 
         # 向后兼容：仍允许传 Resource（反推槽位号）。
         if not isinstance(to, int):
             to = self._unilabos_backend._deck_plate_slot_no(to, getattr(to, "parent", None))
 
-        # 确保 plate 已挂到 deck，并从 plate 反推当前（源）slot。
-        self._attach_resources_to_deck_if_needed([plate])
-        src_slot = self._unilabos_backend._deck_plate_slot_no(plate, getattr(plate, "parent", None))
+        # from 是 Python 关键字，schema/API 可能以 "from" 经 **kwargs 传入。
+        if from_ is None:
+            from_ = backend_kwargs.pop("from", None)
+
+        dst_slot = int(to)
+
+        # slot_only：按 from/to 槽号直驱夹爪，仅更新运行时槽位注册表，不做 deck reparent / UI 上行。
+        if plate is None:
+            if from_ is None or from_ == 0:
+                raise ValueError(
+                    "slot_only_mode: move_plate 需要非 0 的 from，或提供 plate 以便查槽位注册表"
+                )
+            src_slot = int(from_)
+        else:
+            src_slot = self._resolve_move_plate_src_slot(plate, from_)
         if self.step_mode:
             await self.create_protocol(f"move_plate{time.time()}")
-        # 下发硬件 pick+drop（simulator 模式只更新物料，不产生硬件步骤）。
         step = None
         if not self._simulator:
-            hierarchy = int(backend_kwargs.get("hierarchy", hierarchy))
             force = int(backend_kwargs.get("force", force))
+            pinch_it_up_position = int(
+                backend_kwargs.get("pinch_it_up_position", pinch_it_up_position)
+            )
+            put_down_position = int(
+                backend_kwargs.get("put_down_position", put_down_position)
+            )
             pick_step = await self._unilabos_backend.pick_up_resource(
-                None, source_plate_number=src_slot, hierarchy=hierarchy, force=force
+                None,
+                source_plate_number=src_slot,
+                pinch_it_up_position=pinch_it_up_position,
+                force=force,
             )
             drop_step = await self._unilabos_backend.drop_resource(
-                None, target_plate_number=to, hierarchy=hierarchy, force=force
+                None,
+                target_plate_number=dst_slot,
+                put_down_position=put_down_position,
+                force=force,
             )
             step = [pick_step, drop_step]
-
-        # 更新物料：把 plate reparent 到目标 slot；若目标 slot 上有 plate_adapter/module 则挂到其上。
-        deck = self.deck
-        dst_resource = None
-        if isinstance(deck, PRCXI9300Deck):
-            try:
-                dst_resource = deck._get_site_resource(to - 1)
-            except Exception:
-                dst_resource = None
-
-        # 入参 plate 可能与 deck 树里的实例不是同一对象（远端反序列化），但同名。pylabrobot
-        # 的 assign_child_resource 会按 root 全树做命名查重，若直接挂入参 plate 而旧的同名实例
-        # 仍在树上，会抛 "already assigned to deck"。这里统一按名字定位树内真实实例并搬动它。
-        target_plate = plate
-        if isinstance(deck, PRCXI9300Deck):
-            plate_name = getattr(plate, "name", None)
-            if plate_name is not None:
-                stack = list(deck.children)
-                while stack:
-                    node = stack.pop()
-                    if getattr(node, "name", None) == plate_name:
-                        target_plate = node
-                        break
-                    stack.extend(getattr(node, "children", None) or [])
-
-        old_parent = getattr(target_plate, "parent", None)
-        if old_parent is not None and old_parent is not dst_resource:
-            try:
-                old_parent.unassign_child_resource(target_plate)
-            except Exception:
-                pass
-        if isinstance(dst_resource, (PlateAdapter, PRCXI9300ModuleSite)):
-            # 已经在目标 module/adapter 下则无需重复挂（否则触发命名查重报错）。
-            if getattr(target_plate, "parent", None) is not dst_resource:
-                dst_resource.assign_child_resource(target_plate)
-        elif isinstance(deck, PRCXI9300Deck):
-            deck.assign_child_at_slot(target_plate, to, reassign=True)
-        # 同步槽位标记，保证后续 _get_slot_number 反推一致。
-        extra = getattr(target_plate, "unilabos_extra", None)
-        if isinstance(extra, dict):
-            extra["update_resource_site"] = f"T{to}"
-
+        if plate is not None:
+            top = self._top_level_consumable(plate) or plate
+            self._stamp_slot_on_resource(plate, dst_slot)
+            self._slot_only_register(top, dst_slot)
+            self._slot_only_log(
+                f"move_plate T{src_slot}->T{dst_slot} "
+                f"plate={getattr(top, 'name', '?')}"
+            )
         if self.step_mode and step is not None:
             await self.run_protocol()
         return step
@@ -3898,6 +4509,9 @@ class PRCXI9300Backend(LiquidHandlerBackend):
         （资源树 deck -> module -> plate）。此时沿 parent 链上溯到 deck 的直接子节点，
         用最接近 deck 的那层（其 location 才是真正的 slot 坐标）解析槽位号。
         """
+        handler = self._handler
+        slot_only = handler is not None and getattr(handler, "slot_only_mode", False)
+
         # 沿 parent 链收集 [plate, ..., deck 直接子节点]。
         chain = []
         cur = plate
@@ -3913,6 +4527,15 @@ class PRCXI9300Backend(LiquidHandlerBackend):
             digits = "".join(c for c in str(extra.get("update_resource_site", "") or "") if c.isdigit())
             if digits:
                 return int(digits)
+
+        if slot_only and handler is not None:
+            looked = handler._lookup_slot_only_position(plate)
+            if looked is not None:
+                return looked
+            raise RuntimeError(
+                f"slot_only_mode: 无法定位 {getattr(plate, 'name', '?')} 的槽位"
+                "（请在 from/to、source_slots 或运行时注册表中提供 Tn）。"
+            )
 
         actual_deck = self._resolve_deck(plate, deck)
 
@@ -3992,10 +4615,14 @@ class PRCXI9300Backend(LiquidHandlerBackend):
             plate_number = self._deck_plate_slot_no(plate, getattr(plate, "parent", None))
         is_whole_plate = True
         balance_height = 0
-        hierarchy = int(backend_kwargs.get("hierarchy", 1))  # 夹取层级，默认 1
-        force = int(backend_kwargs.get("force", 1))  # MvKit 夹持力，默认 1
+        pinch_it_up_position = int(backend_kwargs.get("pinch_it_up_position", 1))
+        force = int(backend_kwargs.get("force", 5))
         step = self.api_client.clamp_jaw_pick_up(
-            plate_number, is_whole_plate, balance_height, hierarchy=hierarchy, force=force
+            plate_number,
+            is_whole_plate,
+            balance_height,
+            pinch_it_up_position=pinch_it_up_position,
+            force=force,
         )
 
         self.steps_todo_list.append(step)
@@ -4018,10 +4645,14 @@ class PRCXI9300Backend(LiquidHandlerBackend):
         balance_height = 0
         if plate_number is None:
             raise ValueError("target_plate_number is required when dropping a resource")
-        hierarchy = int(backend_kwargs.get("hierarchy", 1))  # 放下层级，默认 1
-        force = int(backend_kwargs.get("force", 1))  # MvKit 夹持力，默认 1
+        put_down_position = int(backend_kwargs.get("put_down_position", 1))
+        force = int(backend_kwargs.get("force", 5))
         step = self.api_client.clamp_jaw_drop(
-            plate_number, is_whole_plate, balance_height, hierarchy=hierarchy, force=force
+            plate_number,
+            is_whole_plate,
+            balance_height,
+            put_down_position=put_down_position,
+            force=force,
         )
         self.steps_todo_list.append(step)
         return step
@@ -4106,16 +4737,22 @@ class PRCXI9300Backend(LiquidHandlerBackend):
 
     def run_protocol(self, protocol_id: str = None):
         self._ensure_run_ready()
-        if self.protocol_version == "v04":
-            return self._run_protocol_v04(protocol_id)
-        return self._run_protocol_v03(protocol_id)
+        try:
+            if self.protocol_version == "v04":
+                return self._run_protocol_v04(protocol_id)
+            return self._run_protocol_v03(protocol_id)
+        finally:
+            self.steps_todo_list = []
 
     async def run_protocol_async(self, protocol_id: str = None):
         """异步执行方案，避免在协程里阻塞式 sleep。"""
         self._ensure_run_ready()
-        if self.protocol_version == "v04":
-            return await self._run_protocol_v04_async(protocol_id)
-        return await self._run_protocol_v03_async(protocol_id)
+        try:
+            if self.protocol_version == "v04":
+                return await self._run_protocol_v04_async(protocol_id)
+            return await self._run_protocol_v03_async(protocol_id)
+        finally:
+            self.steps_todo_list = []
 
     def _run_protocol_v03(self, protocol_id: str = None):
         """v03：AddSolution(steps) → LoadSolution(guid) → Start → wait_for_finish（保持原行为）。"""
@@ -5084,12 +5721,26 @@ class PRCXI9300Api:
 
         - ``v03``：沿用 ``IMachineState.GetStepStateList`` 三态判断。
         - ``v04``：改用 ``IAutomation.GetStartStatus`` 轮询（运行中=true，结束=false）。
+        - 运行结束后若 ``GetResetStatus`` 显示正在复位/初始化，继续等到复位完成，
+          才视为 wait 真正结束。
         - ``timeout_s`` 默认 None：不设总超时；仅显式传入正数时才可能超时返回 False。
         """
         self._wait_timeout_last = False
+        timeout_norm = self._normalize_wait_timeout_seconds(timeout_s)
+        deadline = (time.time() + timeout_norm) if timeout_norm is not None else None
         if self.is_v04:
-            return self._wait_for_finish_v04(timeout_s=timeout_s)
-        return self._wait_for_finish_v03(timeout_s=timeout_s)
+            ok = self._wait_for_finish_v04(timeout_s=timeout_s)
+        else:
+            ok = self._wait_for_finish_v03(timeout_s=timeout_s)
+        if not ok:
+            return False
+        remaining = None
+        if deadline is not None:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                self._wait_timeout_last = True
+                return False
+        return self._wait_post_run_reset_idle(timeout_s=remaining)
 
     async def wait_for_finish_async(
         self,
@@ -5097,11 +5748,86 @@ class PRCXI9300Api:
         sleep_coro: Optional[Callable[[float], Awaitable[None]]] = None,
         timeout_s: Optional[float] = None,
     ) -> bool:
-        """异步等待方案执行完成（用于 async action，避免阻塞执行器）。"""
+        """异步等待方案执行完成（用于 async action，避免阻塞执行器）。
+
+        运行结束后若设备仍在复位/初始化，继续等到 ``GetResetStatus`` 退出复位中。
+        """
         self._wait_timeout_last = False
+        timeout_norm = self._normalize_wait_timeout_seconds(timeout_s)
+        deadline = (time.time() + timeout_norm) if timeout_norm is not None else None
         if self.is_v04:
-            return await self._wait_for_finish_v04_async(sleep_coro=sleep_coro, timeout_s=timeout_s)
-        return await self._wait_for_finish_v03_async(sleep_coro=sleep_coro, timeout_s=timeout_s)
+            ok = await self._wait_for_finish_v04_async(sleep_coro=sleep_coro, timeout_s=timeout_s)
+        else:
+            ok = await self._wait_for_finish_v03_async(sleep_coro=sleep_coro, timeout_s=timeout_s)
+        if not ok:
+            return False
+        remaining = None
+        if deadline is not None:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                self._wait_timeout_last = True
+                return False
+        return await self._wait_post_run_reset_idle_async(
+            sleep_coro=sleep_coro, timeout_s=remaining
+        )
+
+    def _wait_post_run_reset_idle(self, timeout_s: Optional[float] = None) -> bool:
+        """运行结束后等待自动复位/初始化结束（``GetResetStatus`` true=复位中）。"""
+        if self.debug:
+            return True
+        timeout_s = self._normalize_wait_timeout_seconds(timeout_s)
+        deadline = (time.time() + timeout_s) if timeout_s is not None else None
+        # 短观察窗：方案刚结束时复位状态可能略晚才拉高。
+        observe_deadline = time.time() + 2.0
+        if deadline is not None:
+            observe_deadline = min(observe_deadline, deadline)
+        seen_resetting = False
+
+        while True:
+            if deadline is not None and time.time() >= deadline:
+                if not self.get_reset_status():
+                    return True
+                self._wait_timeout_last = True
+                return False
+            in_reset = self.get_reset_status()
+            if in_reset:
+                seen_resetting = True
+            elif seen_resetting:
+                return True
+            elif time.time() >= observe_deadline:
+                return True
+            time.sleep(0.5 if not seen_resetting else 1.0)
+
+    async def _wait_post_run_reset_idle_async(
+        self,
+        *,
+        sleep_coro: Optional[Callable[[float], Awaitable[None]]] = None,
+        timeout_s: Optional[float] = None,
+    ) -> bool:
+        """异步版：运行结束后等待复位/初始化结束。"""
+        if self.debug:
+            return True
+        timeout_s = self._normalize_wait_timeout_seconds(timeout_s)
+        deadline = (time.time() + timeout_s) if timeout_s is not None else None
+        observe_deadline = time.time() + 2.0
+        if deadline is not None:
+            observe_deadline = min(observe_deadline, deadline)
+        seen_resetting = False
+
+        while True:
+            if deadline is not None and time.time() >= deadline:
+                if not self.get_reset_status():
+                    return True
+                self._wait_timeout_last = True
+                return False
+            in_reset = self.get_reset_status()
+            if in_reset:
+                seen_resetting = True
+            elif seen_resetting:
+                return True
+            elif time.time() >= observe_deadline:
+                return True
+            await self._wait_sleep_async(sleep_coro, 0.5 if not seen_resetting else 1.0)
 
     def _wait_for_finish_v03(self, timeout_s: Optional[float] = None) -> bool:
         timeout_s = self._normalize_wait_timeout_seconds(timeout_s)
@@ -5647,12 +6373,13 @@ class PRCXI9300Api:
         plate_no: int,
         is_whole_plate: bool,
         balance_height: int,
-        hierarchy: int = 1,
-        force: int = 1,
+        force: int = 5,
+        pinch_it_up_position: int = 1,
+        hierarchy: Optional[int] = None,
     ) -> Dict[str, Any]:
-        # ``Hierarchy``（层级）决定夹爪夹取/放下的高度档位（板位堆叠层级），与 SDK StepData
-        # 的 ``hierarchy`` 字段对齐，默认 1。
-        # ``Force`` 为 MvKit 夹持力，默认 1。
+        # ``PinchItUpPosition`` / ``Hierarchy``：夹取高度档位，默认 1，可单独设为其他整数。
+        # ``Force``：MvKit 夹持力，默认 5。
+        pinch = int(hierarchy) if hierarchy is not None else int(pinch_it_up_position)
         return {
             "StepAxis": "ClampingJaw",
             "Function": "DefectiveLift",
@@ -5662,7 +6389,8 @@ class PRCXI9300Api:
             "HoleCol": 1,
             "BalanceHeight": balance_height,
             "PlateOrHoleNum": f"T{plate_no}",
-            "Hierarchy": hierarchy,
+            "Hierarchy": pinch,
+            "PinchItUpPosition": pinch,
             "Force": force,
         }
 
@@ -5671,12 +6399,13 @@ class PRCXI9300Api:
         plate_no: int,
         is_whole_plate: bool,
         balance_height: int,
-        hierarchy: int = 1,
-        force: int = 1,
+        force: int = 5,
+        put_down_position: int = 1,
+        hierarchy: Optional[int] = None,
     ) -> Dict[str, Any]:
-        # ``Hierarchy``（层级）决定夹爪夹取/放下的高度档位（板位堆叠层级），与 SDK StepData
-        # 的 ``hierarchy`` 字段对齐，默认 1。
-        # ``Force`` 为 MvKit 夹持力，默认 1。
+        # ``PutDownPosition`` / ``Hierarchy``：放下高度档位，默认 1，可单独设为其他整数。
+        # ``Force``：MvKit 夹持力，默认 5。
+        put_down = int(hierarchy) if hierarchy is not None else int(put_down_position)
         return {
             "StepAxis": "ClampingJaw",
             "Function": "PutDown",
@@ -5686,7 +6415,8 @@ class PRCXI9300Api:
             "HoleCol": 1,
             "BalanceHeight": balance_height,
             "PlateOrHoleNum": f"T{plate_no}",
-            "Hierarchy": hierarchy,
+            "Hierarchy": put_down,
+            "PutDownPosition": put_down,
             "Force": force,
         }
 

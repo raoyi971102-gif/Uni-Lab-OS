@@ -11,7 +11,7 @@
     1=启动 2=复位 100=开门 101=关门
 
 气压=4 表示0.004mPa，意味着没有真空度
-支持最多 6 段温度/时间/真空上下限程序。
+支持 6 段温度/时间/真空上下限程序（TempSet/TimeSet/VacuumHigh/VacuumLow 各 1..6）。
 """
 
 import os
@@ -51,11 +51,12 @@ class VacuumOvenCommand(int, Enum):
 
 
 _EXECUTE_CMD_DOC = (
-    "按 VacuumOven_CmdType 执行 OPC 1.3.3 指令。"
+    "按 VacuumOven_CmdType 执行 OPC 指令。"
     "1=启动 2=复位 100=开门 101=关门。"
-    "启动时可写 segment(1-6)/temperature/minutes/vacuum_high/vacuum_low；"
-    "未指定 segment 但提供 temperature 时默认写第 1 段。"
-    "启动 wait=False 仅触发不等待；wait=True 时 timeout 默认 minutes*60+600。"
+    "启动时可写六段程序：temperature_1..6 / minutes_1..6 / "
+    "vacuum_high_1..6 / vacuum_low_1..6（对应 VacuumOven_TempSet_N 等）。"
+    "未传的段参数跳过不写；启动 wait=False 仅触发不等待；"
+    "wait=True 时 timeout 默认 sum(minutes_*)*60+600。"
 )
 
 
@@ -106,26 +107,60 @@ class VacuumOvenDevice(GNStationClient):
     def execute_command(
         self,
         cmd_type: int,
+        temperature_1: Optional[int] = None,
+        minutes_1: Optional[int] = None,
+        vacuum_high_1: Optional[int] = None,
+        vacuum_low_1: Optional[int] = None,
+        temperature_2: Optional[int] = None,
+        minutes_2: Optional[int] = None,
+        vacuum_high_2: Optional[int] = None,
+        vacuum_low_2: Optional[int] = None,
+        temperature_3: Optional[int] = None,
+        minutes_3: Optional[int] = None,
+        vacuum_high_3: Optional[int] = None,
+        vacuum_low_3: Optional[int] = None,
+        temperature_4: Optional[int] = None,
+        minutes_4: Optional[int] = None,
+        vacuum_high_4: Optional[int] = None,
+        vacuum_low_4: Optional[int] = None,
+        temperature_5: Optional[int] = None,
+        minutes_5: Optional[int] = None,
+        vacuum_high_5: Optional[int] = None,
+        vacuum_low_5: Optional[int] = None,
+        temperature_6: Optional[int] = None,
+        minutes_6: Optional[int] = None,
+        vacuum_high_6: Optional[int] = None,
+        vacuum_low_6: Optional[int] = None,
+        wait: bool = True,
+        timeout: Optional[float] = None,
+        # 兼容旧版单段参数（云端/工作流未刷新 schema 时仍可能传入）
         segment: Optional[int] = None,
         temperature: Optional[int] = None,
         minutes: Optional[int] = None,
         vacuum_high: Optional[int] = None,
         vacuum_low: Optional[int] = None,
-        wait: bool = True,
-        timeout: Optional[float] = None,
     ) -> dict:
-        """唯一注册动作：写参 → CmdType → CmdTrig → 等 CompleteFB。"""
+        """唯一注册动作：写六段参 → CmdType → CmdTrig → 等 CompleteFB。"""
         cmd = int(cmd_type)
         label = VACUUM_CMD_LABELS.get(cmd, f"CmdType={cmd}")
 
-        setpoints = self._build_setpoints(
-            cmd_type=cmd,
+        segment_params = [
+            [temperature_1, minutes_1, vacuum_high_1, vacuum_low_1],
+            [temperature_2, minutes_2, vacuum_high_2, vacuum_low_2],
+            [temperature_3, minutes_3, vacuum_high_3, vacuum_low_3],
+            [temperature_4, minutes_4, vacuum_high_4, vacuum_low_4],
+            [temperature_5, minutes_5, vacuum_high_5, vacuum_low_5],
+            [temperature_6, minutes_6, vacuum_high_6, vacuum_low_6],
+        ]
+        segment_params = self._merge_legacy_segment_params(
+            segment_params,
             segment=segment,
             temperature=temperature,
             minutes=minutes,
             vacuum_high=vacuum_high,
             vacuum_low=vacuum_low,
         )
+        setpoints = self._build_setpoints(segment_params)
 
         if cmd == VacuumOvenCommand.START and not wait:
             logger.info(f"真空烘箱：{label}（不等待完成）")
@@ -143,43 +178,60 @@ class VacuumOvenDevice(GNStationClient):
 
         effective_timeout = timeout
         if effective_timeout is None and cmd == VacuumOvenCommand.START:
-            effective_timeout = (minutes or 0) * 60.0 + 600.0
+            total_minutes = sum(m or 0 for _, m, _, _ in segment_params)
+            effective_timeout = total_minutes * 60.0 + 600.0
         if effective_timeout is None:
             effective_timeout = 120.0
 
         return self._run(cmd, label, setpoints, timeout=effective_timeout)
 
     @not_action
-    def _build_setpoints(
+    def _merge_legacy_segment_params(
         self,
-        cmd_type: int,
+        segment_params,
         segment: Optional[int] = None,
         temperature: Optional[int] = None,
         minutes: Optional[int] = None,
         vacuum_high: Optional[int] = None,
         vacuum_low: Optional[int] = None,
-    ) -> dict:
-        """构建写参节点字典；segment 指定时写对应段，未指定但提供 temperature 时写第 1 段。"""
-        has_values = any(v is not None for v in (temperature, minutes, vacuum_high, vacuum_low))
-        if not has_values:
-            return {}
+    ):
+        """旧版单段参数回填：仅当对应段字段为 None 时用 legacy 值补全。"""
+        legacy = (temperature, minutes, vacuum_high, vacuum_low)
+        if not any(v is not None for v in legacy):
+            return [tuple(row) for row in segment_params]
 
-        effective_segment = segment
-        if effective_segment is None and temperature is not None:
-            effective_segment = 1
-        if effective_segment is None:
-            return {}
+        idx = int(segment) if segment not in (None, 0) else 1
+        if idx < 1 or idx > self.MAX_SEGMENTS:
+            idx = 1
+        row = list(segment_params[idx - 1])
+        names = ("temperature", "minutes", "vacuum_high", "vacuum_low")
+        for i, legacy_val in enumerate(legacy):
+            if legacy_val is not None and row[i] is None:
+                row[i] = legacy_val
+        segment_params[idx - 1] = row
+        return [tuple(r) for r in segment_params]
 
-        if effective_segment < 1 or effective_segment > self.MAX_SEGMENTS:
-            raise ValueError(f"段号必须在 1-{self.MAX_SEGMENTS} 之间")
+    @not_action
+    def _build_setpoints(self, segment_params) -> dict:
+        """按 CSV 六段节点写参：TempSet/TimeSet/VacuumHigh/VacuumLow 各 1..6。
 
-        mapping = {
-            f"VacuumOven_TempSet_{effective_segment}": temperature,
-            f"VacuumOven_TimeSet_{effective_segment}": minutes,
-            f"VacuumOven_VacuumHigh_{effective_segment}": vacuum_high,
-            f"VacuumOven_VacuumLow_{effective_segment}": vacuum_low,
-        }
-        return {node: val for node, val in mapping.items() if val is not None}
+        ``segment_params`` 为长度 6 的 ``(temperature, minutes, vacuum_high, vacuum_low)``；
+        某字段为 None 则跳过该节点不写。
+        """
+        setpoints = {}
+        for i, (temperature, minutes, vacuum_high, vacuum_low) in enumerate(segment_params, start=1):
+            if i > self.MAX_SEGMENTS:
+                break
+            mapping = {
+                f"VacuumOven_TempSet_{i}": temperature,
+                f"VacuumOven_TimeSet_{i}": minutes,
+                f"VacuumOven_VacuumHigh_{i}": vacuum_high,
+                f"VacuumOven_VacuumLow_{i}": vacuum_low,
+            }
+            for node, val in mapping.items():
+                if val is not None:
+                    setpoints[node] = val
+        return setpoints
 
     @not_action
     def _run(
@@ -260,11 +312,10 @@ class VacuumOvenDevice(GNStationClient):
         logger.info("真空烘箱：开始连通测试流程...")
         self.execute_command(
             cmd_type=int(VacuumOvenCommand.START),
-            segment=1,
-            temperature=80,
-            minutes=1,
-            vacuum_high=-80,
-            vacuum_low=-90,
+            temperature_1=80,
+            minutes_1=1,
+            vacuum_high_1=-80,
+            vacuum_low_1=-90,
             wait=False,
         )
         time.sleep(2)
@@ -323,7 +374,7 @@ if __name__ == "__main__":
     while True:
         print("请选择操作：")
         print("0  读取状态（连通性测试）")
-        print("1  设置第1段程序")
+        print("1  设置六段程序（示例：仅第1段有效）")
         print("2  启动（等待完成）")
         print("3  启动（不等待，仅下发指令）")
         print("4  复位")
@@ -338,33 +389,45 @@ if __name__ == "__main__":
             status = oven.get_status()
             print(f"当前状态: {status}")
         elif choice == "1":
-            # 仅写第 1 段程序参数，不触发 CmdTrig
+            # 仅写程序参数，不触发 CmdTrig
             for node, value in oven._build_setpoints(
-                cmd_type=1,
-                segment=1,
-                temperature=25,
-                minutes=1,
-                vacuum_high=-95,
-                vacuum_low=-98,
+                [
+                    (25, 1, -95, -98),
+                    (0, 0, None, None),
+                    (0, 0, None, None),
+                    (0, 0, None, None),
+                    (0, 0, None, None),
+                    (0, 0, None, None),
+                ]
             ).items():
                 oven.set_node_value(node, value)
-            logger.info("第 1 段程序参数已写入（未触发启动）")
+            logger.info("六段程序参数已写入（未触发启动）")
         elif choice == "2":
             oven.execute_command(
                 cmd_type=1,
-                temperature=30,
-                minutes=1,
-                vacuum_high=-95,
-                vacuum_low=-98,
+                temperature_1=30,
+                minutes_1=1,
+                vacuum_high_1=-95,
+                vacuum_low_1=-98,
+                temperature_2=0,
+                minutes_2=0,
+                temperature_3=0,
+                minutes_3=0,
+                temperature_4=0,
+                minutes_4=0,
+                temperature_5=0,
+                minutes_5=0,
+                temperature_6=0,
+                minutes_6=0,
                 wait=True,
             )
         elif choice == "3":
             oven.execute_command(
                 cmd_type=1,
-                temperature=25,
-                minutes=1,
-                vacuum_high=-95,
-                vacuum_low=-98,
+                temperature_1=25,
+                minutes_1=1,
+                vacuum_high_1=-95,
+                vacuum_low_1=-98,
                 wait=False,
             )
         elif choice == "4":

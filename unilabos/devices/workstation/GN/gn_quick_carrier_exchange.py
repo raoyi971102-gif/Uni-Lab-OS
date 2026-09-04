@@ -1,10 +1,10 @@
 """
 快换模块设备驱动。
 
-协议：opcua_gn1.3.6.csv「快换模块」（前缀 QuickChange_）。
+协议：opcua_gn1.3.7.csv「快换模块」（前缀 QuickChange_）。
 
 对外仅暴露 execute_command，执行顺序为：
-    写参数 → QuickChange_CmdType → QuickChange_CmdTrig=1
+    清 CompleteFB → 写参数 → QuickChange_CmdType → QuickChange_CmdTrig=1
     → 等待 QuickChange_CompleteFB=1 → 清零命令。
 
 QuickChange_CmdType：
@@ -21,17 +21,14 @@ import time
 from enum import Enum
 from typing import Optional
 
-from unilabos.device_comms.opcua_client.node.uniopcua import DataType
 from unilabos.devices.workstation.GN.gn_station_base import GNStationClient
 from unilabos.registry.decorators import action, device, not_action
 from unilabos.utils.log import logger
 
 
-_REAL_NODES = ("QuickChange_PushPosSet",)
-
 DEFAULT_CSV_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
-    "opcua_gn1.3.6.csv",
+    "opcua_gn1.3.7.csv",
 )
 
 
@@ -94,7 +91,7 @@ TEST_FLOW_PRESETS = {
         "x_pos": 1800,
         "top_z_pos": 0,
         "take_z_pos": 1600,
-        "push_pos": 184.9480,
+        "push_pos": 185,
         "push_z_pos": 2100,
         "x_speed": 300,
         "z1_speed": 100,
@@ -109,7 +106,7 @@ TEST_FLOW_PRESETS = {
 
 
 _EXECUTE_CMD_DOC = (
-    "按 QuickChange_CmdType 执行 OPC UA 1.3.6 指令。"
+    "按 QuickChange_CmdType 执行 OPC UA 1.3.7 指令。"
     "1=X左 2=X右 3=Z1左 4=Z1右 5=Z2左 6=Z2右 "
     "7=推轴左 8=推轴右 9=Z3左 10=Z3右 "
     "11=物料顶出 12=物料放置 13=磁力搅拌运行 14=复位。"
@@ -123,7 +120,7 @@ _EXECUTE_CMD_DOC = (
     id="gn_quick_carrier_exchange",
     display_name="快换模块",
     category=["workstation"],
-    description="GN 快换模块：OPC UA 1.3.6，按完成反馈执行命令",
+    description="GN 快换模块：OPC UA 1.3.7，按完成反馈执行命令",
     icon="",
     version="2.0.0",
 )
@@ -170,8 +167,6 @@ class QuickCarrierExchangeDevice(GNStationClient):
         # 本设备内部串行化 execute_command，防同一设备多线程并发下发指令；
         # OPC UA 会话保活已上移到 GnPlcClient（整站共用一个后台线程）。
         self._command_lock = threading.Lock()
-        # 按 PLC 当前 REAL 定义修正 CSV 中仍标记为 INT16 的节点类型
-        self._fix_real_node_dtypes()
 
     @action(auto_prefix=True, description=_EXECUTE_CMD_DOC)
     def execute_command(
@@ -180,7 +175,7 @@ class QuickCarrierExchangeDevice(GNStationClient):
         x_pos: Optional[int] = None,
         top_z_pos: Optional[int] = None,
         take_z_pos: Optional[int] = None,
-        push_pos: Optional[float] = None,
+        push_pos: Optional[int] = None,
         push_z_pos: Optional[int] = None,
         x_speed: Optional[int] = None,
         z1_speed: Optional[int] = None,
@@ -192,7 +187,11 @@ class QuickCarrierExchangeDevice(GNStationClient):
         stir_time_minutes: Optional[int] = None,
         timeout: float = 180.0,
     ) -> dict:
-        """唯一注册动作：写参 → CmdType → CmdTrig → 等 CompleteFB。"""
+        """唯一注册动作：持锁间隔 → 清 CompleteFB → 写参 → CmdType → CmdTrig → 等 CompleteFB。
+
+        在 ``_command_lock`` 内先 ``sleep(5)`` 再写 OPC，避免云端连续 job 时上一条
+        动作未完成就预清零 CompleteFB 或写入下一条 Set 参数。
+        """
         cmd = int(cmd_type)
         if cmd not in QUICK_CHANGE_CMD_LABELS:
             raise ValueError(
@@ -227,6 +226,7 @@ class QuickCarrierExchangeDevice(GNStationClient):
             description=QUICK_CHANGE_CMD_LABELS[cmd],
             setpoints=setpoints,
             timeout=float(timeout),
+            allow_position_fallback=cmd in self._POSITION_COMMANDS,
         )
 
     @not_action
@@ -235,7 +235,7 @@ class QuickCarrierExchangeDevice(GNStationClient):
         x_pos: Optional[int] = None,
         top_z_pos: Optional[int] = None,
         take_z_pos: Optional[int] = None,
-        push_pos: Optional[float] = None,
+        push_pos: Optional[int] = None,
         push_z_pos: Optional[int] = None,
         x_speed: Optional[int] = None,
         z1_speed: Optional[int] = None,
@@ -251,7 +251,7 @@ class QuickCarrierExchangeDevice(GNStationClient):
             "QuickChange_TopZPosSet": top_z_pos,
             "QuickChange_TakeZPosSet": take_z_pos,
             "QuickChange_PushPosSet": (
-                float(push_pos) if push_pos is not None else None
+                int(push_pos) if push_pos is not None else None
             ),
             "QuickChange_PushZPosSet": push_z_pos,
             "QuickChange_XSpeed": x_speed,
@@ -270,35 +270,33 @@ class QuickCarrierExchangeDevice(GNStationClient):
         }
 
     @not_action
-    def _fix_real_node_dtypes(self) -> None:
-        """按 PLC 当前 REAL 定义修正 CSV 中仍标记为 INT16 的节点类型。"""
-        for node_name in _REAL_NODES:
-            node = self._node_registry.get(node_name)
-            if node is not None and hasattr(node, "_data_type"):
-                if node._data_type != DataType.FLOAT:
-                    logger.info(
-                        f"{node_name} 数据类型 {node._data_type} → FLOAT"
-                        "（对齐 PLC REAL）"
-                    )
-                    node._data_type = DataType.FLOAT
-
-    @not_action
     def _run(
         self,
         cmd_type: int,
         description: str,
         setpoints: Optional[dict] = None,
         timeout: float = 180.0,
+        allow_position_fallback: bool = False,
     ) -> dict:
         with self._command_lock:
+            # 云端可能连续下发多条 job；持锁后先等 5s，避免上一条 PLC 动作未结束就写 Set/清 CompleteFB
+            time.sleep(5)
+            if not self.set_node_value(self.COMPLETE_NODE, 0):
+                logger.warning(
+                    f"快换模块：{self.COMPLETE_NODE} 预清零失败"
+                    "（可能只读或链路异常），继续下发指令"
+                )
             logger.info(f"快换模块：{description} (CmdType={cmd_type})")
-            for node_name, value in (setpoints or {}).items():
-                if not self._opc_write(node_name, value):
-                    raise ValueError(f"写入 {node_name}={value} 失败")
+            if setpoints:
+                for node, value in setpoints.items():
+                    ok = self.set_node_value(node, value)
+                    if not ok:
+                        raise ValueError(f"写入 {node}={value} 失败")
             return self._trigger_and_wait(
-                cmd_type=cmd_type,
-                description=description,
+                cmd_type,
+                description,
                 setpoints=setpoints or {},
+                allow_position_fallback=allow_position_fallback,
                 timeout=timeout,
             )
 
@@ -308,32 +306,42 @@ class QuickCarrierExchangeDevice(GNStationClient):
         cmd_type: int,
         description: str,
         setpoints: dict,
+        allow_position_fallback: bool,
         timeout: float,
     ) -> dict:
+        """下发命令并等待 CompleteFB=1；完成后清零 CmdTrig/CmdType。"""
         if timeout <= 0:
             raise ValueError("timeout 必须大于 0")
-        if not self._opc_write(self.CMD_TYPE_NODE, int(cmd_type)):
+        # 先清 CmdTrig，保证本次 CmdTrig=1 为上升沿（与机械手/离心机 finally 清理衔接）
+        self.set_node_value(self.CMD_TRIG_NODE, 0)
+        if not self.set_node_value(self.CMD_TYPE_NODE, int(cmd_type)):
             raise ValueError(f"QuickChange_CmdType={cmd_type} 写入失败")
-        if not self._opc_write(self.CMD_TRIG_NODE, 1):
+        if not self.set_node_value(self.CMD_TRIG_NODE, 1):
             raise ValueError("QuickChange_CmdTrig=1 写入失败")
 
         completed = False
         try:
-            completed = self._wait_complete(
-                setpoints=setpoints,
-                allow_position_fallback=cmd_type in self._POSITION_COMMANDS,
+            completed = self._wait_until_true(
+                self.COMPLETE_NODE,
                 timeout=timeout,
                 description=f"{description}完成",
             )
+            if not completed and allow_position_fallback:
+                targets = self._position_targets(setpoints)
+                if targets and self._positions_reached(targets):
+                    logger.warning(
+                        f"{description}：CompleteFB 未回 1，但位置已到位，作超时兜底"
+                    )
+                    completed = True
             if not completed:
                 raise ValueError(
                     f"{description}失败，QuickChange_CompleteFB 未变为 1"
                 )
         finally:
-            trigger_cleared = self._opc_write(self.CMD_TRIG_NODE, 0)
-            command_cleared = self._opc_write(self.CMD_TYPE_NODE, 0)
-            trigger_value = self._opc_read(self.CMD_TRIG_NODE, force_read=True)
-            command_value = self._opc_read(self.CMD_TYPE_NODE, force_read=True)
+            trigger_cleared = self.set_node_value(self.CMD_TRIG_NODE, 0)
+            command_cleared = self.set_node_value(self.CMD_TYPE_NODE, 0)
+            trigger_value = self.get_node_value(self.CMD_TRIG_NODE, force_read=True)
+            command_value = self.get_node_value(self.CMD_TYPE_NODE, force_read=True)
             logger.info(
                 "快换模块命令清理："
                 f"CmdTrig={trigger_value!r}，CmdType={command_value!r}"
@@ -358,51 +366,55 @@ class QuickCarrierExchangeDevice(GNStationClient):
         }
 
     @not_action
-    def _wait_complete(
+    def _wait_until_true(
         self,
-        setpoints: dict,
-        allow_position_fallback: bool,
-        timeout: float,
-        description: str,
-        interval: float = 0.1,
+        node_name: str,
+        timeout: float = 180.0,
+        interval: float = 0.2,
+        description: str = None,
     ) -> bool:
-        logger.info(f"等待 {description}（{self.COMPLETE_NODE}=1）...")
-        start = time.monotonic()
-        read_fail_streak = 0
-        while time.monotonic() - start < timeout:
-            value = self._opc_read(self.COMPLETE_NODE, force_read=True)
-            if value is None:
-                read_fail_streak += 1
-                if read_fail_streak >= 3:
-                    logger.error(
-                        f"✗ {description}中止：{self.COMPLETE_NODE} 连续读取失败"
-                    )
-                    return False
-            else:
-                read_fail_streak = 0
-                if int(value) == 1:
-                    logger.info(f"✓ {description}（{self.COMPLETE_NODE}={value}）")
-                    return True
+        desc = description or node_name
+        logger.info(f"等待 {desc}（节点: {node_name}）...")
+        start = time.time()
+        while True:
+            value = self.get_node_value(node_name, force_read=True)
+            if value:
+                logger.info(f"✓ {desc}（[{node_name}]={value}）")
+                return True
+            if time.time() - start >= timeout:
+                logger.error(
+                    f"✗ 等待 {desc} 超时（{timeout}s，[{node_name}]={value!r}）"
+                )
+                return False
             time.sleep(interval)
 
-        if allow_position_fallback:
-            targets = self._position_targets(setpoints)
-            if targets and self._positions_reached(targets):
-                logger.warning(
-                    f"{description}：完成反馈未回 1，但位置已到位，作超时兜底"
-                )
+    @not_action
+    def _wait_until_false(
+        self,
+        node_name: str,
+        timeout: float = 180.0,
+        interval: float = 0.2,
+        description: str = None,
+    ) -> bool:
+        desc = description or node_name
+        logger.info(f"等待 {desc} 复位（节点: {node_name}）...")
+        start = time.time()
+        while True:
+            value = self.get_node_value(node_name, force_read=True)
+            if not value:
+                logger.info(f"✓ {desc}（[{node_name}]={value}）")
                 return True
-        complete = self._opc_read(self.COMPLETE_NODE, force_read=True)
-        logger.error(
-            f"✗ 等待 {description}超时（{timeout}s，"
-            f"{self.COMPLETE_NODE}={complete!r}）"
-        )
-        return False
+            if time.time() - start >= timeout:
+                logger.error(
+                    f"✗ 等待 {desc} 超时（{timeout}s，[{node_name}]={value!r}）"
+                )
+                return False
+            time.sleep(interval)
 
     @not_action
     def _position_targets(self, setpoints: dict) -> dict:
         return {
-            feedback_node: float(setpoints[setpoint_node])
+            feedback_node: int(setpoints[setpoint_node])
             for setpoint_node, feedback_node in self.POSITION_NODES.items()
             if setpoint_node in setpoints
         }
@@ -419,18 +431,18 @@ class QuickCarrierExchangeDevice(GNStationClient):
         start = time.monotonic()
         stable_count = 0
         while time.monotonic() - start < sample_timeout:
-            values = {
-                node_name: self._opc_read(node_name, force_read=True)
+            last_values = {
+                node_name: self.get_node_value(node_name, force_read=True)
                 for node_name in targets
             }
             reached = all(
-                values[node_name] is not None
-                and abs(int(values[node_name]) - target) <= tolerance
+                last_values[node_name] is not None
+                and abs(int(last_values[node_name]) - target) <= tolerance
                 for node_name, target in targets.items()
             )
             stable_count = stable_count + 1 if reached else 0
             if stable_count >= stable_samples:
-                logger.info(f"✓ 快换模块位置到位：{values}")
+                logger.info(f"✓ 快换模块位置到位：{last_values}")
                 return True
             time.sleep(interval)
         return False
@@ -455,15 +467,15 @@ class QuickCarrierExchangeDevice(GNStationClient):
     @not_action
     def get_status(self) -> dict:
         return {
-            "X": self._opc_read("QuickChange_XPosFB", force_read=True),
-            "Z1": self._opc_read("QuickChange_Z1PosFB", force_read=True),
-            "Z2": self._opc_read("QuickChange_Z2PosFB", force_read=True),
-            "Push": self._opc_read("QuickChange_PushPosFB", force_read=True),
-            "Z3": self._opc_read("QuickChange_Z3PosFB", force_read=True),
-            "complete": self._opc_read(self.COMPLETE_NODE, force_read=True),
-            "stir_rpm": self._opc_read("QuickChange_StirRPM", force_read=True),
-            "stir_temp": self._opc_read("QuickChange_StirTemp", force_read=True),
-            "stir_time_minutes": self._opc_read(
+            "X": self.get_node_value("QuickChange_XPosFB", force_read=True),
+            "Z1": self.get_node_value("QuickChange_Z1PosFB", force_read=True),
+            "Z2": self.get_node_value("QuickChange_Z2PosFB", force_read=True),
+            "Push": self.get_node_value("QuickChange_PushPosFB", force_read=True),
+            "Z3": self.get_node_value("QuickChange_Z3PosFB", force_read=True),
+            "complete": self.get_node_value(self.COMPLETE_NODE, force_read=True),
+            "stir_rpm": self.get_node_value("QuickChange_StirRPM", force_read=True),
+            "stir_temp": self.get_node_value("QuickChange_StirTemp", force_read=True),
+            "stir_time_minutes": self.get_node_value(
                 "QuickChange_StirTime",
                 force_read=True,
             ),

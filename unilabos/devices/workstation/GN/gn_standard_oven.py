@@ -1,11 +1,15 @@
 """
 常规烘箱 设备驱动
 
-协议：opcua_gn1.3.6.csv「常规烘箱」(前缀 Oven_)。
-对外仅暴露 execute_command（Oven_CmdType + 写参）。
+协议：opcua_gn1.3.7.csv「常规烘箱」(前缀 Oven_)。
+对外仅暴露 execute_command（Oven_CmdType + 写参 + 开关门）。
 
 指令类型 (Oven_CmdType)：
     1=启动 2=复位/停止
+
+开关门 (1.3.7 新增 bool 节点)：
+    100=开门 → OPEN_DOOR=1
+    101=关门 → COHSE_DOOR=1
 
 运行状态 (Oven_Running_Status, INT16)：
     0=停止 1=运行
@@ -30,15 +34,17 @@ from unilabos.utils.log import logger
 from unilabos.registry.decorators import action, device, not_action
 from unilabos.devices.workstation.GN.gn_station_base import GNStationClient
 
-DEFAULT_CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "opcua_gn1.3.6.csv")
+DEFAULT_CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "opcua_gn1.3.7.csv")
 
 RUNNING_STOPPED = 0
 RUNNING_ACTIVE = 1
 
-# Oven_CmdType（与 CSV 表头一致）
+# Oven_CmdType / 开关门（与 CSV 表头一致）
 OVEN_CMD_LABELS = {
     1: "启动",
     2: "复位/停止",
+    100: "开门",
+    101: "关门",
 }
 
 
@@ -47,11 +53,14 @@ class OvenCommand(int, Enum):
 
     START = 1
     RESET = 2
+    OPEN_DOOR = 100
+    CLOSE_DOOR = 101
 
 
 _EXECUTE_CMD_DOC = (
-    "按 Oven_CmdType 执行 OPC 指令。"
-    "1=启动（需 temperature/hours/minutes 写参） 2=复位/停止。"
+    "按 Oven_CmdType / 开关门节点执行 OPC 指令。"
+    "1=启动（写 Oven_TempSet / Oven_TimeHourSet / Oven_TimeMinuteSet）"
+    " 2=复位/停止 100=开门(OPEN_DOOR=1) 101=关门(COHSE_DOOR=1)。"
     "启动 wait=True 时等待 CompleteFB；timeout 默认 program_timeout=设定时长+300。"
 )
 
@@ -72,6 +81,8 @@ class StandardOvenDevice(GNStationClient):
     CMD_TRIG_NODE = "Oven_CmdTrig"
     COMPLETE_NODE = "Oven_CompleteFB"
     RUNNING_STATUS_NODE = "Oven_Running_Status"
+    OPEN_DOOR_NODE = "OPEN_DOOR"
+    CLOSE_DOOR_NODE = "COHSE_DOOR"
 
     def __init__(
         self,
@@ -112,9 +123,12 @@ class StandardOvenDevice(GNStationClient):
         wait: bool = True,
         timeout: Optional[float] = None,
     ) -> dict:
-        """唯一注册动作：写参 → CmdType → CmdTrig → 互锁/等待 CompleteFB。"""
+        """唯一注册动作：写参 → CmdType → CmdTrig → 互锁/等待 CompleteFB；或开关门。"""
         cmd = int(cmd_type)
         label = OVEN_CMD_LABELS.get(cmd, f"CmdType={cmd}")
+
+        if cmd in (OvenCommand.OPEN_DOOR, OvenCommand.CLOSE_DOOR):
+            return self._run_door(cmd, label)
 
         setpoints = self._build_setpoints(
             cmd_type=cmd,
@@ -158,6 +172,26 @@ class StandardOvenDevice(GNStationClient):
             "Oven_TimeHourSet": hours,
             "Oven_TimeMinuteSet": minutes,
         }
+
+    @not_action
+    def _run_door(self, cmd_type: int, description: str) -> dict:
+        """1.3.7 开关门：写 OPEN_DOOR / COHSE_DOOR bool 节点为 1。"""
+        node = (
+            self.OPEN_DOOR_NODE
+            if int(cmd_type) == OvenCommand.OPEN_DOOR
+            else self.CLOSE_DOOR_NODE
+        )
+        with self._command_lock:
+            logger.info(f"执行常规烘箱: {description} ({node}=1)")
+            if not self._opc_write(node, True):
+                raise ValueError(f"写入 {node}=1 失败")
+            self._log_status(f"{description}后")
+            return {
+                "success": True,
+                "message": f"{description} 已下发",
+                "cmd_type": int(cmd_type),
+                **self.get_status(),
+            }
 
     @not_action
     def get_running_status(self) -> int:
@@ -421,7 +455,9 @@ if __name__ == "__main__":
         print("请选择操作：")
         print("0  读取状态")
         print("1  启动")
-        print("2 复位/停止")
+        print("2  复位/停止")
+        print("5  开门（CmdType=100）")
+        print("6  关门（CmdType=101）")
         print("98 测试流程（启动→停止）")
         print("99 退出")
         choice = input("请输入操作序号：").strip()
@@ -431,8 +467,12 @@ if __name__ == "__main__":
             print(oven.get_status())
         elif choice == "1":
             oven.execute_command(cmd_type=1, temperature=25, hours=0, minutes=1)
-        elif choice == "3":
+        elif choice == "2":
             oven.execute_command(cmd_type=2)
+        elif choice == "5":
+            oven.execute_command(cmd_type=100)
+        elif choice == "6":
+            oven.execute_command(cmd_type=101)
         elif choice == "98":
             oven.run_test_flow(temperature=80, hours=0, minutes=1)
         else:

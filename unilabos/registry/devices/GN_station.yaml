@@ -1,0 +1,3465 @@
+gn_workstation:
+  category:
+  - workstation
+  class:
+    module: unilabos.devices.workstation.GN.gn_workstation:GNWorkstation
+    status_types: {}
+    action_value_mappings:
+      get_plc_stats:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: get_plc_stats参数
+          description: 读取 PLC 连接与订阅统计信息
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      get_system_ready:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: get_system_ready参数
+          description: 读取 System_IsReady 判断整站是否就绪
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      reconnect_plc:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: reconnect_plc参数
+          description: 主动重连 OPC UA 会话（限流：3s 内不重复触发）
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      release_plc:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: release_plc参数
+          description: 释放对 PLC 的引用（引用计数 -1，到 0 才真正断开）
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      system_reset:
+        type: UniLabJsonCommand
+        goal:
+          timeout: timeout
+        feedback: {}
+        result: {}
+        schema:
+          title: system_reset参数
+          description: System_ResetTrig → 等 System_ResetCompleteFB
+          type: object
+          properties:
+            goal:
+              type: object
+              properties:
+                timeout:
+                  type: number
+                  default: 180.0
+                  title: timeout
+                  description: ''
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default:
+          timeout: 180.0
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      system_stop:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: system_stop参数
+          description: System_StopTrig 紧急停止
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+    type: python
+  config_info: []
+  description: GN 有机合成工作站顶层设备：机械手 + 8 个功能子设备 + PRCXI 液体处理器；内部通过 GnPlcClient 单例保持与
+    PLC 的**唯一 OPC UA 会话**。
+  handles: []
+  icon: gn_full_station_icon.webp
+  init_param_schema:
+    config:
+      type: object
+      properties:
+        url:
+          type: string
+          title: url
+          description: ''
+        csv_path:
+          type: string
+          default: unilabos.devices.workstation.GN.gn_workstation:DEFAULT_CSV_PATH
+          title: csv_path
+          description: ''
+        username:
+          type: string
+          title: username
+          description: ''
+        password:
+          type: string
+          title: password
+          description: ''
+        use_subscription:
+          type: boolean
+          default: false
+          title: use_subscription
+          description: ''
+        cache_timeout:
+          type: number
+          default: 5.0
+          title: cache_timeout
+          description: ''
+        subscription_interval:
+          type: integer
+          default: 500
+          title: subscription_interval
+          description: ''
+        deck:
+          type: object
+          title: deck
+          description: ''
+        protocol_type:
+          type: array
+          items:
+            type: string
+          title: protocol_type
+          description: ''
+      required:
+      - url
+    data:
+      type: object
+      properties: {}
+      required: []
+  version: 1.0.0
+  registry_type: device
+gn_robotic_arm:
+  category:
+  - workstation
+  class:
+    module: unilabos.devices.workstation.GN.robotic_arm:RoboticArmDevice
+    status_types: {}
+    action_value_mappings:
+      disable:
+        type: UniLabJsonCommand
+        goal:
+          timeout: timeout
+        feedback: {}
+        result: {}
+        schema:
+          title: disable参数
+          description: 失能机械手 (CmdType=8)
+          type: object
+          properties:
+            goal:
+              type: object
+              properties:
+                timeout:
+                  type: number
+                  default: 60.0
+                  title: timeout
+                  description: ''
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default:
+          timeout: 60.0
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      enable:
+        type: UniLabJsonCommand
+        goal:
+          timeout: timeout
+        feedback: {}
+        result: {}
+        schema:
+          title: enable参数
+          description: 使能机械手 (CmdType=9)
+          type: object
+          properties:
+            goal:
+              type: object
+              properties:
+                timeout:
+                  type: number
+                  default: 60.0
+                  title: timeout
+                  description: ''
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default:
+          timeout: 60.0
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      go_home:
+        type: UniLabJsonCommand
+        goal:
+          timeout: timeout
+        feedback: {}
+        result: {}
+        schema:
+          title: go_home参数
+          description: 系统复位/回原点 (System_ResetTrig → System_ResetCompleteFB)
+          type: object
+          properties:
+            goal:
+              type: object
+              properties:
+                timeout:
+                  type: number
+                  default: 180.0
+                  title: timeout
+                  description: ''
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default:
+          timeout: 180.0
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      move_to_station:
+        type: UniLabJsonCommand
+        goal:
+          station: station
+          item_type: item_type
+          x_speed: x_speed
+          timeout: timeout
+        feedback: {}
+        result: {}
+        schema:
+          title: move_to_station参数
+          description: 仅 X 平移到某工站，不抓放（调试用）。unilabos.devices.workstation.GN.robotic_arm:_STATION_HINT
+          type: object
+          properties:
+            goal:
+              type: object
+              properties:
+                station:
+                  type: string
+                  title: station
+                  description: ''
+                item_type:
+                  type: string
+                  default: unilabos.devices.workstation.GN.robotic_arm:ITEM_PLATE
+                  title: item_type
+                  description: ''
+                x_speed:
+                  type: integer
+                  default: 300
+                  title: x_speed
+                  description: ''
+                timeout:
+                  type: number
+                  default: 120.0
+                  title: timeout
+                  description: ''
+              required:
+              - station
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default:
+          station: ''
+          item_type: unilabos.devices.workstation.GN.robotic_arm:ITEM_PLATE
+          x_speed: 300
+          timeout: 120.0
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      pick:
+        type: UniLabJsonCommand
+        goal:
+          station: station
+          item_type: item_type
+          number: number
+          x_speed: x_speed
+          timeout: timeout
+        feedback: {}
+        result: {}
+        schema:
+          title: pick参数
+          description: 在工站抓取。unilabos.devices.workstation.GN.robotic_arm:_STATION_HINT
+          type: object
+          properties:
+            goal:
+              type: object
+              properties:
+                station:
+                  type: string
+                  title: station
+                  description: ''
+                item_type:
+                  type: string
+                  default: unilabos.devices.workstation.GN.robotic_arm:ITEM_PLATE
+                  title: item_type
+                  description: ''
+                number:
+                  type: integer
+                  default: 1
+                  title: number
+                  description: ''
+                x_speed:
+                  type: integer
+                  default: 300
+                  title: x_speed
+                  description: ''
+                timeout:
+                  type: number
+                  default: 180.0
+                  title: timeout
+                  description: ''
+              required:
+              - station
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default:
+          station: ''
+          item_type: unilabos.devices.workstation.GN.robotic_arm:ITEM_PLATE
+          number: 1
+          x_speed: 300
+          timeout: 180.0
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      place:
+        type: UniLabJsonCommand
+        goal:
+          station: station
+          item_type: item_type
+          number: number
+          x_speed: x_speed
+          timeout: timeout
+        feedback: {}
+        result: {}
+        schema:
+          title: place参数
+          description: 在工站放置。unilabos.devices.workstation.GN.robotic_arm:_STATION_HINT
+          type: object
+          properties:
+            goal:
+              type: object
+              properties:
+                station:
+                  type: string
+                  title: station
+                  description: ''
+                item_type:
+                  type: string
+                  default: unilabos.devices.workstation.GN.robotic_arm:ITEM_PLATE
+                  title: item_type
+                  description: ''
+                number:
+                  type: integer
+                  default: 1
+                  title: number
+                  description: ''
+                x_speed:
+                  type: integer
+                  default: 300
+                  title: x_speed
+                  description: ''
+                timeout:
+                  type: number
+                  default: 180.0
+                  title: timeout
+                  description: ''
+              required:
+              - station
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default:
+          station: ''
+          item_type: unilabos.devices.workstation.GN.robotic_arm:ITEM_PLATE
+          number: 1
+          x_speed: 300
+          timeout: 180.0
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      reset:
+        type: UniLabJsonCommand
+        goal:
+          timeout: timeout
+        feedback: {}
+        result: {}
+        schema:
+          title: reset参数
+          description: 复位到安全姿态 (CmdType=7)。是否松夹爪待现场确认，勿在持件时调用
+          type: object
+          properties:
+            goal:
+              type: object
+              properties:
+                timeout:
+                  type: number
+                  default: 120.0
+                  title: timeout
+                  description: ''
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default:
+          timeout: 120.0
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      stop:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: stop参数
+          description: 紧急停止 (System_StopTrig)
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      transfer:
+        type: UniLabJsonCommand
+        goal:
+          source: source
+          target: target
+          item_type: item_type
+          source_number: source_number
+          target_number: target_number
+          x_speed: x_speed
+          timeout: timeout
+        feedback: {}
+        result: {}
+        schema:
+          title: transfer参数
+          description: 搬运：从 source 抓 → 放到 target。unilabos.devices.workstation.GN.robotic_arm:_STATION_HINT
+          type: object
+          properties:
+            goal:
+              type: object
+              properties:
+                source:
+                  type: string
+                  title: source
+                  description: ''
+                target:
+                  type: string
+                  title: target
+                  description: ''
+                item_type:
+                  type: string
+                  default: unilabos.devices.workstation.GN.robotic_arm:ITEM_PLATE
+                  title: item_type
+                  description: ''
+                source_number:
+                  type: integer
+                  default: 1
+                  title: source_number
+                  description: ''
+                target_number:
+                  type: integer
+                  default: 1
+                  title: target_number
+                  description: ''
+                x_speed:
+                  type: integer
+                  default: 300
+                  title: x_speed
+                  description: ''
+                timeout:
+                  type: number
+                  default: 180.0
+                  title: timeout
+                  description: ''
+              required:
+              - source
+              - target
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default:
+          source: ''
+          target: ''
+          item_type: unilabos.devices.workstation.GN.robotic_arm:ITEM_PLATE
+          source_number: 1
+          target_number: 1
+          x_speed: 300
+          timeout: 180.0
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+    type: python
+  config_info: []
+  description: GN 机械手：OPC UA 1.3.6，工站+子位置抓放，旋转堆栈调用 rotary_stack 旋转驱动
+  handles: []
+  icon: ''
+  init_param_schema:
+    config:
+      type: object
+      properties:
+        url:
+          type: string
+          title: url
+          description: ''
+        csv_path:
+          type: string
+          default: unilabos.devices.workstation.GN.robotic_arm:DEFAULT_CSV_PATH
+          title: csv_path
+          description: ''
+        username:
+          type: string
+          title: username
+          description: ''
+        password:
+          type: string
+          title: password
+          description: ''
+        use_subscription:
+          type: boolean
+          default: true
+          title: use_subscription
+          description: ''
+        cache_timeout:
+          type: number
+          default: 5.0
+          title: cache_timeout
+          description: ''
+        subscription_interval:
+          type: integer
+          default: 500
+          title: subscription_interval
+          description: ''
+      required:
+      - url
+    data:
+      type: object
+      properties: {}
+      required: []
+  version: 5.1.0
+  registry_type: device
+gn_centrifuge_tube_liquid_handling:
+  category:
+  - workstation
+  class:
+    module: unilabos.devices.workstation.GN.gn_centrifuge_tube_liquid_handling:CentrifugeTubeLiquidHandlingDevice
+    status_types: {}
+    action_value_mappings:
+      auto-big_gripper_pick:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: big_gripper_pick参数
+          description: 6.大夹爪抓取
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-big_gripper_pick_2:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: big_gripper_pick_2参数
+          description: 9.大夹爪抓取(2)
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-big_gripper_place:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: big_gripper_place参数
+          description: 7.大夹爪放置
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-big_gripper_place_2:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: big_gripper_place_2参数
+          description: 10.大夹爪放置(2)
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-ch1_aspirate:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: ch1_aspirate参数
+          description: 14.单通道吸液
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-ch1_dispense:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: ch1_dispense参数
+          description: 15.单通道放液
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-ch1_load:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: ch1_load参数
+          description: 13.单通道装载
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-ch1_mix:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: ch1_mix参数
+          description: 单通道混匀（指令类型=33）
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-ch1_unload:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: ch1_unload参数
+          description: 16.单通道卸载
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-ch8_aspirate:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: ch8_aspirate参数
+          description: 2.8通道吸液
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-ch8_dispense:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: ch8_dispense参数
+          description: 3.8通道放液
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-ch8_load:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: ch8_load参数
+          description: 1.8通道装载
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-ch8_mix:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: ch8_mix参数
+          description: 4.8通道混匀
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-ch8_unload:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: ch8_unload参数
+          description: 5.8通道卸载
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-execute_command:
+        type: UniLabJsonCommand
+        goal:
+          cmd_type: cmd_type
+          x_pos: x_pos
+          y_pos: y_pos
+          z1_pos: z1_pos
+          p1_pos: p1_pos
+          z2_pos: z2_pos
+          p2_pos: p2_pos
+          z3_pos: z3_pos
+          z4_pos: z4_pos
+          m_pos: m_pos
+          x_speed: x_speed
+          y_speed: y_speed
+          z1_speed: z1_speed
+          p1_speed: p1_speed
+          z2_speed: z2_speed
+          p2_speed: p2_speed
+          z3_speed: z3_speed
+          z4_speed: z4_speed
+          m_speed: m_speed
+          mix_counts: mix_counts
+          ultrasound_time: ultrasound_time
+          shaking_speed: shaking_speed
+          shaking_time: shaking_time
+          small_gripper_angle: small_gripper_angle
+          small_gripper_force: small_gripper_force
+          ultrasound_stop: ultrasound_stop
+          timeout: timeout
+        feedback: {}
+        result: {}
+        schema:
+          title: execute_command参数
+          description: unilabos.devices.workstation.GN.gn_centrifuge_tube_liquid_handling:_EXECUTE_CMD_DOC
+          type: object
+          properties:
+            goal:
+              type: object
+              properties:
+                cmd_type:
+                  type: integer
+                  title: cmd_type
+                  description: ''
+                x_pos:
+                  type: integer
+                  title: x_pos
+                  description: ''
+                y_pos:
+                  type: integer
+                  title: y_pos
+                  description: ''
+                z1_pos:
+                  type: integer
+                  title: z1_pos
+                  description: ''
+                p1_pos:
+                  type: integer
+                  title: p1_pos
+                  description: ''
+                z2_pos:
+                  type: integer
+                  title: z2_pos
+                  description: ''
+                p2_pos:
+                  type: integer
+                  title: p2_pos
+                  description: ''
+                z3_pos:
+                  type: integer
+                  title: z3_pos
+                  description: ''
+                z4_pos:
+                  type: integer
+                  title: z4_pos
+                  description: ''
+                m_pos:
+                  type: integer
+                  title: m_pos
+                  description: ''
+                x_speed:
+                  type: integer
+                  title: x_speed
+                  description: ''
+                y_speed:
+                  type: integer
+                  title: y_speed
+                  description: ''
+                z1_speed:
+                  type: integer
+                  title: z1_speed
+                  description: ''
+                p1_speed:
+                  type: integer
+                  title: p1_speed
+                  description: ''
+                z2_speed:
+                  type: integer
+                  title: z2_speed
+                  description: ''
+                p2_speed:
+                  type: integer
+                  title: p2_speed
+                  description: ''
+                z3_speed:
+                  type: integer
+                  title: z3_speed
+                  description: ''
+                z4_speed:
+                  type: integer
+                  title: z4_speed
+                  description: ''
+                m_speed:
+                  type: integer
+                  title: m_speed
+                  description: ''
+                mix_counts:
+                  type: integer
+                  title: mix_counts
+                  description: ''
+                ultrasound_time:
+                  type: integer
+                  title: ultrasound_time
+                  description: ''
+                shaking_speed:
+                  type: integer
+                  title: shaking_speed
+                  description: ''
+                shaking_time:
+                  type: integer
+                  title: shaking_time
+                  description: ''
+                small_gripper_angle:
+                  type: integer
+                  title: small_gripper_angle
+                  description: ''
+                small_gripper_force:
+                  type: integer
+                  title: small_gripper_force
+                  description: ''
+                ultrasound_stop:
+                  type: boolean
+                  default: false
+                  title: ultrasound_stop
+                  description: ''
+                timeout:
+                  type: number
+                  default: 180.0
+                  title: timeout
+                  description: ''
+              required:
+              - cmd_type
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default:
+          cmd_type: 0
+          x_pos: 0
+          y_pos: 0
+          z1_pos: 0
+          p1_pos: 0
+          z2_pos: 0
+          p2_pos: 0
+          z3_pos: 0
+          z4_pos: 0
+          m_pos: 0
+          x_speed: 0
+          y_speed: 0
+          z1_speed: 0
+          p1_speed: 0
+          z2_speed: 0
+          p2_speed: 0
+          z3_speed: 0
+          z4_speed: 0
+          m_speed: 0
+          mix_counts: 0
+          ultrasound_time: 0
+          shaking_speed: 0
+          shaking_time: 0
+          small_gripper_angle: 0
+          small_gripper_force: 0
+          ultrasound_stop: false
+          timeout: 180.0
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-home_xyz:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: home_xyz参数
+          description: XYZ 回原点
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-jog_x_left:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: jog_x_left参数
+          description: 单点调试：X向左（指令类型=1）
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-jog_x_right:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: jog_x_right参数
+          description: 单点调试：X向右（指令类型=2）
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-jog_y_backward:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: jog_y_backward参数
+          description: 单点调试：Y向后（指令类型=4）
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-jog_y_forward:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: jog_y_forward参数
+          description: 单点调试：Y向前（指令类型=3）
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-reset:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: reset参数
+          description: 19.离心管液体处理复位
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-small_gripper_close_lid:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: small_gripper_close_lid参数
+          description: 18.小夹爪关盖
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-small_gripper_open_lid:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: small_gripper_open_lid参数
+          description: 11.小夹爪开盖
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-small_gripper_pick:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: small_gripper_pick参数
+          description: 17.小夹爪抓取
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-small_gripper_place:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: small_gripper_place参数
+          description: 12.小夹爪放置
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-thermostatic_module1_close:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: thermostatic_module1_close参数
+          description: 模块1恒温关闭（指令类型=39）
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-thermostatic_module1_open:
+        type: UniLabJsonCommand
+        goal:
+          temperature: temperature
+          time_minutes: time_minutes
+        feedback: {}
+        result: {}
+        schema:
+          title: thermostatic_module1_open参数
+          description: 模块1恒温打开（指令类型=38）
+          type: object
+          properties:
+            goal:
+              type: object
+              properties:
+                temperature:
+                  type: integer
+                  default: 37
+                  title: temperature
+                  description: ''
+                time_minutes:
+                  type: integer
+                  default: 60
+                  title: time_minutes
+                  description: ''
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default:
+          temperature: 37
+          time_minutes: 60
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-thermostatic_module2_close:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: thermostatic_module2_close参数
+          description: 模块2恒温关闭（指令类型=41）
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-thermostatic_module2_open:
+        type: UniLabJsonCommand
+        goal:
+          temperature: temperature
+          time_minutes: time_minutes
+        feedback: {}
+        result: {}
+        schema:
+          title: thermostatic_module2_open参数
+          description: 模块2恒温打开（指令类型=40）
+          type: object
+          properties:
+            goal:
+              type: object
+              properties:
+                temperature:
+                  type: integer
+                  default: 37
+                  title: temperature
+                  description: ''
+                time_minutes:
+                  type: integer
+                  default: 60
+                  title: time_minutes
+                  description: ''
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default:
+          temperature: 37
+          time_minutes: 60
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-thermostatic_module3_close:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: thermostatic_module3_close参数
+          description: 模块3恒温关闭（指令类型=43）
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-thermostatic_module3_open:
+        type: UniLabJsonCommand
+        goal:
+          temperature: temperature
+          time_minutes: time_minutes
+        feedback: {}
+        result: {}
+        schema:
+          title: thermostatic_module3_open参数
+          description: 模块3恒温打开（指令类型=42）
+          type: object
+          properties:
+            goal:
+              type: object
+              properties:
+                temperature:
+                  type: integer
+                  default: 37
+                  title: temperature
+                  description: ''
+                time_minutes:
+                  type: integer
+                  default: 60
+                  title: time_minutes
+                  description: ''
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default:
+          temperature: 37
+          time_minutes: 60
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-thermostatic_module4_close:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: thermostatic_module4_close参数
+          description: 模块4恒温关闭（指令类型=45）
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-thermostatic_module4_open:
+        type: UniLabJsonCommand
+        goal:
+          temperature: temperature
+          time_minutes: time_minutes
+        feedback: {}
+        result: {}
+        schema:
+          title: thermostatic_module4_open参数
+          description: 模块4恒温打开（指令类型=44）
+          type: object
+          properties:
+            goal:
+              type: object
+              properties:
+                temperature:
+                  type: integer
+                  default: 37
+                  title: temperature
+                  description: ''
+                time_minutes:
+                  type: integer
+                  default: 60
+                  title: time_minutes
+                  description: ''
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default:
+          temperature: 37
+          time_minutes: 60
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-thermostatic_module4_shake_close:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: thermostatic_module4_shake_close参数
+          description: 模块4震荡关闭（指令类型=47）
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-thermostatic_module4_shake_open:
+        type: UniLabJsonCommand
+        goal:
+          temperature: temperature
+          time_minutes: time_minutes
+          shaking_speed: shaking_speed
+          shaking_time: shaking_time
+        feedback: {}
+        result: {}
+        schema:
+          title: thermostatic_module4_shake_open参数
+          description: 模块4震荡打开（指令类型=46）
+          type: object
+          properties:
+            goal:
+              type: object
+              properties:
+                temperature:
+                  type: integer
+                  default: 25
+                  title: temperature
+                  description: ''
+                time_minutes:
+                  type: integer
+                  default: 1
+                  title: time_minutes
+                  description: ''
+                shaking_speed:
+                  type: integer
+                  default: 300
+                  title: shaking_speed
+                  description: ''
+                shaking_time:
+                  type: integer
+                  default: 20
+                  title: shaking_time
+                  description: ''
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default:
+          temperature: 25
+          time_minutes: 1
+          shaking_speed: 300
+          shaking_time: 20
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-ultrasound_mix:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: ultrasound_mix参数
+          description: 8.超声波混匀
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      auto-ultrasound_stop:
+        type: UniLabJsonCommand
+        goal: {}
+        feedback: {}
+        result: {}
+        schema:
+          title: ultrasound_stop参数
+          description: 20.超声波混匀立即停止
+          type: object
+          properties:
+            goal:
+              type: object
+              properties: {}
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default: {}
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+    type: python
+  config_info: []
+  description: GN 离心管液体处理：分样/移液/开关盖，OPC UA 控制
+  handles: []
+  icon: ''
+  init_param_schema:
+    config:
+      type: object
+      properties:
+        url:
+          type: string
+          title: url
+          description: ''
+        xlsx_path:
+          type: string
+          default: unilabos.devices.workstation.GN.gn_centrifuge_tube_liquid_handling:DEFAULT_XLSX_PATH
+          title: xlsx_path
+          description: ''
+        username:
+          type: string
+          title: username
+          description: ''
+        password:
+          type: string
+          title: password
+          description: ''
+        use_subscription:
+          type: boolean
+          default: true
+          title: use_subscription
+          description: ''
+        cache_timeout:
+          type: number
+          default: 5.0
+          title: cache_timeout
+          description: ''
+        subscription_interval:
+          type: integer
+          default: 500
+          title: subscription_interval
+          description: ''
+      required:
+      - url
+    data:
+      type: object
+      properties: {}
+      required: []
+  version: 1.0.0
+  registry_type: device
+gn_quick_carrier_exchange:
+  category:
+  - workstation
+  class:
+    module: unilabos.devices.workstation.GN.gn_quick_carrier_exchange:QuickCarrierExchangeDevice
+    status_types: {}
+    action_value_mappings:
+      auto-execute_command:
+        type: UniLabJsonCommand
+        goal:
+          cmd_type: cmd_type
+          x_pos: x_pos
+          top_z_pos: top_z_pos
+          take_z_pos: take_z_pos
+          push_pos: push_pos
+          push_z_pos: push_z_pos
+          x_speed: x_speed
+          z1_speed: z1_speed
+          z2_speed: z2_speed
+          push_speed: push_speed
+          z3_speed: z3_speed
+          stir_rpm: stir_rpm
+          stir_temp: stir_temp
+          stir_time_minutes: stir_time_minutes
+          timeout: timeout
+        feedback: {}
+        result: {}
+        schema:
+          title: execute_command参数
+          description: unilabos.devices.workstation.GN.gn_quick_carrier_exchange:_EXECUTE_CMD_DOC
+          type: object
+          properties:
+            goal:
+              type: object
+              properties:
+                cmd_type:
+                  type: integer
+                  title: cmd_type
+                  description: ''
+                x_pos:
+                  type: integer
+                  title: x_pos
+                  description: ''
+                top_z_pos:
+                  type: integer
+                  title: top_z_pos
+                  description: ''
+                take_z_pos:
+                  type: integer
+                  title: take_z_pos
+                  description: ''
+                push_pos:
+                  type: number
+                  title: push_pos
+                  description: ''
+                push_z_pos:
+                  type: integer
+                  title: push_z_pos
+                  description: ''
+                x_speed:
+                  type: integer
+                  title: x_speed
+                  description: ''
+                z1_speed:
+                  type: integer
+                  title: z1_speed
+                  description: ''
+                z2_speed:
+                  type: integer
+                  title: z2_speed
+                  description: ''
+                push_speed:
+                  type: integer
+                  title: push_speed
+                  description: ''
+                z3_speed:
+                  type: integer
+                  title: z3_speed
+                  description: ''
+                stir_rpm:
+                  type: integer
+                  title: stir_rpm
+                  description: ''
+                stir_temp:
+                  type: integer
+                  title: stir_temp
+                  description: ''
+                stir_time_minutes:
+                  type: integer
+                  title: stir_time_minutes
+                  description: ''
+                timeout:
+                  type: number
+                  default: 180.0
+                  title: timeout
+                  description: ''
+              required:
+              - cmd_type
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default:
+          cmd_type: 0
+          x_pos: 0
+          top_z_pos: 0
+          take_z_pos: 0
+          push_pos: 0.0
+          push_z_pos: 0
+          x_speed: 0
+          z1_speed: 0
+          z2_speed: 0
+          push_speed: 0
+          z3_speed: 0
+          stir_rpm: 0
+          stir_temp: 0
+          stir_time_minutes: 0
+          timeout: 180.0
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+    type: python
+  config_info: []
+  description: GN 快换模块：OPC UA 1.3.6，按完成反馈执行命令
+  handles: []
+  icon: ''
+  init_param_schema:
+    config:
+      type: object
+      properties:
+        url:
+          type: string
+          title: url
+          description: ''
+        csv_path:
+          type: string
+          default: unilabos.devices.workstation.GN.gn_quick_carrier_exchange:DEFAULT_CSV_PATH
+          title: csv_path
+          description: ''
+        username:
+          type: string
+          title: username
+          description: ''
+        password:
+          type: string
+          title: password
+          description: ''
+        use_subscription:
+          type: boolean
+          default: true
+          title: use_subscription
+          description: ''
+        cache_timeout:
+          type: number
+          default: 5.0
+          title: cache_timeout
+          description: ''
+        subscription_interval:
+          type: integer
+          default: 500
+          title: subscription_interval
+          description: ''
+      required:
+      - url
+    data:
+      type: object
+      properties: {}
+      required: []
+  version: 2.0.0
+  registry_type: device
+gn_locking_mechanism:
+  category:
+  - workstation
+  class:
+    module: unilabos.devices.workstation.GN.gn_locking_mechanism:LockingMechanismDevice
+    status_types: {}
+    action_value_mappings:
+      auto-execute_command:
+        type: UniLabJsonCommand
+        goal:
+          cmd_type: cmd_type
+          x_pos: x_pos
+          y_pos: y_pos
+          z1_pos: z1_pos
+          z2_pos: z2_pos
+          x_speed: x_speed
+          y_speed: y_speed
+          z1_speed: z1_speed
+          z2_speed: z2_speed
+          jaw_position: jaw_position
+          jaw_force: jaw_force
+          timeout: timeout
+        feedback: {}
+        result: {}
+        schema:
+          title: execute_command参数
+          description: unilabos.devices.workstation.GN.gn_locking_mechanism:_EXECUTE_CMD_DOC
+          type: object
+          properties:
+            goal:
+              type: object
+              properties:
+                cmd_type:
+                  type: integer
+                  title: cmd_type
+                  description: ''
+                x_pos:
+                  type: integer
+                  title: x_pos
+                  description: ''
+                y_pos:
+                  type: integer
+                  title: y_pos
+                  description: ''
+                z1_pos:
+                  type: integer
+                  title: z1_pos
+                  description: ''
+                z2_pos:
+                  type: integer
+                  title: z2_pos
+                  description: ''
+                x_speed:
+                  type: integer
+                  title: x_speed
+                  description: ''
+                y_speed:
+                  type: integer
+                  title: y_speed
+                  description: ''
+                z1_speed:
+                  type: integer
+                  title: z1_speed
+                  description: ''
+                z2_speed:
+                  type: integer
+                  title: z2_speed
+                  description: ''
+                jaw_position:
+                  type: number
+                  title: jaw_position
+                  description: ''
+                jaw_force:
+                  type: number
+                  title: jaw_force
+                  description: ''
+                timeout:
+                  type: number
+                  default: 180.0
+                  title: timeout
+                  description: ''
+              required:
+              - cmd_type
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default:
+          cmd_type: 0
+          x_pos: 0
+          y_pos: 0
+          z1_pos: 0
+          z2_pos: 0
+          x_speed: 0
+          y_speed: 0
+          z1_speed: 0
+          z2_speed: 0
+          jaw_position: 0.0
+          jaw_force: 0.0
+          timeout: 180.0
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+    type: python
+  config_info: []
+  description: GN 锁紧模块：OPC UA 1.3.6，按完成反馈边沿执行命令
+  handles: []
+  icon: ''
+  init_param_schema:
+    config:
+      type: object
+      properties:
+        url:
+          type: string
+          title: url
+          description: ''
+        xlsx_path:
+          type: string
+          default: unilabos.devices.workstation.GN.gn_locking_mechanism:DEFAULT_XLSX_PATH
+          title: xlsx_path
+          description: ''
+        csv_path:
+          type: string
+          title: csv_path
+          description: ''
+        username:
+          type: string
+          title: username
+          description: ''
+        password:
+          type: string
+          title: password
+          description: ''
+        use_subscription:
+          type: boolean
+          default: true
+          title: use_subscription
+          description: ''
+        cache_timeout:
+          type: number
+          default: 5.0
+          title: cache_timeout
+          description: ''
+        subscription_interval:
+          type: integer
+          default: 500
+          title: subscription_interval
+          description: ''
+      required:
+      - url
+    data:
+      type: object
+      properties: {}
+      required: []
+  version: 2.0.0
+  registry_type: device
+gn_solid_weighing:
+  category:
+  - workstation
+  class:
+    module: unilabos.devices.workstation.GN.gn_solid_weighing:SolidWeighingDevice
+    status_types: {}
+    action_value_mappings:
+      auto-execute_command:
+        type: UniLabJsonCommand
+        goal:
+          cmd_type: cmd_type
+          x_pos: x_pos
+          y_pos: y_pos
+          material_z_pos: material_z_pos
+          gripper_z_pos: gripper_z_pos
+          door_pos: door_pos
+          volune_weight: volune_weight
+          x_speed: x_speed
+          y_speed: y_speed
+          material_z_speed: material_z_speed
+          gripper_z_speed: gripper_z_speed
+          door_speed: door_speed
+          timeout: timeout
+        feedback: {}
+        result: {}
+        schema:
+          title: execute_command参数
+          description: unilabos.devices.workstation.GN.gn_solid_weighing:_EXECUTE_CMD_DOC
+          type: object
+          properties:
+            goal:
+              type: object
+              properties:
+                cmd_type:
+                  type: integer
+                  title: cmd_type
+                  description: ''
+                x_pos:
+                  type: integer
+                  title: x_pos
+                  description: ''
+                y_pos:
+                  type: integer
+                  title: y_pos
+                  description: ''
+                material_z_pos:
+                  type: integer
+                  title: material_z_pos
+                  description: ''
+                gripper_z_pos:
+                  type: integer
+                  title: gripper_z_pos
+                  description: ''
+                door_pos:
+                  type: integer
+                  title: door_pos
+                  description: ''
+                volune_weight:
+                  type: integer
+                  title: volune_weight
+                  description: ''
+                x_speed:
+                  type: integer
+                  title: x_speed
+                  description: ''
+                y_speed:
+                  type: integer
+                  title: y_speed
+                  description: ''
+                material_z_speed:
+                  type: integer
+                  title: material_z_speed
+                  description: ''
+                gripper_z_speed:
+                  type: integer
+                  title: gripper_z_speed
+                  description: ''
+                door_speed:
+                  type: integer
+                  title: door_speed
+                  description: ''
+                timeout:
+                  type: number
+                  default: 180.0
+                  title: timeout
+                  description: ''
+              required:
+              - cmd_type
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default:
+          cmd_type: 0
+          x_pos: 0
+          y_pos: 0
+          material_z_pos: 0
+          gripper_z_pos: 0
+          door_pos: 0
+          volune_weight: 0
+          x_speed: 0
+          y_speed: 0
+          material_z_speed: 0
+          gripper_z_speed: 0
+          door_speed: 0
+          timeout: 180.0
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      dispense_powder:
+        type: UniLabJsonCommand
+        goal:
+          weight_mg: weight_mg
+          x_pos: x_pos
+          y_pos: y_pos
+          material_z_pos: material_z_pos
+          gripper_z_pos: gripper_z_pos
+          door_pos: door_pos
+          x_speed: x_speed
+          y_speed: y_speed
+          door_speed: door_speed
+          timeout: timeout
+        feedback: {}
+        result: {}
+        schema:
+          title: dispense_powder参数
+          description: 粉末定量加样 (cmd 11)，默认坐标为加样工位
+          type: object
+          properties:
+            goal:
+              type: object
+              properties:
+                weight_mg:
+                  type: integer
+                  default: 30
+                  title: weight_mg
+                  description: ''
+                x_pos:
+                  type: integer
+                  default: -300
+                  title: x_pos
+                  description: ''
+                y_pos:
+                  type: integer
+                  default: 700
+                  title: y_pos
+                  description: ''
+                material_z_pos:
+                  type: integer
+                  default: 40000
+                  title: material_z_pos
+                  description: ''
+                gripper_z_pos:
+                  type: integer
+                  default: 0
+                  title: gripper_z_pos
+                  description: ''
+                door_pos:
+                  type: integer
+                  default: 3700
+                  title: door_pos
+                  description: ''
+                x_speed:
+                  type: integer
+                  default: 500
+                  title: x_speed
+                  description: ''
+                y_speed:
+                  type: integer
+                  default: 500
+                  title: y_speed
+                  description: ''
+                door_speed:
+                  type: integer
+                  default: 150
+                  title: door_speed
+                  description: ''
+                timeout:
+                  type: number
+                  default: 600.0
+                  title: timeout
+                  description: ''
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default:
+          weight_mg: 30
+          x_pos: -300
+          y_pos: 700
+          material_z_pos: 40000
+          gripper_z_pos: 0
+          door_pos: 3700
+          x_speed: 500
+          y_speed: 500
+          door_speed: 150
+          timeout: 600.0
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+    type: python
+  config_info: []
+  description: GN 固体加样：OPC UA 1.3.4，按完成反馈边沿执行命令
+  handles: []
+  icon: ''
+  init_param_schema:
+    config:
+      type: object
+      properties:
+        url:
+          type: string
+          title: url
+          description: ''
+        xlsx_path:
+          type: string
+          default: unilabos.devices.workstation.GN.gn_solid_weighing:DEFAULT_XLSX_PATH
+          title: xlsx_path
+          description: ''
+        username:
+          type: string
+          title: username
+          description: ''
+        password:
+          type: string
+          title: password
+          description: ''
+        use_subscription:
+          type: boolean
+          default: true
+          title: use_subscription
+          description: ''
+        cache_timeout:
+          type: number
+          default: 5.0
+          title: cache_timeout
+          description: ''
+        subscription_interval:
+          type: integer
+          default: 500
+          title: subscription_interval
+          description: ''
+      required:
+      - url
+    data:
+      type: object
+      properties: {}
+      required: []
+  version: 2.0.0
+  registry_type: device
+gn_rotary_stack:
+  category:
+  - workstation
+  class:
+    module: unilabos.devices.workstation.GN.rotary_stack:RotaryStackDevice
+    status_types: {}
+    action_value_mappings:
+      auto-execute_command:
+        type: UniLabJsonCommand
+        goal:
+          cmd_type: cmd_type
+          r_pos: r_pos
+          z_pos: z_pos
+          r_speed: r_speed
+          z_speed: z_speed
+          timeout: timeout
+        feedback: {}
+        result: {}
+        schema:
+          title: execute_command参数
+          description: 调试入口，按 Stack_CmdType 执行：1=左旋 2=右旋 3=相机Z上 4=相机Z下 5=旋转至目标(需 r_pos)
+            6=相机检测 7=复位。
+          type: object
+          properties:
+            goal:
+              type: object
+              properties:
+                cmd_type:
+                  type: integer
+                  title: cmd_type
+                  description: ''
+                r_pos:
+                  type: integer
+                  title: r_pos
+                  description: ''
+                z_pos:
+                  type: integer
+                  title: z_pos
+                  description: ''
+                r_speed:
+                  type: integer
+                  title: r_speed
+                  description: ''
+                z_speed:
+                  type: integer
+                  title: z_speed
+                  description: ''
+                timeout:
+                  type: number
+                  default: 120.0
+                  title: timeout
+                  description: ''
+              required:
+              - cmd_type
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default:
+          cmd_type: 0
+          r_pos: 0
+          z_pos: 0
+          r_speed: 0
+          z_speed: 0
+          timeout: 120.0
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      detect:
+        type: UniLabJsonCommand
+        goal:
+          z_pos: z_pos
+          z_speed: z_speed
+          timeout: timeout
+        feedback: {}
+        result: {}
+        schema:
+          title: detect参数
+          description: 相机检测目标位置有无 (CmdType=6)，返回 detect_result
+          type: object
+          properties:
+            goal:
+              type: object
+              properties:
+                z_pos:
+                  type: integer
+                  title: z_pos
+                  description: ''
+                z_speed:
+                  type: integer
+                  title: z_speed
+                  description: ''
+                timeout:
+                  type: number
+                  default: 120.0
+                  title: timeout
+                  description: ''
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default:
+          z_pos: 0
+          z_speed: 0
+          timeout: 120.0
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      do_reset:
+        type: UniLabJsonCommand
+        goal:
+          timeout: timeout
+        feedback: {}
+        result: {}
+        schema:
+          title: do_reset参数
+          description: 复位建立 R0 基准（旋转/抓取前应先复位）
+          type: object
+          properties:
+            goal:
+              type: object
+              properties:
+                timeout:
+                  type: number
+                  default: 120.0
+                  title: timeout
+                  description: ''
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default:
+          timeout: 120.0
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      rotate_to:
+        type: UniLabJsonCommand
+        goal:
+          column: column
+          r_speed: r_speed
+          timeout: timeout
+        feedback: {}
+        result: {}
+        schema:
+          title: rotate_to参数
+          description: 旋转至指定列，并按 Stack_RPosFB 精确校验到位（未到位报错）
+          type: object
+          properties:
+            goal:
+              type: object
+              properties:
+                column:
+                  type: integer
+                  title: column
+                  description: ''
+                r_speed:
+                  type: integer
+                  default: unilabos.devices.workstation.GN.rotary_stack:STACK_ROTATE_SPEED
+                  title: r_speed
+                  description: ''
+                timeout:
+                  type: number
+                  default: 120.0
+                  title: timeout
+                  description: ''
+              required:
+              - column
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default:
+          column: 0
+          r_speed: unilabos.devices.workstation.GN.rotary_stack:STACK_ROTATE_SPEED
+          timeout: 120.0
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+    type: python
+  config_info: []
+  description: GN 旋转堆栈：OPC UA，绝对列定位（复位后列N=(N-1)*300）
+  handles: []
+  icon: ''
+  init_param_schema:
+    config:
+      type: object
+      properties:
+        url:
+          type: string
+          title: url
+          description: ''
+        csv_path:
+          type: string
+          default: unilabos.devices.workstation.GN.rotary_stack:DEFAULT_CSV_PATH
+          title: csv_path
+          description: ''
+        username:
+          type: string
+          title: username
+          description: ''
+        password:
+          type: string
+          title: password
+          description: ''
+        use_subscription:
+          type: boolean
+          default: true
+          title: use_subscription
+          description: ''
+        cache_timeout:
+          type: number
+          default: 5.0
+          title: cache_timeout
+          description: ''
+        subscription_interval:
+          type: integer
+          default: 500
+          title: subscription_interval
+          description: ''
+      required:
+      - url
+    data:
+      type: object
+      properties: {}
+      required: []
+  version: 3.1.0
+  registry_type: device
+gn_stack:
+  category:
+  - workstation
+  class:
+    module: unilabos.devices.workstation.GN.gn_stack:StackDevice
+    status_types: {}
+    action_value_mappings:
+      auto-execute_command:
+        type: UniLabJsonCommand
+        goal:
+          cmd_type: cmd_type
+          r_pos: r_pos
+          z_pos: z_pos
+          r_speed: r_speed
+          z_speed: z_speed
+          timeout: timeout
+        feedback: {}
+        result: {}
+        schema:
+          title: execute_command参数
+          description: unilabos.devices.workstation.GN.gn_stack:_EXECUTE_CMD_DOC
+          type: object
+          properties:
+            goal:
+              type: object
+              properties:
+                cmd_type:
+                  type: integer
+                  title: cmd_type
+                  description: ''
+                r_pos:
+                  type: integer
+                  title: r_pos
+                  description: ''
+                z_pos:
+                  type: integer
+                  title: z_pos
+                  description: ''
+                r_speed:
+                  type: integer
+                  title: r_speed
+                  description: ''
+                z_speed:
+                  type: integer
+                  title: z_speed
+                  description: ''
+                timeout:
+                  type: number
+                  default: 180.0
+                  title: timeout
+                  description: ''
+              required:
+              - cmd_type
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default:
+          cmd_type: 0
+          r_pos: 0
+          z_pos: 0
+          r_speed: 0
+          z_speed: 0
+          timeout: 180.0
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      detect:
+        type: UniLabJsonCommand
+        goal:
+          z_pos: z_pos
+          z_speed: z_speed
+          timeout: timeout
+        feedback: {}
+        result: {}
+        schema:
+          title: detect参数
+          description: 相机检测目标位置有无 (CmdType=6)
+          type: object
+          properties:
+            goal:
+              type: object
+              properties:
+                z_pos:
+                  type: integer
+                  title: z_pos
+                  description: ''
+                z_speed:
+                  type: integer
+                  title: z_speed
+                  description: ''
+                timeout:
+                  type: number
+                  default: 120.0
+                  title: timeout
+                  description: ''
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default:
+          z_pos: 0
+          z_speed: 0
+          timeout: 120.0
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      do_reset:
+        type: UniLabJsonCommand
+        goal:
+          timeout: timeout
+        feedback: {}
+        result: {}
+        schema:
+          title: do_reset参数
+          description: 复位建立 R0 基准（旋转/抓取前应先复位）
+          type: object
+          properties:
+            goal:
+              type: object
+              properties:
+                timeout:
+                  type: number
+                  default: 120.0
+                  title: timeout
+                  description: ''
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default:
+          timeout: 120.0
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      rotate_for_number:
+        type: UniLabJsonCommand
+        goal:
+          number: number
+          reset_first: reset_first
+          r_speed: r_speed
+          timeout: timeout
+        feedback: {}
+        result: {}
+        schema:
+          title: rotate_for_number参数
+          description: 按抓取数字旋转到对应列（可选先复位）
+          type: object
+          properties:
+            goal:
+              type: object
+              properties:
+                number:
+                  type: integer
+                  title: number
+                  description: ''
+                reset_first:
+                  type: boolean
+                  default: false
+                  title: reset_first
+                  description: ''
+                r_speed:
+                  type: integer
+                  default: unilabos.devices.workstation.GN.gn_stack:STACK_ROTATE_SPEED
+                  title: r_speed
+                  description: ''
+                timeout:
+                  type: number
+                  default: 120.0
+                  title: timeout
+                  description: ''
+              required:
+              - number
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default:
+          number: 0
+          reset_first: false
+          r_speed: unilabos.devices.workstation.GN.gn_stack:STACK_ROTATE_SPEED
+          timeout: 120.0
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      rotate_to:
+        type: UniLabJsonCommand
+        goal:
+          column: column
+          r_speed: r_speed
+          timeout: timeout
+        feedback: {}
+        result: {}
+        schema:
+          title: rotate_to参数
+          description: 旋转至指定列，并按 Stack_RPosFB 校验到位
+          type: object
+          properties:
+            goal:
+              type: object
+              properties:
+                column:
+                  type: integer
+                  title: column
+                  description: ''
+                r_speed:
+                  type: integer
+                  default: unilabos.devices.workstation.GN.gn_stack:STACK_ROTATE_SPEED
+                  title: r_speed
+                  description: ''
+                timeout:
+                  type: number
+                  default: 120.0
+                  title: timeout
+                  description: ''
+              required:
+              - column
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default:
+          column: 0
+          r_speed: unilabos.devices.workstation.GN.gn_stack:STACK_ROTATE_SPEED
+          timeout: 120.0
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+    type: python
+  config_info: []
+  description: GN 旋转堆栈：OPC UA 1.3.6，按完成反馈边沿执行命令，绝对列定位
+  handles: []
+  icon: ''
+  init_param_schema:
+    config:
+      type: object
+      properties:
+        url:
+          type: string
+          title: url
+          description: ''
+        xlsx_path:
+          type: string
+          default: unilabos.devices.workstation.GN.gn_stack:DEFAULT_XLSX_PATH
+          title: xlsx_path
+          description: ''
+        csv_path:
+          type: string
+          title: csv_path
+          description: ''
+        username:
+          type: string
+          title: username
+          description: ''
+        password:
+          type: string
+          title: password
+          description: ''
+        use_subscription:
+          type: boolean
+          default: true
+          title: use_subscription
+          description: ''
+        cache_timeout:
+          type: number
+          default: 5.0
+          title: cache_timeout
+          description: ''
+        subscription_interval:
+          type: integer
+          default: 500
+          title: subscription_interval
+          description: ''
+      required:
+      - url
+    data:
+      type: object
+      properties: {}
+      required: []
+  version: 2.0.0
+  registry_type: device
+gn_centrifuge:
+  category:
+  - workstation
+  class:
+    module: unilabos.devices.workstation.GN.gn_centrifuge:CentrifugeDevice
+    status_types: {}
+    action_value_mappings:
+      auto-execute_command:
+        type: UniLabJsonCommand
+        goal:
+          cmd_type: cmd_type
+          y_pos: y_pos
+          z_pos: z_pos
+          inner_z_pos: inner_z_pos
+          rpm: rpm
+          time_minutes: time_minutes
+          y_speed: y_speed
+          z_speed: z_speed
+          plate_no: plate_no
+          timeout: timeout
+        feedback: {}
+        result: {}
+        schema:
+          title: execute_command参数
+          description: unilabos.devices.workstation.GN.gn_centrifuge:_EXECUTE_CMD_DOC
+          type: object
+          properties:
+            goal:
+              type: object
+              properties:
+                cmd_type:
+                  type: integer
+                  title: cmd_type
+                  description: ''
+                y_pos:
+                  type: integer
+                  title: y_pos
+                  description: ''
+                z_pos:
+                  type: integer
+                  title: z_pos
+                  description: ''
+                inner_z_pos:
+                  type: integer
+                  title: inner_z_pos
+                  description: ''
+                rpm:
+                  type: integer
+                  title: rpm
+                  description: ''
+                time_minutes:
+                  type: integer
+                  title: time_minutes
+                  description: ''
+                y_speed:
+                  type: integer
+                  title: y_speed
+                  description: ''
+                z_speed:
+                  type: integer
+                  title: z_speed
+                  description: ''
+                plate_no:
+                  type: integer
+                  title: plate_no
+                  description: ''
+                timeout:
+                  type: number
+                  default: 120.0
+                  title: timeout
+                  description: ''
+              required:
+              - cmd_type
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default:
+          cmd_type: 0
+          y_pos: 0
+          z_pos: 0
+          inner_z_pos: 0
+          rpm: 0
+          time_minutes: 0
+          y_speed: 0
+          z_speed: 0
+          plate_no: 0
+          timeout: 120.0
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+      run:
+        type: UniLabJsonCommand
+        goal:
+          rpm: rpm
+          minutes: minutes
+          plate_no: plate_no
+          timeout: timeout
+        feedback: {}
+        result: {}
+        schema:
+          title: run参数
+          description: 运行离心 (cmd 6)
+          type: object
+          properties:
+            goal:
+              type: object
+              properties:
+                rpm:
+                  type: integer
+                  default: 1000
+                  title: rpm
+                  description: ''
+                minutes:
+                  type: integer
+                  default: 10
+                  title: minutes
+                  description: ''
+                plate_no:
+                  type: integer
+                  default: 2
+                  title: plate_no
+                  description: ''
+                timeout:
+                  type: number
+                  default: 120.0
+                  title: timeout
+                  description: ''
+              required: []
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default:
+          rpm: 1000
+          minutes: 10
+          plate_no: 2
+          timeout: 120.0
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+    type: python
+  config_info: []
+  description: GN 离心机：OPC UA，仅 execute_command 通用入口
+  handles: []
+  icon: ''
+  init_param_schema:
+    config:
+      type: object
+      properties:
+        url:
+          type: string
+          title: url
+          description: ''
+        csv_path:
+          type: string
+          default: unilabos.devices.workstation.GN.gn_centrifuge:DEFAULT_CSV_PATH
+          title: csv_path
+          description: ''
+        username:
+          type: string
+          title: username
+          description: ''
+        password:
+          type: string
+          title: password
+          description: ''
+        use_subscription:
+          type: boolean
+          default: true
+          title: use_subscription
+          description: ''
+        cache_timeout:
+          type: number
+          default: 5.0
+          title: cache_timeout
+          description: ''
+        subscription_interval:
+          type: integer
+          default: 500
+          title: subscription_interval
+          description: ''
+      required:
+      - url
+    data:
+      type: object
+      properties: {}
+      required: []
+  version: 2.0.0
+  registry_type: device
+gn_standard_oven:
+  category:
+  - workstation
+  class:
+    module: unilabos.devices.workstation.GN.gn_standard_oven:StandardOvenDevice
+    status_types: {}
+    action_value_mappings:
+      auto-execute_command:
+        type: UniLabJsonCommand
+        goal:
+          cmd_type: cmd_type
+          temperature: temperature
+          hours: hours
+          minutes: minutes
+          wait: wait
+          timeout: timeout
+        feedback: {}
+        result: {}
+        schema:
+          title: execute_command参数
+          description: unilabos.devices.workstation.GN.gn_standard_oven:_EXECUTE_CMD_DOC
+          type: object
+          properties:
+            goal:
+              type: object
+              properties:
+                cmd_type:
+                  type: integer
+                  title: cmd_type
+                  description: ''
+                temperature:
+                  type: integer
+                  title: temperature
+                  description: ''
+                hours:
+                  type: integer
+                  default: 0
+                  title: hours
+                  description: ''
+                minutes:
+                  type: integer
+                  default: 0
+                  title: minutes
+                  description: ''
+                wait:
+                  type: boolean
+                  default: true
+                  title: wait
+                  description: ''
+                timeout:
+                  type: number
+                  title: timeout
+                  description: ''
+              required:
+              - cmd_type
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default:
+          cmd_type: 0
+          temperature: 0
+          hours: 0
+          minutes: 0
+          wait: true
+          timeout: 0.0
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+    type: python
+  config_info: []
+  description: GN 常规烘箱：设置温度与运行时间后启动烘干，OPC UA 控制，仅 execute_command 通用入口
+  handles: []
+  icon: ''
+  init_param_schema:
+    config:
+      type: object
+      properties:
+        url:
+          type: string
+          title: url
+          description: ''
+        plc_device_id:
+          type: string
+          title: plc_device_id
+          description: ''
+        csv_path:
+          type: string
+          default: unilabos.devices.workstation.GN.gn_standard_oven:DEFAULT_CSV_PATH
+          title: csv_path
+          description: ''
+        username:
+          type: string
+          title: username
+          description: ''
+        password:
+          type: string
+          title: password
+          description: ''
+        use_subscription:
+          type: boolean
+          default: false
+          title: use_subscription
+          description: ''
+        cache_timeout:
+          type: number
+          default: 5.0
+          title: cache_timeout
+          description: ''
+        subscription_interval:
+          type: integer
+          default: 500
+          title: subscription_interval
+          description: ''
+      required: []
+    data:
+      type: object
+      properties: {}
+      required: []
+  version: 2.0.0
+  registry_type: device
+gn_vacuum_oven:
+  category:
+  - workstation
+  class:
+    module: unilabos.devices.workstation.GN.gn_vacuum_oven:VacuumOvenDevice
+    status_types: {}
+    action_value_mappings:
+      auto-execute_command:
+        type: UniLabJsonCommand
+        goal:
+          cmd_type: cmd_type
+          temperature_1: temperature_1
+          minutes_1: minutes_1
+          vacuum_high_1: vacuum_high_1
+          vacuum_low_1: vacuum_low_1
+          temperature_2: temperature_2
+          minutes_2: minutes_2
+          vacuum_high_2: vacuum_high_2
+          vacuum_low_2: vacuum_low_2
+          temperature_3: temperature_3
+          minutes_3: minutes_3
+          vacuum_high_3: vacuum_high_3
+          vacuum_low_3: vacuum_low_3
+          temperature_4: temperature_4
+          minutes_4: minutes_4
+          vacuum_high_4: vacuum_high_4
+          vacuum_low_4: vacuum_low_4
+          temperature_5: temperature_5
+          minutes_5: minutes_5
+          vacuum_high_5: vacuum_high_5
+          vacuum_low_5: vacuum_low_5
+          temperature_6: temperature_6
+          minutes_6: minutes_6
+          vacuum_high_6: vacuum_high_6
+          vacuum_low_6: vacuum_low_6
+          wait: wait
+          timeout: timeout
+        feedback: {}
+        result: {}
+        schema:
+          title: execute_command参数
+          description: unilabos.devices.workstation.GN.gn_vacuum_oven:_EXECUTE_CMD_DOC
+          type: object
+          properties:
+            goal:
+              type: object
+              properties:
+                cmd_type:
+                  type: integer
+                  title: cmd_type
+                  description: 1=启动 2=复位 100=开门 101=关门
+                temperature_1:
+                  type: integer
+                  title: temperature_1
+                  description: 第1段温度(℃)，对应 VacuumOven_TempSet_1
+                minutes_1:
+                  type: integer
+                  title: minutes_1
+                  description: 第1段时间(min)，对应 VacuumOven_TimeSet_1
+                vacuum_high_1:
+                  type: integer
+                  title: vacuum_high_1
+                  description: 第1段真空上限，对应 VacuumOven_VacuumHigh_1
+                vacuum_low_1:
+                  type: integer
+                  title: vacuum_low_1
+                  description: 第1段真空下限，对应 VacuumOven_VacuumLow_1
+                temperature_2:
+                  type: integer
+                  title: temperature_2
+                  description: 第2段温度(℃)
+                minutes_2:
+                  type: integer
+                  title: minutes_2
+                  description: 第2段时间(min)
+                vacuum_high_2:
+                  type: integer
+                  title: vacuum_high_2
+                  description: 第2段真空上限
+                vacuum_low_2:
+                  type: integer
+                  title: vacuum_low_2
+                  description: 第2段真空下限
+                temperature_3:
+                  type: integer
+                  title: temperature_3
+                  description: 第3段温度(℃)
+                minutes_3:
+                  type: integer
+                  title: minutes_3
+                  description: 第3段时间(min)
+                vacuum_high_3:
+                  type: integer
+                  title: vacuum_high_3
+                  description: 第3段真空上限
+                vacuum_low_3:
+                  type: integer
+                  title: vacuum_low_3
+                  description: 第3段真空下限
+                temperature_4:
+                  type: integer
+                  title: temperature_4
+                  description: 第4段温度(℃)
+                minutes_4:
+                  type: integer
+                  title: minutes_4
+                  description: 第4段时间(min)
+                vacuum_high_4:
+                  type: integer
+                  title: vacuum_high_4
+                  description: 第4段真空上限
+                vacuum_low_4:
+                  type: integer
+                  title: vacuum_low_4
+                  description: 第4段真空下限
+                temperature_5:
+                  type: integer
+                  title: temperature_5
+                  description: 第5段温度(℃)
+                minutes_5:
+                  type: integer
+                  title: minutes_5
+                  description: 第5段时间(min)
+                vacuum_high_5:
+                  type: integer
+                  title: vacuum_high_5
+                  description: 第5段真空上限
+                vacuum_low_5:
+                  type: integer
+                  title: vacuum_low_5
+                  description: 第5段真空下限
+                temperature_6:
+                  type: integer
+                  title: temperature_6
+                  description: 第6段温度(℃)
+                minutes_6:
+                  type: integer
+                  title: minutes_6
+                  description: 第6段时间(min)
+                vacuum_high_6:
+                  type: integer
+                  title: vacuum_high_6
+                  description: 第6段真空上限
+                vacuum_low_6:
+                  type: integer
+                  title: vacuum_low_6
+                  description: 第6段真空下限
+                wait:
+                  type: boolean
+                  default: true
+                  title: wait
+                  description: ''
+                timeout:
+                  type: number
+                  title: timeout
+                  description: ''
+              required:
+              - cmd_type
+            feedback: {}
+            result:
+              type: object
+          required:
+          - goal
+        goal_default:
+          cmd_type: 0
+          temperature_1: 0
+          minutes_1: 0
+          vacuum_high_1: 0
+          vacuum_low_1: 0
+          temperature_2: 0
+          minutes_2: 0
+          vacuum_high_2: 0
+          vacuum_low_2: 0
+          temperature_3: 0
+          minutes_3: 0
+          vacuum_high_3: 0
+          vacuum_low_3: 0
+          temperature_4: 0
+          minutes_4: 0
+          vacuum_high_4: 0
+          vacuum_low_4: 0
+          temperature_5: 0
+          minutes_5: 0
+          vacuum_high_5: 0
+          vacuum_low_5: 0
+          temperature_6: 0
+          minutes_6: 0
+          vacuum_high_6: 0
+          vacuum_low_6: 0
+          wait: true
+          timeout: 0.0
+        handles: {}
+        placeholder_keys: {}
+        feedback_interval: 1.0
+    type: python
+  config_info: []
+  description: GN 真空烘箱：多段温度/时间/真空上下限程序设置后启动，OPC UA 控制，仅 execute_command 通用入口
+  handles: []
+  icon: ''
+  init_param_schema:
+    config:
+      type: object
+      properties:
+        url:
+          type: string
+          title: url
+          description: ''
+        xlsx_path:
+          type: string
+          default: unilabos.devices.workstation.GN.gn_vacuum_oven:DEFAULT_XLSX_PATH
+          title: xlsx_path
+          description: ''
+        username:
+          type: string
+          title: username
+          description: ''
+        password:
+          type: string
+          title: password
+          description: ''
+        use_subscription:
+          type: boolean
+          default: true
+          title: use_subscription
+          description: ''
+        cache_timeout:
+          type: number
+          default: 5.0
+          title: cache_timeout
+          description: ''
+        subscription_interval:
+          type: integer
+          default: 500
+          title: subscription_interval
+          description: ''
+      required:
+      - url
+    data:
+      type: object
+      properties: {}
+      required: []
+  version: 2.0.0
+  registry_type: device

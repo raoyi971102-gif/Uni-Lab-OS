@@ -22,11 +22,11 @@ QuickChange_Z2PosFB,QuickChange_Z2PosFB,VARIABLE,INT16,English,ns=4;s=|var|Inova
 QuickChange_PushPosFB,QuickChange_PushPosFB,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.QuickChange_PushPosFB,推轴反馈,
 QuickChange_Z3PosFB,QuickChange_Z3PosFB,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.QuickChange_Z3PosFB,Z3位置反馈,
 QuickChange_CompleteFB,QuickChange_CompleteFB,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.QuickChange_CompleteFB,完成反馈,
-QuickChange_XPosSet,QuickChange_XPosSet,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.QuickChange_XPosSet,X运行位置,
-QuickChange_TopZPosSet,QuickChange_TopZPosSet,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.QuickChange_TopZPosSet,顶料Z位置,
-QuickChange_TakeZPosSet,QuickChange_TakeZPosSet,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.QuickChange_TakeZPosSet,接料Z位置,
+QuickChange_XPosSet,QuickChange_XPosSet,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.QuickChange_XPosSet,X运行到达位置,
+QuickChange_TopZPosSet,QuickChange_TopZPosSet,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.QuickChange_TopZPosSet,顶料Z到达位置,
+QuickChange_TakeZPosSet,QuickChange_TakeZPosSet,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.QuickChange_TakeZPosSet,接料Z到达位置,
 QuickChange_PushPosSet,QuickChange_PushPosSet,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.QuickChange_PushPosSet,推轴运行位置,
-QuickChange_PushZPosSet,QuickChange_PushZPosSet,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.QuickChange_PushZPosSet,压料Z运行位置,
+QuickChange_PushZPosSet,QuickChange_PushZPosSet,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.QuickChange_PushZPosSet,压料Z运行到达位置,
 QuickChange_XSpeed,QuickChange_XSpeed,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.QuickChange_XSpeed,X速度,
 QuickChange_Z1Speed,QuickChange_Z1Speed,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.QuickChange_Z1Speed,Z1速度,
 QuickChange_Z2Speed,QuickChange_Z2Speed,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.QuickChange_Z2Speed,Z2速度,
@@ -46,6 +46,8 @@ Centrifuge_InnerZPosSet,Centrifuge_InnerZPosSet,VARIABLE,INT16,English,ns=4;s=|v
 Centrifuge_RPM,Centrifuge_RPM,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Centrifuge_RPM,离心机转速,
 Centrifuge_Time,Centrifuge_Time,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Centrifuge_Time,离心机时间,
 Centrifuge_PlateNo,Centrifuge_PlateNo,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Centrifuge_PlateNo,"离心机里板位号(1,2,3,4)",
+Centrifuge_Temperature_feedback,Centrifuge_Temperature_feedback,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Centrifuge_Temperature_feedback,离心机温度反馈,
+iTemperature,iTemperature,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.iTemperature,离心机温度设置,
 Centrifuge_YSpeed,Centrifuge_YSpeed,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Centrifuge_YSpeed,Y速度,
 Centrifuge_ZSpeed,Centrifuge_ZSpeed,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Centrifuge_ZSpeed,Z速度,
 Centrifuge_CmdType,Centrifuge_CmdType,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Centrifuge_CmdType,指令类型,离心机: 1=Y向左;2=Y向右;3=Z向左;4=Z向右;5=放入物料;6=运行离心机;7=取出物料;8=复位;9=夹爪张开;10=夹爪夹紧
@@ -82,7 +84,7 @@ Tube_P2Speed,Tube_P2Speed,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.
 Tube_Z3Speed,Tube_Z3Speed,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Tube_Z3Speed,Z3速度,
 Tube_Z4Speed,Tube_Z4Speed,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Tube_Z4Speed,Z4速度,
 Tube_MSpeed,Tube_MSpeed,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Tube_MSpeed,M轴速度,
-Tube_CmdType,Tube_CmdType,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Tube_CmdType,指令类型,离心管液体处理: 1=X向左;2=X向右;3=Y向前;4=Y向后;5=8通道Z向上;6=8通道Z向下;7=8通道移液吸;8=8通道移液放;9=大夹爪Z向上;10=大夹爪Z向下;11=单通道移液吸;12=单通道移液放;13=单通道向上;14=单通道向下;15=小夹爪向上;16=小夹爪向下;17=磁力架轴向上;18=磁力架轴向下;19=8通道装载;20=8通道吸液;21=8通道放液;22=8通道卸载;23=单通道装载;24=单通道吸液;25=单通道放液;26=单通道卸载;27=小夹爪开盖;28=小夹爪关盖;29=小夹爪抓取;30=小夹爪放置;31=大夹爪抓取;32=大夹爪放置;33=单通道混匀;34=8通道混匀;35=超神波混匀;36=复位;37=xyz回原点;38=模块1恒温打开;39=模块1恒温关闭;40=模块2恒温打开;41=模块2恒温关闭;42=模块3恒温打开;43=模块3恒温关闭;44=模块4恒温打开;45=模块4恒温关闭;46=模块4震荡打开;47=模块4震荡关闭 48
+Tube_CmdType,Tube_CmdType,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Tube_CmdType,指令类型,离心管液体处理: 1=X向左;2=X向右;3=Y向前;4=Y向后;5=8通道Z向上;6=8通道Z向下;7=8通道移液吸;8=8通道移液放;9=大夹爪Z向上;10=大夹爪Z向下;11=单通道移液吸;12=单通道移液放;13=单通道向上;14=单通道向下;15=小夹爪向上;16=小夹爪向下;17=磁力架轴向上;18=磁力架轴向下;19=8通道装载;20=8通道吸液;21=8通道放液;22=8通道卸载;23=单通道装载;24=单通道吸液;25=单通道放液;26=单通道卸载;27=小夹爪开盖;28=小夹爪关盖;29=小夹爪抓取;30=小夹爪放置;31=大夹爪抓取;32=大夹爪放置;33=单通道混匀;34=8通道混匀;35=超神波混匀;36=复位;37=xyz回原点;38=模块1恒温打开;39=模块1恒温关闭;40=模块2恒温打开;41=模块2恒温关闭;42=模块3恒温打开;43=模块3恒温关闭;44=模块4恒温打开;45=模块4恒温关闭;46=模块4震荡打开;47=模块4震荡关闭 48震荡模块夹爪开，49震荡夹爪关
 Tube_CmdTrig,Tube_CmdTrig,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Tube_CmdTrig,指令触发,
 Tube_Ch8Blow,Tube_Ch8Blow,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Tube_Ch8Blow,8通道吹样,
 Tube_Ch1Blow,Tube_Ch1Blow,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Tube_Ch1Blow,单通道吹样,
@@ -101,12 +103,16 @@ Tube_SmallGripperOpenLid_RotationSpeed,Tube_SmallGripperOpenLid_RotationSpeed,VA
 Tube_SmallGripperCloseLid_RotationSpeed,Tube_SmallGripperCloseLid_RotationSpeed,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Tube_SmallGripperCloseLid_RotationSpeed,关盖旋转速度,
 Tube_UltrasoundTime,Tube_UltrasoundTime,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Tube_UltrasoundTime,超声波混匀时间,
 Tube_ThermostaticModule_Temperature1,Tube_ThermostaticModule_Temperature1,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Tube_ThermostaticModule_Temperature1,恒温模块温度1,
+Tube_Temperature1_feedback,Tube_Temperature1_feedback,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Tube_Temperature1_feedback,恒温模块温度1反馈,
 Tube_ThermostaticModule_Time1,Tube_ThermostaticModule_Time1,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Tube_ThermostaticModule_Time1,恒温模块温控时间1,
 Tube_ThermostaticModule_Temperature2,Tube_ThermostaticModule_Temperature2,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Tube_ThermostaticModule_Temperature2,恒温模块温度2,
+Tube_Temperature2_feedback,Tube_Temperature2_feedback,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Tube_Temperature2_feedback,恒温模块温度2反馈,
 Tube_ThermostaticModule_Time2,Tube_ThermostaticModule_Time2,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Tube_ThermostaticModule_Time2,恒温模块温控时间2,
 Tube_ThermostaticModule_Temperature3,Tube_ThermostaticModule_Temperature3,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Tube_ThermostaticModule_Temperature3,恒温模块温度3,
+Tube_Temperature3_feedback,Tube_Temperature3_feedback,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Tube_Temperature3_feedback,恒温模块温度3反馈,
 Tube_ThermostaticModule_Time3,Tube_ThermostaticModule_Time3,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Tube_ThermostaticModule_Time3,恒温模块温控时间3,
 Tube_ThermostaticModule_Temperature4,Tube_ThermostaticModule_Temperature4,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Tube_ThermostaticModule_Temperature4,恒温模块温度4,
+Tube_Temperature4_feedback,Tube_Temperature4_feedback,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Tube_Temperature4_feedback,恒温模块温度4反馈,
 Tube_ThermostaticModule_Time4,Tube_ThermostaticModule_Time4,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Tube_ThermostaticModule_Time4,恒温模块温控时间4,
 Tube_ThermostaticModule4_Shaking_Speed,Tube_ThermostaticModule4_Shaking_Speed,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Tube_ThermostaticModule4_Shaking_Speed,恒温模块4震荡转速,
 Tube_ThermostaticModule4_Shaking_Time,Tube_ThermostaticModule4_Shaking_Time,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Tube_ThermostaticModule4_Shaking_Time,恒温模块4震荡时间,
@@ -123,24 +129,27 @@ Stack_CmdTrig,Stack_CmdTrig,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linu
 Stack_DetectResult,Stack_DetectResult,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Stack_DetectResult,物料检测结果,
 Robot_XPosFB,Robot_XPosFB,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_XPosFB,X位置反馈,
 Robot_FinishFB,Robot_FinishFB,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_FinishFB,完成反馈,
+Robot_Error_code,Robot_Error_code,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_Error_code,机器人反馈错误代码,机器人反馈报错代码
 Robot_XPosSet,Robot_XPosSet,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_XPosSet,X运行位置,
 Robot_XSpeedSet,Robot_XSpeedSet,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_XSpeedSet,X速度,
-Robot_ModuleNoSet,Robot_ModuleNoSet,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_ModuleNoSet,机械手模块号(每个工站对应不同动作),设备从左到右依次排列（常规烘箱1、锁紧2、快换3、离心机4、真空烘箱5，9320设备6，离心管液体处理7，堆栈8，固体加样9，机械手放置板位10）
-Robot_ActionSet,Robot_ActionSet,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_ActionSet,机械手抓/放时的姿态或动作,待定义
-Robot_Oven,Robot_Oven,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_Oven1,机械手在烘箱的运行动作,1指第一个动作，2指第二个动作，以此类推
-Robot_Locking_mechanism,Robot_Locking_mechanism,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_Locking_mechanism1,机械手在紧缩结构的运行动作,1指第一个动作，2指第二个动作，以此类推
-Robot_Quick_change_mechanism,Robot_Quick_change_mechanism,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_Quick_change_mechanism1,机械手在快换结构的运行动作,1指第一个动作，2指第二个动作，以此类推
-Robot_Centrifuge,Robot_Centrifuge,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_Centrifuge1,机械手在离心机的运行动作,1指第一个动作，2指第二个动作，以此类推
-Robot_Vacuum_oven,Robot_Vacuum_oven,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_Vacuum_oven1,机械手在真空烘箱的运行动作,1指第一个动作，2指第二个动作，以此类推
-Robot_9320,Robot_9320,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_93201,机械手在9320的运行动作,1指第一个动作，2指第二个动作，以此类推
-Robot_Centrifuge_tube_liquid_handling,Robot_Centrifuge_tube_liquid_handling,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_Centrifuge_tube_liquid_handling1,机械手在离心管液体处理的运行动作,1指第一个动作，2指第二个动作，以此类推
-Robot_Stack,Robot_Stack,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_Stack1,机械手在堆栈的运行动作,1指第一个动作，2指第二个动作，以此类推
-Robot_Add_solid_sample,Robot_Add_solid_sample,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_Add_solid_sample1,机械手在固体加样的运行动作,1指第一个动作，2指第二个动作，以此类推
-Robot_Finished_Product_Area,Robot_Finished_Product_Area,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_Finished_Product_Area1,机械手在成品放置区的运行动作,
-Robot_Oven_Done,Robot_Oven_Done,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_Oven_Done,机械手运行动作完成反馈,1指第一个动作完成，2指第二个动作完成，以此类推
-Robot_Error_code,Robot_Error_code,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_Error_code,机器人反馈错误代码,机器人反馈报错代码
+Robot_ModuleNoSet,Robot_ModuleNoSet,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_ModuleNoSet,机械手模块号(每个工站对应不同动作),设备从左到右依次排列（常规烘箱1、锁紧2、快换3、离心机4、真空烘箱5，9320设备6，离心管液体处理7，堆栈8，固体加样9，成品放置位10）
+Robot_Oven,Robot_Oven,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_Oven,机械手在烘箱的运行动作,1指第一个动作，2指第二个动作，以此类推
+Robot_Locking_mechanism,Robot_Locking_mechanism,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_Locking_mechanism,机械手在紧缩结构的运行动作,1指第一个动作，2指第二个动作，以此类推
+Robot_Quick_change_mechanism,Robot_Quick_change_mechanism,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_Quick_change_mechanism,机械手在快换结构的运行动作,1指第一个动作，2指第二个动作，以此类推
+Robot_Centrifuge,Robot_Centrifuge,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_Centrifuge,机械手在离心机的运行动作,1指第一个动作，2指第二个动作，以此类推
+Robot_Vacuum_oven,Robot_Vacuum_oven,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_Vacuum_oven,机械手在真空烘箱的运行动作,1指第一个动作，2指第二个动作，以此类推
+Robot_9320,Robot_9320,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_9320,机械手在9320的运行动作,1指第一个动作，2指第二个动作，以此类推
+Robot_Centrifuge_tube_liquid_handling,Robot_Centrifuge_tube_liquid_handling,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_Centrifuge_tube_liquid_handling,机械手在离心管液体处理的运行动作,1指第一个动作，2指第二个动作，以此类推
+Robot_Stack,Robot_Stack,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_Stack,机械手在堆栈的运行动作,1指第一个动作，2指第二个动作，以此类推
+Robot_Add_solid_sample,Robot_Add_solid_sample,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_Add_solid_sample,机械手在固体加样的运行动作,1指第一个动作，2指第二个动作，以此类推
+Robot_Finished_Product_Area,Robot_Finished_Product_Area,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_Finished_Product_Area,机械手在成品放置区的运行动作,
 Robot_CmdType,Robot_CmdType,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_CmdType,指令类型,机械手: 1=X向左;2=X向右;3=机械手去目标位置目标板位夹料;4=机械手去目标位置目标板位放料;6=停止;7=复位;8=失能;9=使能
 Robot_CmdTrig,Robot_CmdTrig,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_CmdTrig,指令触发,
+Robot_Emergency_stop_condition,Robot_Emergency_stop_condition,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_Emergency_stop_condition,紧急停止状态,1的时候是紧急停止状态
+Robot_Protective_stop_status,Robot_Protective_stop_status,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_Protective_stop_status,保护性停止,1的时候是保护性停止状态
+Robot_jiazhuaweizhi,Robot_jiazhuaweizhi,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_jiazhuaweizhi,夹爪位置,夹爪位置
+Robot_Operating_status,Robot_Operating_status,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_Operating_status,机器人运行状态,3程序没有运行，2 程序中止， 1程序运行
+Robot_Protective_stop_st,Robot_Protective_stop_st,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Robot_Protective_stop_st,,
 Solid_XPosFB,Solid_XPosFB,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Solid_XPosFB,X位置反馈,
 Solid_YPosFB,Solid_YPosFB,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Solid_YPosFB,Y位置反馈,
 Solid_MaterialZPosFB,Solid_MaterialZPosFB,VARIABLE,INT32,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Solid_MaterialZPosFB,料筒Z位置反馈,
@@ -160,6 +169,7 @@ Solid_MaterialZSpeed,Solid_MaterialZSpeed,VARIABLE,INT16,English,ns=4;s=|var|Ino
 Solid_GripperZSpeed,Solid_GripperZSpeed,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Solid_GripperZSpeed,夹爪Z速度,
 Solid_DoorSpeed,Solid_DoorSpeed,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Solid_DoorSpeed,D速度,
 Solid_CmdType,Solid_CmdType,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Solid_CmdType,指令类型,固体加样: 1=X向左;2=X向右;3=Y向里;4=Y向外;5=夹爪Z向上;6=夹爪Z向下;7=D开门;8=D关门;9=取料筒时Y轴向里;10=取料筒时Y轴向外;11=加料;12=夹爪夹料;13=夹爪放料;14=天枰去皮;15=天枰称重;16=料筒Z向上;17=料筒Z向下;18=放料筒时Y轴向里;19=放料筒时Y轴向外;20=复位;21=夹爪夹紧;22=夹爪松开;23=xyz回原点
+Remove_static,Remove_static,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Remove_static,除静电,
 Solid_CmdTrig,Solid_CmdTrig,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Solid_CmdTrig,指令触发,
 System_ResetCompleteFB,System_ResetCompleteFB,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.System_ResetCompleteFB,复位完成反馈,
 System_ResetTrig,System_ResetTrig,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.System_ResetTrig,复位触发,
@@ -173,6 +183,8 @@ Oven_TimeMinuteSet,Oven_TimeMinuteSet,VARIABLE,INT16,English,ns=4;s=|var|Inovanc
 Oven_CmdType,Oven_CmdType,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Oven_CmdType,指令类型,常规烘箱: 1=启动;2=复位/停止
 Oven_CmdTrig,Oven_CmdTrig,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Oven_CmdTrig,指令触发,
 Oven_Running_Status,Oven_Running_Status,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Oven_Running_Status,运行状态,读取烘箱状态1运行，0 停止
+OPEN_DOOR,OPEN_DOOR,VARIABLE,bool,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.OPEN_DOOR,烘箱开门,1开门
+COHSE_DOOR,COHSE_DOOR,VARIABLE,bool,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.COHSE_DOOR,烘箱关门,1关门
 VacuumOven_TempFB,VacuumOven_TempFB,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.VacuumOven_TempFB,温度反馈,
 VacuumOven_TimeFB,VacuumOven_TimeFB,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.VacuumOven_TimeFB,时间反馈,
 VacuumOven_PressureFB,VacuumOven_PressureFB,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.VacuumOven_PressureFB,真空度反馈,
@@ -221,3 +233,4 @@ Liquid_Cooling_CentrifugeTube_Temperature_4_SET,Liquid_Cooling_CentrifugeTube_Te
 Liquid_Cooling_CentrifugeTube_Temperature_5_SET,Liquid_Cooling_CentrifugeTube_Temperature_5_SET,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Liquid_Cooling_CentrifugeTube_Temperature_5_SET,离心管液体处理模块5温度设置,
 Cooling_CmdType,Cooling_CmdType,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Cooling_CmdType,指令类型,七个液冷模块: 1=温度设置;2=液冷模块开启;3=液冷模块关闭
 Cooling_CmdTrig,Cooling_CmdTrig,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Cooling_CmdTrig,指令触发,
+Device_error,Device_error,VARIABLE,INT16,English,ns=4;s=|var|Inovance-X86-Linux.Application.OPC_UA.Device_error,设备报错错发蜂鸣器和红灯,

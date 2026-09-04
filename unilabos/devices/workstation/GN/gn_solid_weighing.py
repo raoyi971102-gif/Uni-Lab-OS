@@ -98,8 +98,8 @@ TEST_FLOW_PRESETS = [
         x_speed=500, y_speed=500, material_z_speed=0, gripper_z_speed=0, door_speed=0,
     )),
     ("4.料筒加样", SolidCommand.DISPENSE, dict(
-        x_pos=-300, y_pos=700, material_z_pos=40000, gripper_z_pos=0,
-        door_pos=3700, volune_weight=30,
+        x_pos=-315, y_pos=1150, material_z_pos=143000, gripper_z_pos=0,
+        door_pos=3600, volune_weight=100,
         x_speed=500, y_speed=500, material_z_speed=0, gripper_z_speed=0, door_speed=150,
         timeout=600.0,
     )),

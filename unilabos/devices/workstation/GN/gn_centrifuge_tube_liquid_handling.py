@@ -2,7 +2,7 @@
 离心管液体处理 设备驱动
 
 参照 centrifuge.py / locking_mechanism.py 写法，继承 OPC UA 通讯基类，实现具体的设备动作函数。
-节点变量来自 OPC_UA协议1.3.4(1).xlsx（前缀 Tube_）。
+节点变量来自 opcua_gn1.3.7.csv（前缀 Tube_）。
 各动作点位写死在代码中（原测试流程 step0~step19）。
 
 指令类型 (Tube_CmdType)：
@@ -19,6 +19,7 @@
     38=模块1恒温打开 39=模块1恒温关闭 40=模块2恒温打开 41=模块2恒温关闭
     42=模块3恒温打开 43=模块3恒温关闭 44=模块4恒温打开 45=模块4恒温关闭
     46=模块4震荡打开 47=模块4震荡关闭
+    48=震荡模块夹爪开 49=震荡夹爪关
 
 节点映射：
     XPos/YPos           → Tube_XPosSet / Tube_YPosSet
@@ -46,14 +47,15 @@ from unilabos.utils.log import logger
 from unilabos.registry.decorators import action, device, not_action
 from unilabos.devices.workstation.GN.gn_station_base import GNStationClient
 
-DEFAULT_XLSX_PATH = os.path.join(
+DEFAULT_CSV_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
-    "opcua_gn1.3.6.csv",
+    "opcua_gn1.3.7.csv",
 )
+DEFAULT_XLSX_PATH = DEFAULT_CSV_PATH
 
 
 class TubeCommand(int, Enum):
-    """离心管液体处理指令类型 (Tube_CmdType，OPC 1.3.4)"""
+    """离心管液体处理指令类型 (Tube_CmdType，opcua_gn1.3.7.csv)"""
     X_LEFT = 1
     X_RIGHT = 2
     Y_FORWARD = 3
@@ -101,6 +103,68 @@ class TubeCommand(int, Enum):
     THERMO_MODULE4_CLOSE = 45
     THERMO_MODULE4_SHAKE_OPEN = 46
     THERMO_MODULE4_SHAKE_CLOSE = 47
+    SHAKE_GRIPPER_OPEN = 48
+    SHAKE_GRIPPER_CLOSE = 49
+
+
+TUBE_CMD_LABELS = {
+    1: "X向左",
+    2: "X向右",
+    3: "Y向前",
+    4: "Y向后",
+    5: "8通道Z向上",
+    6: "8通道Z向下",
+    7: "8通道移液吸",
+    8: "8通道移液放",
+    9: "大夹爪Z向上",
+    10: "大夹爪Z向下",
+    11: "单通道移液吸",
+    12: "单通道移液放",
+    13: "单通道向上",
+    14: "单通道向下",
+    15: "小夹爪向上",
+    16: "小夹爪向下",
+    17: "磁力架轴向上",
+    18: "磁力架轴向下",
+    19: "8通道装载",
+    20: "8通道吸液",
+    21: "8通道放液",
+    22: "8通道卸载",
+    23: "单通道装载",
+    24: "单通道吸液",
+    25: "单通道放液",
+    26: "单通道卸载",
+    27: "小夹爪开盖",
+    28: "小夹爪关盖",
+    29: "小夹爪抓取",
+    30: "小夹爪放置",
+    31: "大夹爪抓取",
+    32: "大夹爪放置",
+    33: "单通道混匀",
+    34: "8通道混匀",
+    35: "超声波混匀",
+    36: "复位",
+    37: "xyz回原点",
+    38: "模块1恒温打开",
+    39: "模块1恒温关闭",
+    40: "模块2恒温打开",
+    41: "模块2恒温关闭",
+    42: "模块3恒温打开",
+    43: "模块3恒温关闭",
+    44: "模块4恒温打开",
+    45: "模块4恒温关闭",
+    46: "模块4震荡打开",
+    47: "模块4震荡关闭",
+    48: "震荡模块夹爪开",
+    49: "震荡夹爪关",
+}
+
+_EXECUTE_CMD_DOC = (
+    "按 Tube_CmdType 执行 OPC UA 指令。"
+    "写参 → CmdType → CmdTrig → 等 CompleteFB。"
+    "1~18 点动；19~35 业务动作；36 复位；37 xyz 回原点；38~47 恒温/震荡；"
+    "48~49 震荡夹爪开/关。ultrasound_stop=True 时仅脉冲 Tube_UltrasoundSTOP。"
+)
 
 
 @device(
@@ -115,6 +179,101 @@ class CentrifugeTubeLiquidHandlingDevice(GNStationClient):
 
     PREFIX = "Tube_"
     ULTRASOUND_STOP_NODE = "Tube_UltrasoundSTOP"
+    CMD_TYPE_NODE = "Tube_CmdType"
+    CMD_TRIG_NODE = "Tube_CmdTrig"
+    COMPLETE_NODE = "Tube_CompleteFB"
+
+    _AXIS_CH8 = frozenset({
+        "Tube_XPosSet", "Tube_YPosSet", "Tube_Z1PosSet", "Tube_P1PosSet",
+        "Tube_XSpeed", "Tube_YSpeed", "Tube_Z1Speed", "Tube_P1Speed",
+        "Tube_Z2Speed", "Tube_P2Speed", "Tube_Z3Speed", "Tube_Z4Speed",
+        "Tube_Ch8Blow", "Tube_Ch1Blow", "Tube_Ch8ReverseAspirate",
+        "Tube_Ch1ReverseAspirate", "Tube_SmallGripperForce",
+    })
+    _AXIS_CH1 = frozenset({
+        "Tube_XPosSet", "Tube_YPosSet", "Tube_P1PosSet", "Tube_P2PosSet",
+        "Tube_Z3PosSet", "Tube_XSpeed", "Tube_YSpeed", "Tube_Z1Speed",
+        "Tube_P1Speed", "Tube_Z2Speed", "Tube_P2Speed", "Tube_Z3Speed",
+        "Tube_Z4Speed", "Tube_Ch8Blow", "Tube_Ch1Blow",
+        "Tube_Ch8ReverseAspirate", "Tube_Ch1ReverseAspirate", "Tube_SmallGripperForce",
+    })
+    _SMALL_GRIPPER = frozenset({
+        "Tube_XPosSet", "Tube_YPosSet", "Tube_Z4PosSet",
+        "Tube_XSpeed", "Tube_YSpeed", "Tube_Z2Speed", "Tube_P2Speed",
+        "Tube_Z3Speed", "Tube_Z4Speed", "Tube_SmallGripperAngle", "Tube_SmallGripperForce",
+        "Tube_SmallGripperOpenLidStart", "Tube_SmallGripperOpenLidEnd",
+        "Tube_SmallGripperCloseLidStart", "Tube_SmallGripperCloseLidEnd",
+        "Tube_SmallGripperOpenLidSpeed", "Tube_SmallGripperCloseLidSpeed",
+        "Tube_SmallGripperOpenLid_RotationSpeed", "Tube_SmallGripperCloseLid_RotationSpeed",
+    })
+    _BIG_GRIPPER = frozenset({
+        "Tube_XPosSet", "Tube_YPosSet", "Tube_Z2PosSet",
+        "Tube_XSpeed", "Tube_YSpeed", "Tube_Z2Speed",
+    })
+    _ULTRASOUND = frozenset({"Tube_MPosSet", "Tube_MSpeed", "Tube_UltrasoundTime"})
+    _RESET_NODES = frozenset({"Tube_SmallGripperAngle", "Tube_SmallGripperForce"})
+    _CMD_SETPOINT_NODES: dict[int, frozenset[str]] = {
+        int(TubeCommand.X_LEFT): frozenset({"Tube_XPosSet", "Tube_XSpeed"}),
+        int(TubeCommand.X_RIGHT): frozenset({"Tube_XPosSet", "Tube_XSpeed"}),
+        int(TubeCommand.Y_FORWARD): frozenset({"Tube_YPosSet", "Tube_YSpeed"}),
+        int(TubeCommand.Y_BACKWARD): frozenset({"Tube_YPosSet", "Tube_YSpeed"}),
+        int(TubeCommand.CH8_Z_UP): frozenset({"Tube_Z1PosSet", "Tube_Z1Speed"}),
+        int(TubeCommand.CH8_Z_DOWN): frozenset({"Tube_Z1PosSet", "Tube_Z1Speed"}),
+        int(TubeCommand.CH8_PIPETTE_ASPIRATE): frozenset({"Tube_P1PosSet", "Tube_P1Speed"}),
+        int(TubeCommand.CH8_PIPETTE_DISPENSE): frozenset({"Tube_P1PosSet", "Tube_P1Speed"}),
+        int(TubeCommand.BIG_GRIPPER_Z_UP): frozenset({"Tube_Z2PosSet", "Tube_Z2Speed"}),
+        int(TubeCommand.BIG_GRIPPER_Z_DOWN): frozenset({"Tube_Z2PosSet", "Tube_Z2Speed"}),
+        int(TubeCommand.CH1_PIPETTE_ASPIRATE): frozenset({"Tube_P2PosSet", "Tube_P2Speed"}),
+        int(TubeCommand.CH1_PIPETTE_DISPENSE): frozenset({"Tube_P2PosSet", "Tube_P2Speed"}),
+        int(TubeCommand.CH1_Z_UP): frozenset({"Tube_Z3PosSet", "Tube_Z3Speed"}),
+        int(TubeCommand.CH1_Z_DOWN): frozenset({"Tube_Z3PosSet", "Tube_Z3Speed"}),
+        int(TubeCommand.SMALL_GRIPPER_Z_UP): frozenset({"Tube_Z4PosSet", "Tube_Z4Speed"}),
+        int(TubeCommand.SMALL_GRIPPER_Z_DOWN): frozenset({"Tube_Z4PosSet", "Tube_Z4Speed"}),
+        int(TubeCommand.MAGNETIC_RACK_UP): frozenset({"Tube_MPosSet", "Tube_MSpeed"}),
+        int(TubeCommand.MAGNETIC_RACK_DOWN): frozenset({"Tube_MPosSet", "Tube_MSpeed"}),
+        int(TubeCommand.CH8_LOAD_TIP): _AXIS_CH8,
+        int(TubeCommand.CH8_ASPIRATE_LIQUID): _AXIS_CH8,
+        int(TubeCommand.CH8_DISPENSE_LIQUID): _AXIS_CH8,
+        int(TubeCommand.CH8_UNLOAD_TIP): _AXIS_CH8,
+        int(TubeCommand.CH8_MIX): _AXIS_CH8 | frozenset({"Tube_MixCounts"}),
+        int(TubeCommand.CH1_LOAD_TIP): _AXIS_CH1,
+        int(TubeCommand.CH1_ASPIRATE_LIQUID): _AXIS_CH1,
+        int(TubeCommand.CH1_DISPENSE_LIQUID): _AXIS_CH1,
+        int(TubeCommand.CH1_UNLOAD_TIP): _AXIS_CH1,
+        int(TubeCommand.CH1_MIX): _AXIS_CH1 | frozenset({"Tube_MixCounts"}),
+        int(TubeCommand.SMALL_GRIPPER_OPEN_LID): _SMALL_GRIPPER,
+        int(TubeCommand.SMALL_GRIPPER_CLOSE_LID): _SMALL_GRIPPER,
+        int(TubeCommand.SMALL_GRIPPER_PICK): _SMALL_GRIPPER,
+        int(TubeCommand.SMALL_GRIPPER_PLACE): _SMALL_GRIPPER,
+        int(TubeCommand.BIG_GRIPPER_PICK): _BIG_GRIPPER,
+        int(TubeCommand.BIG_GRIPPER_PLACE): _BIG_GRIPPER,
+        int(TubeCommand.ULTRASOUND_MIX): _ULTRASOUND,
+        int(TubeCommand.RESET): _RESET_NODES,
+        int(TubeCommand.HOME_XYZ): frozenset(),
+        int(TubeCommand.THERMO_MODULE1_OPEN): frozenset({
+            "Tube_ThermostaticModule_Temperature1", "Tube_ThermostaticModule_Time1",
+        }),
+        int(TubeCommand.THERMO_MODULE1_CLOSE): frozenset(),
+        int(TubeCommand.THERMO_MODULE2_OPEN): frozenset({
+            "Tube_ThermostaticModule_Temperature2", "Tube_ThermostaticModule_Time2",
+        }),
+        int(TubeCommand.THERMO_MODULE2_CLOSE): frozenset(),
+        int(TubeCommand.THERMO_MODULE3_OPEN): frozenset({
+            "Tube_ThermostaticModule_Temperature3", "Tube_ThermostaticModule_Time3",
+        }),
+        int(TubeCommand.THERMO_MODULE3_CLOSE): frozenset(),
+        int(TubeCommand.THERMO_MODULE4_OPEN): frozenset({
+            "Tube_ThermostaticModule_Temperature4", "Tube_ThermostaticModule_Time4",
+        }),
+        int(TubeCommand.THERMO_MODULE4_CLOSE): frozenset(),
+        int(TubeCommand.THERMO_MODULE4_SHAKE_OPEN): frozenset({
+            "Tube_ThermostaticModule_Temperature4", "Tube_ThermostaticModule_Time4",
+            "Tube_ThermostaticModule4_Shaking_Speed", "Tube_ThermostaticModule4_Shaking_Time",
+        }),
+        int(TubeCommand.THERMO_MODULE4_SHAKE_CLOSE): frozenset(),
+        int(TubeCommand.SHAKE_GRIPPER_OPEN): frozenset(),
+        int(TubeCommand.SHAKE_GRIPPER_CLOSE): frozenset(),
+    }
 
     def __init__(
         self,
@@ -141,6 +300,242 @@ class CentrifugeTubeLiquidHandlingDevice(GNStationClient):
         )
         self._connection_check_interval = 5.0
         self._command_lock = threading.Lock()
+
+    @action(auto_prefix=True, description=_EXECUTE_CMD_DOC)
+    def execute_command(
+        self,
+        cmd_type: int,
+        x_pos: Optional[int] = None,
+        y_pos: Optional[int] = None,
+        z1_pos: Optional[int] = None,
+        p1_pos: Optional[int] = None,
+        z2_pos: Optional[int] = None,
+        p2_pos: Optional[int] = None,
+        z3_pos: Optional[int] = None,
+        z4_pos: Optional[int] = None,
+        m_pos: Optional[int] = None,
+        x_speed: Optional[int] = None,
+        y_speed: Optional[int] = None,
+        z1_speed: Optional[int] = None,
+        p1_speed: Optional[int] = None,
+        z2_speed: Optional[int] = None,
+        p2_speed: Optional[int] = None,
+        z3_speed: Optional[int] = None,
+        z4_speed: Optional[int] = None,
+        m_speed: Optional[int] = None,
+        mix_counts: Optional[int] = None,
+        ultrasound_time: Optional[int] = None,
+        shaking_speed: Optional[int] = None,
+        shaking_time: Optional[int] = None,
+        small_gripper_angle: Optional[int] = None,
+        small_gripper_force: Optional[int] = None,
+        ch8_blow: Optional[int] = None,
+        ch1_blow: Optional[int] = None,
+        ch8_reverse_aspirate: Optional[int] = None,
+        ch1_reverse_aspirate: Optional[int] = None,
+        open_lid_start: Optional[int] = None,
+        open_lid_end: Optional[int] = None,
+        close_lid_start: Optional[int] = None,
+        close_lid_end: Optional[int] = None,
+        open_lid_speed: Optional[int] = None,
+        close_lid_speed: Optional[int] = None,
+        open_lid_rotation_speed: Optional[int] = None,
+        close_lid_rotation_speed: Optional[int] = None,
+        thermo1_temperature: Optional[int] = None,
+        thermo1_time: Optional[int] = None,
+        thermo2_temperature: Optional[int] = None,
+        thermo2_time: Optional[int] = None,
+        thermo3_temperature: Optional[int] = None,
+        thermo3_time: Optional[int] = None,
+        thermo4_temperature: Optional[int] = None,
+        thermo4_time: Optional[int] = None,
+        ultrasound_stop: bool = False,
+        timeout: float = 180.0,
+    ) -> dict:
+        """通用入口：写参 → CmdType → CmdTrig → 等 CompleteFB。"""
+        if ultrasound_stop:
+            return self.ultrasound_stop()
+        if timeout is None or float(timeout) <= 0:
+            timeout = 180.0
+        cmd = int(cmd_type)
+        if cmd not in TUBE_CMD_LABELS:
+            raise ValueError(f"不支持的 Tube_CmdType={cmd}，有效范围为 1-49")
+        if cmd == int(TubeCommand.ULTRASOUND_MIX) and ultrasound_time:
+            timeout = max(float(timeout), ultrasound_time * 60 + 60)
+        elif cmd in (
+            int(TubeCommand.THERMO_MODULE1_OPEN),
+            int(TubeCommand.THERMO_MODULE2_OPEN),
+            int(TubeCommand.THERMO_MODULE3_OPEN),
+            int(TubeCommand.THERMO_MODULE4_OPEN),
+        ):
+            minutes = (
+                thermo1_time if cmd == int(TubeCommand.THERMO_MODULE1_OPEN) else
+                thermo2_time if cmd == int(TubeCommand.THERMO_MODULE2_OPEN) else
+                thermo3_time if cmd == int(TubeCommand.THERMO_MODULE3_OPEN) else
+                thermo4_time
+            )
+            if minutes:
+                timeout = max(float(timeout), minutes * 60 + 60)
+        elif cmd == int(TubeCommand.THERMO_MODULE4_SHAKE_OPEN):
+            t_candidates = [thermo4_time, shaking_time]
+            t_candidates = [t for t in t_candidates if t]
+            if t_candidates:
+                timeout = max(float(timeout), max(t_candidates) * 60 + 60)
+        setpoints = self._build_setpoints(
+            cmd_type=cmd,
+            x_pos=x_pos,
+            y_pos=y_pos,
+            z1_pos=z1_pos,
+            p1_pos=p1_pos,
+            z2_pos=z2_pos,
+            p2_pos=p2_pos,
+            z3_pos=z3_pos,
+            z4_pos=z4_pos,
+            m_pos=m_pos,
+            x_speed=x_speed,
+            y_speed=y_speed,
+            z1_speed=z1_speed,
+            p1_speed=p1_speed,
+            z2_speed=z2_speed,
+            p2_speed=p2_speed,
+            z3_speed=z3_speed,
+            z4_speed=z4_speed,
+            m_speed=m_speed,
+            mix_counts=mix_counts,
+            ultrasound_time=ultrasound_time,
+            shaking_speed=shaking_speed,
+            shaking_time=shaking_time,
+            small_gripper_angle=small_gripper_angle,
+            small_gripper_force=small_gripper_force,
+            ch8_blow=ch8_blow,
+            ch1_blow=ch1_blow,
+            ch8_reverse_aspirate=ch8_reverse_aspirate,
+            ch1_reverse_aspirate=ch1_reverse_aspirate,
+            open_lid_start=open_lid_start,
+            open_lid_end=open_lid_end,
+            close_lid_start=close_lid_start,
+            close_lid_end=close_lid_end,
+            open_lid_speed=open_lid_speed,
+            close_lid_speed=close_lid_speed,
+            open_lid_rotation_speed=open_lid_rotation_speed,
+            close_lid_rotation_speed=close_lid_rotation_speed,
+            thermo1_temperature=thermo1_temperature,
+            thermo1_time=thermo1_time,
+            thermo2_temperature=thermo2_temperature,
+            thermo2_time=thermo2_time,
+            thermo3_temperature=thermo3_temperature,
+            thermo3_time=thermo3_time,
+            thermo4_temperature=thermo4_temperature,
+            thermo4_time=thermo4_time,
+        )
+        for node, value in setpoints.items():
+            self._set_node_or_raise(node, value)
+        label = TUBE_CMD_LABELS.get(cmd, f"CmdType={cmd}")
+        logger.info(f"离心管液体处理：{label} (CmdType={cmd})")
+        return self._trigger_and_wait(cmd, label, timeout=float(timeout))
+
+    @not_action
+    def _build_setpoints(
+        self,
+        cmd_type: Optional[int] = None,
+        x_pos: Optional[int] = None,
+        y_pos: Optional[int] = None,
+        z1_pos: Optional[int] = None,
+        p1_pos: Optional[int] = None,
+        z2_pos: Optional[int] = None,
+        p2_pos: Optional[int] = None,
+        z3_pos: Optional[int] = None,
+        z4_pos: Optional[int] = None,
+        m_pos: Optional[int] = None,
+        x_speed: Optional[int] = None,
+        y_speed: Optional[int] = None,
+        z1_speed: Optional[int] = None,
+        p1_speed: Optional[int] = None,
+        z2_speed: Optional[int] = None,
+        p2_speed: Optional[int] = None,
+        z3_speed: Optional[int] = None,
+        z4_speed: Optional[int] = None,
+        m_speed: Optional[int] = None,
+        mix_counts: Optional[int] = None,
+        ultrasound_time: Optional[int] = None,
+        shaking_speed: Optional[int] = None,
+        shaking_time: Optional[int] = None,
+        small_gripper_angle: Optional[int] = None,
+        small_gripper_force: Optional[int] = None,
+        ch8_blow: Optional[int] = None,
+        ch1_blow: Optional[int] = None,
+        ch8_reverse_aspirate: Optional[int] = None,
+        ch1_reverse_aspirate: Optional[int] = None,
+        open_lid_start: Optional[int] = None,
+        open_lid_end: Optional[int] = None,
+        close_lid_start: Optional[int] = None,
+        close_lid_end: Optional[int] = None,
+        open_lid_speed: Optional[int] = None,
+        close_lid_speed: Optional[int] = None,
+        open_lid_rotation_speed: Optional[int] = None,
+        close_lid_rotation_speed: Optional[int] = None,
+        thermo1_temperature: Optional[int] = None,
+        thermo1_time: Optional[int] = None,
+        thermo2_temperature: Optional[int] = None,
+        thermo2_time: Optional[int] = None,
+        thermo3_temperature: Optional[int] = None,
+        thermo3_time: Optional[int] = None,
+        thermo4_temperature: Optional[int] = None,
+        thermo4_time: Optional[int] = None,
+    ) -> dict:
+        mapping = {
+            "Tube_XPosSet": x_pos,
+            "Tube_YPosSet": y_pos,
+            "Tube_Z1PosSet": z1_pos,
+            "Tube_P1PosSet": p1_pos,
+            "Tube_Z2PosSet": z2_pos,
+            "Tube_P2PosSet": p2_pos,
+            "Tube_Z3PosSet": z3_pos,
+            "Tube_Z4PosSet": z4_pos,
+            "Tube_MPosSet": m_pos,
+            "Tube_XSpeed": x_speed,
+            "Tube_YSpeed": y_speed,
+            "Tube_Z1Speed": z1_speed,
+            "Tube_P1Speed": p1_speed,
+            "Tube_Z2Speed": z2_speed,
+            "Tube_P2Speed": p2_speed,
+            "Tube_Z3Speed": z3_speed,
+            "Tube_Z4Speed": z4_speed,
+            "Tube_MSpeed": m_speed,
+            "Tube_MixCounts": mix_counts,
+            "Tube_UltrasoundTime": ultrasound_time,
+            "Tube_ThermostaticModule4_Shaking_Speed": shaking_speed,
+            "Tube_ThermostaticModule4_Shaking_Time": shaking_time,
+            "Tube_SmallGripperAngle": small_gripper_angle,
+            "Tube_SmallGripperForce": small_gripper_force,
+            "Tube_Ch8Blow": ch8_blow,
+            "Tube_Ch1Blow": ch1_blow,
+            "Tube_Ch8ReverseAspirate": ch8_reverse_aspirate,
+            "Tube_Ch1ReverseAspirate": ch1_reverse_aspirate,
+            "Tube_SmallGripperOpenLidStart": open_lid_start,
+            "Tube_SmallGripperOpenLidEnd": open_lid_end,
+            "Tube_SmallGripperCloseLidStart": close_lid_start,
+            "Tube_SmallGripperCloseLidEnd": close_lid_end,
+            "Tube_SmallGripperOpenLidSpeed": open_lid_speed,
+            "Tube_SmallGripperCloseLidSpeed": close_lid_speed,
+            "Tube_SmallGripperOpenLid_RotationSpeed": open_lid_rotation_speed,
+            "Tube_SmallGripperCloseLid_RotationSpeed": close_lid_rotation_speed,
+            "Tube_ThermostaticModule_Temperature1": thermo1_temperature,
+            "Tube_ThermostaticModule_Time1": thermo1_time,
+            "Tube_ThermostaticModule_Temperature2": thermo2_temperature,
+            "Tube_ThermostaticModule_Time2": thermo2_time,
+            "Tube_ThermostaticModule_Temperature3": thermo3_temperature,
+            "Tube_ThermostaticModule_Time3": thermo3_time,
+            "Tube_ThermostaticModule_Temperature4": thermo4_temperature,
+            "Tube_ThermostaticModule_Time4": thermo4_time,
+        }
+        raw = {node: val for node, val in mapping.items() if val is not None}
+        if cmd_type is None:
+            return raw
+        allowed = self._CMD_SETPOINT_NODES.get(int(cmd_type))
+        if allowed is None:
+            return raw
+        return {node: val for node, val in raw.items() if node in allowed}
 
     # ==================== 动作函数（点位写死） ====================
 
@@ -580,6 +975,16 @@ class CentrifugeTubeLiquidHandlingDevice(GNStationClient):
         logger.info("离心管液体处理：模块4震荡关闭...")
         return self._trigger_and_wait(TubeCommand.THERMO_MODULE4_SHAKE_CLOSE, "模块4震荡关闭")
 
+    @action(auto_prefix=True, description="震荡模块夹爪开（指令类型=48）")
+    def shake_gripper_open(self) -> dict:
+        logger.info("离心管液体处理：震荡模块夹爪开...")
+        return self._trigger_and_wait(TubeCommand.SHAKE_GRIPPER_OPEN, "震荡模块夹爪开")
+
+    @action(auto_prefix=True, description="震荡夹爪关（指令类型=49）")
+    def shake_gripper_close(self) -> dict:
+        logger.info("离心管液体处理：震荡夹爪关...")
+        return self._trigger_and_wait(TubeCommand.SHAKE_GRIPPER_CLOSE, "震荡夹爪关")
+
     # ==================== 单点调试（轴点动 1-4） ====================
 
     @action(auto_prefix=True, description="单点调试：X向左（指令类型=1）")
@@ -620,7 +1025,7 @@ class CentrifugeTubeLiquidHandlingDevice(GNStationClient):
         ch8_reverse_aspirate: int = 0,
         ch1_reverse_aspirate: int = 0,
     ) -> None:
-        """1.3.4 吹样/反向吸液写参（默认 0，与测试流程 yaml 一致）"""
+        """opcua_gn1.3.7 吹样/反向吸液写参（默认 0，与测试流程 yaml 一致）"""
         self._set_node_or_raise("Tube_Ch8Blow", ch8_blow)
         self._set_node_or_raise("Tube_Ch1Blow", ch1_blow)
         self._set_node_or_raise("Tube_Ch8ReverseAspirate", ch8_reverse_aspirate)
@@ -814,6 +1219,8 @@ if __name__ == "__main__":
         print("45 模块4恒温关闭")
         print("46 模块4震荡打开")
         print("47 模块4震荡关闭")
+        print("48 震荡模块夹爪开")
+        print("49 震荡夹爪关")
         print("98 整体测试流程")
         print("99 退出")
         choice = input("请输入操作序号：").strip()
@@ -906,6 +1313,10 @@ if __name__ == "__main__":
             )
         elif choice == "47":
             tube.thermostatic_module4_shake_close()
+        elif choice == "48":
+            tube.shake_gripper_open()
+        elif choice == "49":
+            tube.shake_gripper_close()
         elif choice == "98":
             tube.run_test_flow()
         else:
