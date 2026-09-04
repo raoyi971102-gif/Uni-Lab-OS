@@ -44,7 +44,8 @@ class AI4C_deck(Deck):
 
     def setup(self) -> None:
         # 仓库名称与 AI4C 动作语义保持一致，便于从流程节点追踪真实工位。
-        # 移液站由独立设备 PRCXI 表示，不再在 deck 上挂载同名仓库，避免前端重复。
+        # 移液站由独立设备 PRCXI 表示，不在本 deck 挂同名仓库，避免与 PRCXI_Deck 重复。
+        # 机械臂取放「移液站」时，AI4C 驱动把物料 reparent 到 PRCXI_Deck 对应 Tn 槽。
         self.warehouses = {
             "孔板上料架": AI4C_loading_rack_1x8x1("孔板上料架"),
             "孔板下料架": AI4C_unloading_rack_1x8x1("孔板下料架"),

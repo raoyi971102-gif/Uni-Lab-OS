@@ -34,6 +34,8 @@
                 "csv_path": "ai4c_sim_updated.csv",
                 "use_subscription": true,
                 "create_placeholder_resource_when_missing": false,
+                "pipetting_device_id": "PRCXI",
+                "pipetting_deck_id": "PRCXI_Deck",
                 "deck": {
                     "data": {
                         "_resource_child_name": "AI4C_deck",
