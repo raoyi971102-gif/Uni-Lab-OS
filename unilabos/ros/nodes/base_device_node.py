@@ -72,6 +72,7 @@ from unilabos.resources.resource_tracker import (
     ResourceTreeInstance,
     ResourceDictInstance,
     EXTRA_SAMPLE_UUID,
+    EXTRA_FRONTEND_NAME,
     PARAM_SAMPLE_UUIDS,
     JSON_UNILABOS_PARAM,
 )
@@ -950,6 +951,13 @@ class BaseROS2DeviceNode(Node, Generic[T]):
                     func(old_parent, plr_resource, parent_resource)
                 return parent_resource
             except Exception as e:
+                # 挂载失败时回收本次 add 临时加入 tracker 的资源，避免下次重试
+                # 因残留 UUID/子节点映射再次触发重复资源错误。
+                if locals().get("old_parent") is None:
+                    try:
+                        self.resource_tracker.remove_resource(plr_resource)
+                    except Exception:
+                        pass
                 self.lab_logger().warning(
                     f"物料{plr_resource}请求挂载{tree.root_node.res_content.name}的父节点{parent_resource}[{parent_uuid}]失败！\n{traceback.format_exc()}"
                 )
@@ -964,6 +972,81 @@ class BaseROS2DeviceNode(Node, Generic[T]):
         - remove: 从资源树中移除资源
         """
         from pylabrobot.resources.resource import Resource as ResourcePLR
+
+        def _is_deck_parent(resource: Optional[ResourcePLR]) -> bool:
+            """判断目标父节点是否为 Deck（Deck 下要求后代名称全局唯一）。"""
+            if resource is None:
+                return False
+            category = str(getattr(resource, "category", "") or "").lower()
+            class_name = resource.__class__.__name__.lower()
+            return category == "deck" or "deck" in class_name
+
+        def _prepare_deck_name_aliases(tree_set: ResourceTreeSet) -> None:
+            """在 PLR 反序列化前处理 Deck 内的重名子节点。
+
+            PLR 资源一旦被父节点 assign，就禁止再修改子节点 name。此前在
+            ``transfer_to_new_resource`` 中修改名称会导致第二个料架挂载失败。
+            这里直接修改云端资源树的运行时名称，再反序列化；同时保存前端
+            原名，后续序列化时会自动恢复前端显示名称。
+            """
+            used_names_by_parent: Dict[str, set[str]] = {}
+            for tree in tree_set.trees:
+                parent_uuid = tree.root_node.res_content.parent_uuid
+                if not parent_uuid:
+                    continue
+                parent_resource = self.resource_tracker.uuid_to_resources.get(parent_uuid)
+                if not _is_deck_parent(parent_resource):
+                    continue
+
+                root = parent_resource.get_root()
+                if parent_uuid not in used_names_by_parent:
+                    used_names: set[str] = set()
+                    used_names.add(str(getattr(root, "name", "") or ""))
+
+                    def collect_names(node: ResourcePLR) -> None:
+                        for child in getattr(node, "children", []) or []:
+                            used_names.add(str(getattr(child, "name", "") or ""))
+                            collect_names(child)
+
+                    collect_names(root)
+                    used_names_by_parent[parent_uuid] = used_names
+                else:
+                    used_names = used_names_by_parent[parent_uuid]
+                renamed_count = 0
+
+                def rename_tree_node(node: ResourceDictInstance, root_name: str) -> None:
+                    nonlocal renamed_count
+                    res = node.res_content
+                    old_name = str(res.name)
+                    if old_name in used_names:
+                        marker = next(
+                            (m for m in ("_tipspot_", "_well_", "_tube_") if m in old_name),
+                            None,
+                        )
+                        candidate = f"{root_name}{old_name[old_name.index(marker):]}" if marker else f"{root_name}__{old_name}"
+                        alias = candidate
+                        if alias in used_names:
+                            suffix = str(res.uuid or uuid_module.uuid4()).replace("-", "")[:8]
+                            alias = f"{candidate}__{suffix}"
+                            index = 2
+                            while alias in used_names:
+                                alias = f"{candidate}__{suffix}_{index}"
+                                index += 1
+                        extra = dict(res.extra or {})
+                        extra.setdefault(EXTRA_FRONTEND_NAME, old_name)
+                        res.extra = extra
+                        res.name = alias
+                        renamed_count += 1
+                    used_names.add(str(res.name))
+                    for child in node.children:
+                        rename_tree_node(child, root_name)
+
+                rename_tree_node(tree.root_node, str(tree.root_node.res_content.name))
+                if renamed_count:
+                    self.lab_logger().info(
+                        f"资源树 {tree.root_node.res_content.name} 在 {root.name} 下预生成 "
+                        f"{renamed_count} 个运行时别名（前端名称保持不变）"
+                    )
 
         def _handle_add(
             plr_resources: List[ResourcePLR], tree_set: ResourceTreeSet, additional_add_params: Dict[str, Any]
@@ -986,6 +1069,11 @@ class BaseROS2DeviceNode(Node, Generic[T]):
                 if parent is not None:
                     parents.append(parent)
                 else:
+                    target_parent_uuid = tree.root_node.res_content.parent_uuid
+                    if target_parent_uuid not in (None, "", self.uuid):
+                        raise ValueError(
+                            f"资源 {plr_resource.name} 未能挂载到目标父节点 {target_parent_uuid}"
+                        )
                     parents.append(plr_resource)
 
             func = getattr(self.driver_instance, "resource_tree_add", None)
@@ -1176,7 +1264,10 @@ class BaseROS2DeviceNode(Node, Generic[T]):
                     if action == "add":
                         if tree_set is None:
                             raise ValueError("tree_set不能为None")
+                        _prepare_deck_name_aliases(tree_set)
                         plr_resources = tree_set.to_plr_resources()
+                        if not plr_resources:
+                            raise ValueError(f"未查询到待添加资源，UUID: {resources_uuid}")
                         result, parents = _handle_add(plr_resources, tree_set, additional_add_params)
                         parents: List[Optional["ResourcePLR"]] = [i for i in parents if i is not None]
                         # de_dupe_parents = list(set(parents))
@@ -1200,6 +1291,10 @@ class BaseROS2DeviceNode(Node, Generic[T]):
                         ].call_async(
                             r
                         )  # type: ignore
+                        if response.response:
+                            uuid_maps = json.loads(response.response)
+                            if isinstance(uuid_maps, dict):
+                                self.resource_tracker.loop_update_uuid(de_dupe_parents, uuid_maps)
                         self.lab_logger().trace(f"确认资源云端 Add 结果: {response.response}")
                         results.append(result)
                     elif action == "update":
@@ -1226,6 +1321,10 @@ class BaseROS2DeviceNode(Node, Generic[T]):
                             ].call_async(
                                 r
                             )  # type: ignore
+                            if response.response:
+                                uuid_maps = json.loads(response.response)
+                                if isinstance(uuid_maps, dict):
+                                    self.resource_tracker.loop_update_uuid(original_instances, uuid_maps)
                             self.lab_logger().trace(f"确认资源云端 Update 结果: {response.response}")
                         results.append(result)
                     elif action == "remove":

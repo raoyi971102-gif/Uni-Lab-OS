@@ -82,6 +82,17 @@ MAX_PIPETTING_STATION_POSITION = 16
 # 固体称量槽位区间写法，例如 "1-8"
 _SOLID_WEIGHING_SLOT_RANGE_RE = re.compile(r"^(\d+)\s*-\s*(\d+)$")
 
+
+class _ExternalResourceParent:
+    """跨设备同步时仅携带名称和 UUID 的轻量父节点引用。"""
+
+    def __init__(self, name: str, uuid: str) -> None:
+        self.name = name
+        self.unilabos_uuid = uuid
+        self.parent = None
+        self.children = []
+
+
 # OPC UA「固体称量克数 / 误差」寄存器的单位：写入的整数 1 = 0.1 mg
 SOLID_WEIGHING_WEIGHT_UNIT_MG = 0.1
 
@@ -245,9 +256,15 @@ class AI4CDevice(OpcUaClientWithSubscription):
             self.load_nodes_from_csv(csv_path)
 
         self.m_initialized = False
+        self._initialized_components: set[str] = set()
+        self._initialization_state_lock = threading.RLock()
+        self.m_robot_arm_current_step = None
+        self.m_solid_weighing_current_step = None
+        self.m_magnetic_stirrer_current_step = None
         self._held_well_plate = None
         self._held_powder_cylinder = None
         self._placeholder_resource_counter = 0
+        self._external_parent_uuid_cache: dict[str, str] = {}
 
         # 单一后台线程集中刷新机械臂状态；状态发布只读本地缓存，不与动作争抢 OPC UA 锁。
         self._arm_status_nodes = list(_ROBOTIC_ARM_STATUS_NODES)
@@ -332,20 +349,21 @@ class AI4CDevice(OpcUaClientWithSubscription):
             logger.error(f"上传失败: {e}")
 
     @not_action
-    def _sync_resource_to_frontend(self) -> None:
-        """将 AI4C deck 的资源状态同步到前端。"""
+    def _sync_resource_to_frontend(self, resource=None) -> None:
+        """同步资源状态；有明确变更对象时只更新该子树，保留同一父节点下的其他设备资源。"""
         if not (hasattr(self, "_ros_node") and self._ros_node):
             return
 
         try:
             from unilabos.ros.nodes.base_device_node import ROS2DeviceNode
 
+            target = resource if resource is not None else self.deck
             ROS2DeviceNode.run_async_func(
                 self._ros_node.update_resource,
                 True,
-                resources=[self.deck],
+                resources=[target],
             )
-            logger.info("✓ 已同步资源更新到前端")
+            logger.info(f"✓ 已同步资源更新到前端: {getattr(target, 'name', target)}")
         except Exception as e:
             logger.warning(f"前端资源更新失败: {e}")
 
@@ -357,6 +375,213 @@ class AI4CDevice(OpcUaClientWithSubscription):
         if site_key not in keys:
             raise ValueError(f"仓库 {warehouse.name} 不存在仓位 {site_key}")
         return keys.index(site_key)
+
+    @not_action
+    def _external_parent_name(self, warehouse_name: str) -> Optional[str]:
+        """返回由其他设备管理的逻辑工位对应的资源父节点。"""
+        return {"移液站": "PRCXI_Deck"}.get(str(warehouse_name))
+
+    @not_action
+    def _resolve_external_parent_uuid(self, parent_name: str) -> Optional[str]:
+        """解析外部设备 Deck 的 UUID，优先使用 Edge 当前资源缓存。"""
+        cache = getattr(self, "_external_parent_uuid_cache", {})
+        if cache.get(parent_name):
+            return cache[parent_name]
+
+        def _uuid_from_candidate(candidate) -> Optional[str]:
+            if candidate is None or isinstance(candidate, dict):
+                return None
+            return getattr(candidate, "unilabos_uuid", None) or getattr(
+                getattr(candidate, "res_content", None), "uuid", None
+            )
+
+        # PRCXI 的 Deck 属于 PRCXI 设备自己的 tracker，AI4C tracker 中通常没有它。
+        # 先复用 HostNode 已有的按设备查找逻辑，再查当前节点 tracker。
+        try:
+            from unilabos.ros.nodes.presets.host_node import HostNode
+
+            host = HostNode.get_instance(0)
+            deck = host._lookup_deck_for_slot("PRCXI", parent_name)
+            uuid_value = _uuid_from_candidate(deck)
+            if uuid_value:
+                cache[parent_name] = uuid_value
+                self._external_parent_uuid_cache = cache
+                return uuid_value
+            host_tracker = getattr(host, "_resource_tracker", None)
+        except Exception as exc:
+            logger.debug(f"通过 HostNode 查询外部资源父节点 {parent_name} 失败: {exc}")
+            host_tracker = None
+
+        for tracker in (
+            getattr(getattr(self, "_ros_node", None), "resource_tracker", None),
+            host_tracker,
+        ):
+            if tracker is None:
+                continue
+            try:
+                matches = tracker.figure_resource({"name": parent_name}, try_mode=True)
+                candidates = matches if isinstance(matches, list) else [matches]
+                uuid_value = next((_uuid_from_candidate(obj) for obj in candidates), None)
+                if uuid_value:
+                    cache[parent_name] = uuid_value
+                    self._external_parent_uuid_cache = cache
+                    return uuid_value
+            except Exception as exc:
+                logger.debug(f"查询资源 tracker 中的 {parent_name} 失败: {exc}")
+
+        try:
+            from unilabos.app.web.client import http_client
+
+            response = http_client.resource_get(parent_name, False)
+            data = response.get("data", response) if isinstance(response, dict) else {}
+            if isinstance(data, list):
+                data = data[0] if data else {}
+            nodes = data.get("nodes") if isinstance(data, dict) else None
+            if isinstance(nodes, list):
+                data = nodes[0] if nodes else {}
+            uuid_value = data.get("uuid") if isinstance(data, dict) else None
+            if uuid_value:
+                cache[parent_name] = uuid_value
+                self._external_parent_uuid_cache = cache
+                return uuid_value
+        except Exception as exc:
+            logger.debug(f"查询外部资源父节点 {parent_name} 失败: {exc}")
+        logger.warning(f"未找到外部资源父节点 {parent_name} 的 UUID，无法完成跨设备转移")
+        return None
+
+    @not_action
+    def _update_resource_parent_in_cloud(self, resource, parent_uuid: str) -> bool:
+        """按指定父节点 UUID 更新云端资源，避免 update_resource 将根节点归回 AI4C。"""
+        from unilabos_msgs.srv import SerialCommand
+        from unilabos.resources.resource_tracker import ResourceTreeSet
+
+        old_resource_uuid = getattr(resource, "unilabos_uuid", None)
+        tree_set = ResourceTreeSet.from_plr_resources([resource])
+        for tree in tree_set.trees:
+            tree.root_node.res_content.parent = None
+            tree.root_node.res_content.parent_uuid = parent_uuid
+        request = SerialCommand.Request()
+        request.command = json.dumps(
+            {"data": {"data": tree_set.dump()}, "action": "update"},
+            ensure_ascii=False,
+        )
+        client = self._ros_node._resource_clients["c2s_update_resource_tree"]
+        future = client.call_async(request)
+        deadline = time.time() + 30.0
+        while not future.done() and time.time() < deadline:
+            time.sleep(0.05)
+        if not future.done():
+            logger.warning("跨设备资源云端更新超时")
+            return False
+        response = future.result()
+        raw_response = getattr(response, "response", "")
+        if not raw_response:
+            raise RuntimeError("云端资源更新返回空响应")
+        decoded = json.loads(raw_response)
+        if isinstance(decoded, dict) and decoded.get("success") is False:
+            raise RuntimeError(decoded.get("error", "云端资源更新失败"))
+        if not isinstance(decoded, dict) or not decoded:
+            raise RuntimeError("云端资源更新未返回 UUID 映射")
+        if old_resource_uuid and old_resource_uuid not in decoded:
+            raise RuntimeError(f"云端资源更新未返回根资源 {old_resource_uuid} 的 UUID 映射")
+
+        # resource_tree_add 可能为根资源和全部子资源生成新 UUID。必须在通知
+        # PRCXI 本地挂载前更新运行时对象，否则 PRCXI 会用旧 UUID 查询并得到空资源树。
+        tracker = getattr(self._ros_node, "resource_tracker", None)
+        if tracker is not None:
+            tracker.loop_update_uuid([resource], decoded)
+        new_resource_uuid = getattr(resource, "unilabos_uuid", None)
+        logger.debug(f"跨设备资源云端 UUID 更新: {old_resource_uuid} -> {new_resource_uuid}")
+        return True
+
+    @not_action
+    def _attach_resource_to_external_device(self, resource, warehouse_name: str, site_key: str) -> bool:
+        """通知外部设备在本地 Deck 上挂载已同步的资源。"""
+        target_device = {"移液站": "PRCXI"}.get(str(warehouse_name))
+        resource_uuid = getattr(resource, "unilabos_uuid", None)
+        if not target_device or not resource_uuid or not getattr(self, "_ros_node", None):
+            return False
+        try:
+            from unilabos_msgs.srv import SerialCommand
+
+            client = self._ros_node.create_client(
+                SerialCommand, f"/srv/devices/{target_device}/s2c_resource_tree"
+            )
+            if not client.wait_for_service(timeout_sec=5.0):
+                logger.warning(f"外部设备 {target_device} 资源服务不可用")
+                return False
+
+            marker = str(site_key)
+            if marker.isdigit():
+                marker = f"T{marker}"
+            request = SerialCommand.Request()
+            request.command = json.dumps(
+                [{"action": "add", "data": [resource_uuid], "additional_add_params": {"site": marker}}],
+                ensure_ascii=False,
+            )
+            future = client.call_async(request)
+            deadline = time.time() + 30.0
+            while not future.done() and time.time() < deadline:
+                time.sleep(0.05)
+            if not future.done():
+                logger.warning(f"通知 {target_device} 挂载资源超时")
+                return False
+            response = future.result()
+            raw_response = getattr(response, "response", "")
+            if raw_response:
+                try:
+                    decoded = json.loads(raw_response)
+                    if decoded.get("success") is False:
+                        raise RuntimeError(decoded.get("error", "外部设备挂载失败"))
+                    results = decoded.get("results")
+                    if isinstance(results, list) and any(
+                        item.get("success") is False
+                        for item in results
+                        if isinstance(item, dict)
+                    ):
+                        raise RuntimeError(str(results))
+                except json.JSONDecodeError:
+                    pass
+            return True
+        except Exception as exc:
+            logger.warning(f"通知外部设备 {target_device} 挂载资源失败: {exc}")
+            return False
+
+    @not_action
+    def _sync_resource_to_external_parent(self, resource, warehouse_name: str, site_key: str) -> bool:
+        """将物料以原 UUID 同步到外部设备 Deck，并确认其本地挂载完成。"""
+        parent_name = self._external_parent_name(warehouse_name)
+        parent_uuid = self._resolve_external_parent_uuid(parent_name) if parent_name else None
+        if not parent_name or not parent_uuid or resource is None:
+            return False
+
+        old_parent = getattr(resource, "parent", None)
+        old_extra = dict(getattr(resource, "unilabos_extra", None) or {})
+        marker = str(site_key)
+        if marker.isdigit():
+            marker = f"T{marker}"
+        logger.debug(
+            f"跨设备资源同步准备: {getattr(resource, 'name', resource)} -> "
+            f"{parent_name}[{marker}] (parent_uuid={parent_uuid})"
+        )
+        resource.parent = _ExternalResourceParent(parent_name, parent_uuid)
+        extra = dict(old_extra)
+        extra["update_resource_site"] = marker
+        resource.unilabos_extra = extra
+        try:
+            if not self._update_resource_parent_in_cloud(resource, parent_uuid):
+                return False
+            if not self._attach_resource_to_external_device(resource, warehouse_name, site_key):
+                logger.warning(f"{parent_name}[{site_key}] 本地挂载未确认，保留物料持有态")
+                return False
+            logger.info(f"✓ 已将资源 {getattr(resource, 'name', resource)} 同步到 {parent_name}[{site_key}]")
+            return True
+        except Exception as exc:
+            logger.warning(f"跨设备资源同步到 {parent_name}[{site_key}] 失败: {exc}")
+            return False
+        finally:
+            resource.parent = old_parent
+            resource.unilabos_extra = old_extra
 
     @not_action
     def _get_warehouse_resource(self, warehouse_name: str, site_key: str):
@@ -425,7 +650,7 @@ class AI4CDevice(OpcUaClientWithSubscription):
                 logger.info(f"✓ 已从 {warehouse_name}[{site_key}] 解绑资源 {resource.name}")
 
             setattr(self, held_attr, resource)
-            self._sync_resource_to_frontend()
+            self._sync_resource_to_frontend(warehouse)
         except Exception as e:
             logger.warning(f"资源取料迁移失败（不影响硬件操作）: {e}")
 
@@ -440,8 +665,28 @@ class AI4CDevice(OpcUaClientWithSubscription):
         """硬件放料完成后，将机械臂临时持有资源绑定到目标仓位。"""
         try:
             if warehouse_name not in self.deck.warehouses:
-                logger.info(f"{warehouse_name} 不在 AI4C_deck 上（由独立设备管理），跳过资源树放料")
-                setattr(self, held_attr, None)
+                resource = getattr(self, held_attr, None)
+                if resource is None:
+                    if not self.create_placeholder_resource_when_missing:
+                        logger.info(
+                            f"机械臂没有可追踪的前端资源，且已关闭缺失资源占位创建；"
+                            f"仅执行硬件放料，不在 {warehouse_name}[{site_key}] 生成资源"
+                        )
+                        return
+                    resource = self._create_placeholder_resource(resource_kind, warehouse_name, site_key)
+                if self._sync_resource_to_external_parent(resource, warehouse_name, site_key):
+                    # 资源已交给 PRCXI 管理，清掉 AI4C tracker 中的旧映射，避免同一 UUID 被双重管理。
+                    try:
+                        tracker = getattr(self._ros_node, "resource_tracker", None)
+                        if tracker is not None:
+                            tracker.remove_resource(resource)
+                    except Exception as exc:
+                        logger.debug(f"清理 AI4C 本地资源映射失败: {exc}")
+                    setattr(self, held_attr, None)
+                else:
+                    logger.warning(
+                        f"{warehouse_name}[{site_key}] 资源同步未完成，保留机械臂持有态"
+                    )
                 return
             warehouse = self.deck.warehouses[warehouse_name]
             site_key = str(site_key)
@@ -466,7 +711,7 @@ class AI4CDevice(OpcUaClientWithSubscription):
             warehouse.assign_child_resource(resource, location=location, spot=site_idx)
             setattr(self, held_attr, None)
             logger.info(f"✓ 已绑定资源 {resource.name} 到 {warehouse_name}[{site_key}]")
-            self._sync_resource_to_frontend()
+            self._sync_resource_to_frontend(warehouse)
         except Exception as e:
             logger.warning(f"资源放料迁移失败（不影响硬件操作）: {e}")
 
@@ -475,6 +720,30 @@ class AI4CDevice(OpcUaClientWithSubscription):
     def _legacy_init_workstation(self) -> dict:
         """保留旧的内部入口，统一转到并行初始化实现。"""
         return self.init_workstation()
+
+    @not_action
+    def _mark_component_initialized(self, description: str) -> None:
+        """记录单个工位初始化完成，并在三项都完成后启用心跳状态同步。"""
+        with self._initialization_state_lock:
+            self._initialized_components.add(description)
+            all_initialized = self._initialized_components.issuperset(
+                component[3] for component in _INITIALIZATION_COMPONENTS
+            )
+            became_initialized = all_initialized and not self.m_initialized
+            if became_initialized:
+                self.m_initialized = True
+
+        if became_initialized:
+            for attr_name, node_name in (
+                ("m_robot_arm_current_step", "Robotic_Arm_Current_Step"),
+                ("m_solid_weighing_current_step", "Solid_Weighing_Current_Step"),
+                ("m_magnetic_stirrer_current_step", "Magnetic_Stirrer_Current_Step"),
+            ):
+                try:
+                    setattr(self, attr_name, self.get_node_value(node_name))
+                except Exception as exc:
+                    logger.debug(f"读取{node_name}失败，稍后由心跳补齐: {exc}")
+            logger.info("AI4C 机械手、固体称量、磁搅三项初始化均已完成")
 
     @not_action
     def _initialize_component(
@@ -502,22 +771,7 @@ class AI4CDevice(OpcUaClientWithSubscription):
             description=f"{description} 初始化完成",
         ):
             raise ValueError(f"{description} 初始化失败")
-
-    @not_action
-    def _initialize_hydration_workstation(self) -> None:
-        """等待水合工站 PC 初始化完成，完成后复位请求信号。"""
-        if not self._wait_until_false(
-            "Hydration_Workstation_Initialization_Complete",
-            description="等待水合工站初始化完成信号复位",
-        ):
-            raise ValueError("水合工站初始化信号复位失败")
-        if not self._wait_until_true(
-            "Hydration_Workstation_Initialization_Complete",
-            description="水合工站初始化完成",
-        ):
-            raise ValueError("水合工站初始化失败")
-        if not self.set_node_value("Hydration_Workstation_PC_Initialization", False):
-            raise RuntimeError("复位水合工站初始化信号失败")
+        self._mark_component_initialized(description)
 
     @not_action
     def _start_initialization_component(
@@ -535,37 +789,23 @@ class AI4CDevice(OpcUaClientWithSubscription):
             fault_node,
         )
 
-    @action(auto_prefix=True, description="初始化 AI4C 工站（机械手、固体称量、磁搅）")
+    @not_action
     def init_workstation(self) -> dict:
-        """并行初始化机械手、固体称量、磁搅和水合工站 PC。"""
+        """兼容旧的本地调试入口，并行启动三项独立初始化。"""
         logger.info("停止机械臂动作触发并复位机械手")
         self.set_node_value("Robotic_Arm_Action_Trigger", False)
         self.set_node_value("Robotic_Arm_Reset", True)
         time.sleep(1.0)
         self.set_node_value("Robotic_Arm_Reset", False)
 
-        # 水合 PC 初始化与三个设备初始化同时启动。
-        self.set_node_value("Hydration_Workstation_PC_Initialization", False)
-        time.sleep(1.0)
-        self.set_node_value("Hydration_Workstation_PC_Initialization", True)
-        for component in _INITIALIZATION_COMPONENTS:
-            if not self.set_node_value(component[0], True):
-                raise RuntimeError(f"触发{component[3]}初始化失败")
-
         components = list(_INITIALIZATION_COMPONENTS)
-        with ThreadPoolExecutor(max_workers=len(components) + 1) as executor:
+        with ThreadPoolExecutor(max_workers=len(components)) as executor:
             futures = [
-                executor.submit(self._initialize_component, *component)
+                executor.submit(self._start_initialization_component, component)
                 for component in components
             ]
-            futures.append(executor.submit(self._initialize_hydration_workstation))
             for future in futures:
                 future.result()
-
-        self.m_robot_arm_current_step = self.get_node_value("Robotic_Arm_Current_Step")
-        self.m_solid_weighing_current_step = self.get_node_value("Solid_Weighing_Current_Step")
-        self.m_magnetic_stirrer_current_step = self.get_node_value("Magnetic_Stirrer_Current_Step")
-        self.m_initialized = True
         return {"success": True, "message": "AI4C 工站初始化完成"}
 
     @action(auto_prefix=True, description="初始化 AI4C 机械手")

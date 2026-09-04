@@ -10,6 +10,7 @@ OPC UA 通讯基类（简化版 - 无工作流功能）
 """
 
 import json
+import threading
 import time
 import traceback
 from typing import Any, Dict, List, Optional, Tuple
@@ -55,8 +56,30 @@ class BaseOpcUaClient(UniversalDriver):
         self._name_mapping = {}
         self._reverse_mapping = {}
         # 初始化线程锁
-        import threading
         self._client_lock = threading.RLock()
+        # 节点可能在轮询、订阅和多个动作线程中被反复访问；同一节点只打印一次使用日志。
+        self._node_usage_log_lock = threading.Lock()
+        self._logged_node_usage: set[str] = set()
+
+    def _log_node_usage_once(
+        self,
+        requested_name: str,
+        node: OpcUaNodeBase,
+        resolved_name: Optional[str] = None,
+    ) -> None:
+        """仅记录节点首次成功解析，避免轮询时反复刷屏。"""
+        node_key = str(getattr(node, "node_id", "") or resolved_name or requested_name)
+        with self._node_usage_log_lock:
+            if node_key in self._logged_node_usage:
+                return
+            self._logged_node_usage.add(node_key)
+
+        if resolved_name and requested_name != resolved_name:
+            logger.debug(
+                f"首次使用节点: '{requested_name}' -> '{resolved_name}', NodeId: {node.node_id}"
+            )
+        else:
+            logger.debug(f"首次使用节点: '{requested_name}', NodeId: {node.node_id}")
 
     def _set_client(self, client: Optional[Client]) -> None:
         if client is None:
@@ -247,7 +270,7 @@ class BaseOpcUaClient(UniversalDriver):
             chinese_name = self._name_mapping[name]
             if chinese_name in self._node_registry:
                 node = self._node_registry[chinese_name]
-                logger.debug(f"使用节点: '{name}' -> '{chinese_name}', NodeId: {node.node_id}")
+                self._log_node_usage_once(name, node, chinese_name)
                 return node
             elif chinese_name in self._variables_to_find:
                 logger.warning(f"节点 {chinese_name} (英文名: {name}) 尚未找到，尝试重新查找")
@@ -272,7 +295,7 @@ class BaseOpcUaClient(UniversalDriver):
             logger.error(f"❌ 节点 '{name}' 未注册或未找到。已注册节点: {list(self._node_registry.keys())[:5]}...")
             raise ValueError(f'节点 {name} 未注册或未找到')
         node = self._node_registry[name]
-        logger.debug(f"使用节点: '{name}', NodeId: {node.node_id}")
+        self._log_node_usage_once(name, node)
         return node
 
     def get_node_registry(self) -> Dict[str, OpcUaNodeBase]:

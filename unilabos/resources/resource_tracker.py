@@ -830,7 +830,7 @@ class ResourceTreeSet(object):
             extra[EXTRA_CLASS] = res.klass
             if effective_name != res.name:
                 extra[EXTRA_FRONTEND_NAME] = res.name
-            else:
+            elif EXTRA_FRONTEND_NAME not in extra:
                 extra.pop(EXTRA_FRONTEND_NAME, None)
             name_to_extra[effective_name] = extra
             for child in node.children:
