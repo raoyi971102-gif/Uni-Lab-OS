@@ -79,6 +79,12 @@ MAX_SOLID_WEIGHING_STACK_POSITION = 25
 MIN_PIPETTING_STATION_POSITION = 1
 MAX_PIPETTING_STATION_POSITION = 16
 
+# 移液站不挂在 AI4C_deck 上，物料改挂到独立设备 PRCXI 的 PRCXI_Deck。
+# 机械臂板位 N 与 PRCXI 槽位 TN、sites[N-1] 按 1:1 对应。
+PIPETTING_WAREHOUSE_NAME = "移液站"
+DEFAULT_PIPETTING_DEVICE_ID = "PRCXI"
+DEFAULT_PIPETTING_DECK_ID = "PRCXI_Deck"
+
 # 固体称量槽位区间写法，例如 "1-8"
 _SOLID_WEIGHING_SLOT_RANGE_RE = re.compile(r"^(\d+)\s*-\s*(\d+)$")
 
@@ -168,6 +174,8 @@ class AI4CDevice(OpcUaClientWithSubscription):
         cache_timeout: float = 5.0,
         subscription_interval: int = 500,
         create_placeholder_resource_when_missing: bool = True,
+        pipetting_device_id: str = DEFAULT_PIPETTING_DEVICE_ID,
+        pipetting_deck_id: str = DEFAULT_PIPETTING_DECK_ID,
         *args,
         **kwargs,
     ):
@@ -188,6 +196,8 @@ class AI4CDevice(OpcUaClientWithSubscription):
             create_placeholder_resource_when_missing: 前端源仓位没有资源时，是否创建临时
                 孔板/粉桶并在后续放料时同步到前端；关闭后硬件动作不受影响，也不会凭空
                 生成前端资源
+            pipetting_device_id: 移液站对应的独立设备 id，默认 PRCXI
+            pipetting_deck_id: 移液站物料所在 deck 名，默认 PRCXI_Deck
         """
         test_mode = False
         try:
@@ -215,6 +225,14 @@ class AI4CDevice(OpcUaClientWithSubscription):
         self.create_placeholder_resource_when_missing = bool(
             create_placeholder_resource_when_missing
         )
+        self.pipetting_device_id = str(pipetting_device_id or DEFAULT_PIPETTING_DEVICE_ID)
+        self.pipetting_deck_id = str(pipetting_deck_id or DEFAULT_PIPETTING_DECK_ID)
+        self._external_warehouses = {
+            PIPETTING_WAREHOUSE_NAME: {
+                "device_id": self.pipetting_device_id,
+                "deck_id": self.pipetting_deck_id,
+            }
+        }
 
         # 调用父类构造函数
         super().__init__(
@@ -334,20 +352,262 @@ class AI4CDevice(OpcUaClientWithSubscription):
     @not_action
     def _sync_resource_to_frontend(self) -> None:
         """将 AI4C deck 的资源状态同步到前端。"""
-        if not (hasattr(self, "_ros_node") and self._ros_node):
-            return
+        self._sync_plr_resources([self.deck], ros_node=getattr(self, "_ros_node", None))
 
+    @not_action
+    def _sync_plr_resources(self, resources, *, ros_node=None) -> None:
+        """把给定 PLR 资源树同步到前端。ros_node 为空时回退到 AI4C 自身节点。"""
+        node = ros_node or getattr(self, "_ros_node", None)
+        if not node or not resources:
+            return
         try:
             from unilabos.ros.nodes.base_device_node import ROS2DeviceNode
 
             ROS2DeviceNode.run_async_func(
-                self._ros_node.update_resource,
+                node.update_resource,
                 True,
-                resources=[self.deck],
+                resources=list(resources),
             )
-            logger.info("✓ 已同步资源更新到前端")
+            names = [getattr(item, "name", type(item).__name__) for item in resources]
+            logger.info(f"✓ 已同步资源更新到前端: {names}")
         except Exception as e:
             logger.warning(f"前端资源更新失败: {e}")
+
+    @not_action
+    def _get_external_warehouse_spec(self, warehouse_name: str):
+        """查询不在 AI4C_deck 上、但由独立设备管理的仓位。未登记返回 None。"""
+        mapping = getattr(self, "_external_warehouses", None) or {}
+        return mapping.get(warehouse_name)
+
+    @not_action
+    def _parse_pipetting_slot(self, site_key: str) -> int:
+        """机械臂移液站板位 → 1-based PRCXI 槽号。"""
+        try:
+            slot = int(str(site_key).strip().upper().lstrip("T"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"无法解析移液站板位: {site_key!r}") from exc
+        if slot < MIN_PIPETTING_STATION_POSITION or slot > MAX_PIPETTING_STATION_POSITION:
+            raise ValueError(
+                f"移液站板位 {slot} 超出范围 "
+                f"[{MIN_PIPETTING_STATION_POSITION}, {MAX_PIPETTING_STATION_POSITION}]"
+            )
+        return slot
+
+    @not_action
+    def _is_prcxi_slot_adapter(self, resource) -> bool:
+        """判断 PRCXI 槽位上是否是 adapter/module，而不是被搬运的板本身。"""
+        if resource is None:
+            return False
+        try:
+            from pylabrobot.resources import PlateAdapter
+            from unilabos.devices.liquid_handling.prcxi.prcxi import (
+                PRCXI9300ModuleSite,
+                PRCXI9300PlateAdapter,
+            )
+
+            return isinstance(resource, (PlateAdapter, PRCXI9300ModuleSite, PRCXI9300PlateAdapter))
+        except Exception:
+            return type(resource).__name__ in {
+                "PlateAdapter",
+                "PRCXI9300PlateAdapter",
+                "PRCXI9300ModuleSite",
+            }
+
+    @not_action
+    def _lookup_host_device(self, device_id: str):
+        """从 HostNode.devices_instances 解析独立设备包装器。"""
+        try:
+            from unilabos.ros.nodes.presets.host_node import HostNode
+        except Exception:
+            return None
+        host = HostNode.get_instance(timeout=0.1)
+        if host is None:
+            return None
+        candidate_ids = []
+        for did in (
+            device_id,
+            str(device_id).lstrip("/"),
+            str(device_id).split("/")[-1],
+            f"/devices/{str(device_id).split('/')[-1]}",
+        ):
+            if did and did not in candidate_ids:
+                candidate_ids.append(did)
+        for did in candidate_ids:
+            wrapper = host.devices_instances.get(did)
+            if wrapper is not None:
+                return wrapper
+        logger.error(
+            f"找不到移液站设备 {device_id!r}，已尝试 {candidate_ids}；"
+            f"当前 Host 设备: {list(host.devices_instances.keys())}"
+        )
+        return None
+
+    @not_action
+    def _resolve_external_deck_and_node(self, spec: dict):
+        """解析外部仓对应的 deck 和用于前端同步的 ROS 节点。找不到 deck 返回 (None, None)。"""
+        device_id = spec.get("device_id") or DEFAULT_PIPETTING_DEVICE_ID
+        deck_id = spec.get("deck_id") or DEFAULT_PIPETTING_DECK_ID
+        wrapper = self._lookup_host_device(device_id)
+        deck = None
+        ros_node = None
+        if wrapper is not None:
+            ros_node = getattr(wrapper, "_ros_node", None) or wrapper
+            try:
+                from unilabos.ros.nodes.presets.host_node import HostNode
+
+                host = HostNode.get_instance(timeout=0.1)
+                if host is not None:
+                    deck = host._lookup_deck_for_slot(device_id, deck_id)
+            except Exception as exc:
+                logger.warning(f"HostNode 查找 {deck_id} 失败: {exc}")
+            if deck is None:
+                driver = (
+                    getattr(wrapper, "driver_instance", None)
+                    or getattr(getattr(wrapper, "_ros_node", None), "driver_instance", None)
+                    or getattr(wrapper, "_driver_instance", None)
+                )
+                candidate = getattr(driver, "deck", None) if driver is not None else None
+                if candidate is not None and getattr(candidate, "name", None) == deck_id:
+                    deck = candidate
+        if deck is None:
+            logger.error(
+                f"未找到移液站 deck {deck_id}（设备 {device_id}），无法同步前端资源树"
+            )
+            return None, None
+        return deck, ros_node
+
+    @not_action
+    def _get_pipetting_slot_material(self, deck, slot: int):
+        """读取 PRCXI 槽位上真正被机械臂搬运的物料；空位返回 None。"""
+        getter = getattr(deck, "_get_site_resource", None)
+        site = getter(slot - 1) if callable(getter) else None
+        if site is None:
+            children = list(getattr(deck, "children", None) or [])
+            if 0 <= slot - 1 < len(children):
+                site = children[slot - 1]
+        if site is None or type(site).__name__ == "ResourceHolder":
+            inner = getattr(site, "resource", None) if site is not None else None
+            return inner
+        if self._is_prcxi_slot_adapter(site):
+            for child in getattr(site, "children", None) or []:
+                if child is not None and type(child).__name__ != "ResourceHolder":
+                    return child
+            return None
+        return site
+
+    @not_action
+    def _write_pipetting_site_extra(self, resource, slot: int) -> None:
+        extra = getattr(resource, "unilabos_extra", None)
+        if not isinstance(extra, dict):
+            extra = {}
+            resource.unilabos_extra = extra
+        extra["update_resource_site"] = f"T{slot}"
+
+    @not_action
+    def _pick_resource_from_external_deck(
+        self,
+        spec: dict,
+        site_key: str,
+        resource_kind: str,
+        held_attr: str,
+    ) -> None:
+        """从 PRCXI_Deck 取料：解绑槽位物料并放入机械臂持有态。"""
+        try:
+            deck, ros_node = self._resolve_external_deck_and_node(spec)
+            if deck is None:
+                setattr(self, held_attr, None)
+                return
+            slot = self._parse_pipetting_slot(site_key)
+            resource = self._get_pipetting_slot_material(deck, slot)
+            if resource is None:
+                if not self.create_placeholder_resource_when_missing:
+                    logger.info(
+                        f"{spec.get('deck_id')}[T{slot}] 前端没有资源，且已关闭缺失资源占位创建；"
+                        "仅执行硬件取料，不生成前端资源"
+                    )
+                    setattr(self, held_attr, None)
+                    return
+                logger.warning(
+                    f"{spec.get('deck_id')}[T{slot}] 未找到资源，按硬件占位创建临时资源"
+                )
+                resource = self._create_placeholder_resource(
+                    resource_kind, PIPETTING_WAREHOUSE_NAME, str(slot)
+                )
+            else:
+                parent = getattr(resource, "parent", None)
+                if parent is not None and hasattr(parent, "unassign_child_resource"):
+                    parent.unassign_child_resource(resource)
+                    logger.info(
+                        f"✓ 已从 {spec.get('deck_id')}[T{slot}] 解绑资源 {resource.name}"
+                    )
+            setattr(self, held_attr, resource)
+            self._sync_plr_resources([deck], ros_node=ros_node)
+            self._sync_resource_to_frontend()
+        except Exception as e:
+            logger.warning(f"移液站资源取料迁移失败（不影响硬件操作）: {e}")
+
+    @not_action
+    def _place_held_resource_to_external_deck(
+        self,
+        spec: dict,
+        site_key: str,
+        resource_kind: str,
+        held_attr: str,
+    ) -> None:
+        """向 PRCXI_Deck 放料：将机械臂持有物料挂到对应 Tn 槽位。"""
+        try:
+            deck, ros_node = self._resolve_external_deck_and_node(spec)
+            if deck is None:
+                setattr(self, held_attr, None)
+                return
+            slot = self._parse_pipetting_slot(site_key)
+            resource = getattr(self, held_attr, None)
+            if resource is None:
+                if not self.create_placeholder_resource_when_missing:
+                    logger.info(
+                        f"机械臂没有可追踪的前端资源，且已关闭缺失资源占位创建；"
+                        f"仅执行硬件放料，不在 {spec.get('deck_id')}[T{slot}] 生成资源"
+                    )
+                    return
+                logger.warning(
+                    f"机械臂无持有资源，按硬件放料在 {spec.get('deck_id')}[T{slot}] 创建临时资源"
+                )
+                resource = self._create_placeholder_resource(
+                    resource_kind, PIPETTING_WAREHOUSE_NAME, str(slot)
+                )
+
+            site = None
+            getter = getattr(deck, "_get_site_resource", None)
+            if callable(getter):
+                site = getter(slot - 1)
+            if self._is_prcxi_slot_adapter(site):
+                if hasattr(site, "assign_child_resource"):
+                    site.assign_child_resource(resource)
+            else:
+                stale = self._get_pipetting_slot_material(deck, slot)
+                if stale is not None and stale is not resource:
+                    logger.warning(
+                        f"{spec.get('deck_id')}[T{slot}] 资源树已有 {getattr(stale, 'name', stale)}，"
+                        "按硬件空位状态覆盖"
+                    )
+                    stale_parent = getattr(stale, "parent", None)
+                    if stale_parent is not None and hasattr(stale_parent, "unassign_child_resource"):
+                        stale_parent.unassign_child_resource(stale)
+                assign_at_slot = getattr(deck, "assign_child_at_slot", None)
+                if callable(assign_at_slot):
+                    assign_at_slot(resource, slot, reassign=True)
+                else:
+                    deck.assign_child_resource(resource, spot=slot - 1, reassign=True)
+
+            self._write_pipetting_site_extra(resource, slot)
+            setattr(self, held_attr, None)
+            logger.info(
+                f"✓ 已绑定资源 {resource.name} 到 {spec.get('deck_id')}[T{slot}]"
+            )
+            self._sync_plr_resources([deck], ros_node=ros_node)
+            self._sync_resource_to_frontend()
+        except Exception as e:
+            logger.warning(f"移液站资源放料迁移失败（不影响硬件操作）: {e}")
 
     @not_action
     def _get_warehouse_site_index(self, warehouse, site_key: str) -> int:
@@ -396,6 +656,12 @@ class AI4CDevice(OpcUaClientWithSubscription):
         """硬件取料完成后，从源仓位解绑资源并放入机械臂临时持有态。"""
         try:
             if warehouse_name not in self.deck.warehouses:
+                spec = self._get_external_warehouse_spec(warehouse_name)
+                if spec is not None:
+                    self._pick_resource_from_external_deck(
+                        spec, site_key, resource_kind, held_attr
+                    )
+                    return
                 if not self.create_placeholder_resource_when_missing:
                     logger.info(
                         f"{warehouse_name} 不在 AI4C_deck 上，且已关闭缺失资源占位创建；"
@@ -440,6 +706,12 @@ class AI4CDevice(OpcUaClientWithSubscription):
         """硬件放料完成后，将机械臂临时持有资源绑定到目标仓位。"""
         try:
             if warehouse_name not in self.deck.warehouses:
+                spec = self._get_external_warehouse_spec(warehouse_name)
+                if spec is not None:
+                    self._place_held_resource_to_external_deck(
+                        spec, site_key, resource_kind, held_attr
+                    )
+                    return
                 logger.info(f"{warehouse_name} 不在 AI4C_deck 上（由独立设备管理），跳过资源树放料")
                 setattr(self, held_attr, None)
                 return

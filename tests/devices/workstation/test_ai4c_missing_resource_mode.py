@@ -33,6 +33,8 @@ def test_ai4c_graph_disables_placeholder_creation() -> None:
     station = next(node for node in graph["nodes"] if node["id"] == "AI4C_station")
 
     assert station["config"]["create_placeholder_resource_when_missing"] is False
+    assert station["config"]["pipetting_device_id"] == "PRCXI"
+    assert station["config"]["pipetting_deck_id"] == "PRCXI_Deck"
 
 
 def test_missing_frontend_resource_does_not_create_placeholder_or_raise() -> None:

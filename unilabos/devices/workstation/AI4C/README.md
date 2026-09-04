@@ -3,6 +3,8 @@
 本目录的 `AI4C_station.json` 同时配置 AI4C 搬运机器人和 PRCXI 移液站。
 修改开关后需要重启 Edge 才会生效。JSON 布尔值请使用 `true` / `false`，不要加引号。
 
+机械臂与移液站之间的前端物料转移见 [`pipetting_resource_transfer.md`](./pipetting_resource_transfer.md)。
+
 ## 当前建议配置
 
 ```json
@@ -10,7 +12,9 @@
   "AI4C_station": {
     "simulator": false,
     "use_subscription": true,
-    "create_placeholder_resource_when_missing": false
+    "create_placeholder_resource_when_missing": false,
+    "pipetting_device_id": "PRCXI",
+    "pipetting_deck_id": "PRCXI_Deck"
   },
   "PRCXI": {
     "debug": false,
@@ -45,6 +49,12 @@
 - `false`：取料位没有前端物料时，不因此报错退出，也不创建新物料；只执行机器人搬运指令。
 - 当前值：`false`。
 - 注意：该开关只处理“前端资源缺失”，PLC 报告的实际仓位占用或硬件错误仍会正常报错。
+
+### `pipetting_device_id` / `pipetting_deck_id`
+
+- 机械臂动作里的仓库名仍是「移液站」，但物料挂在独立 PRCXI 设备的 deck 上。
+- 当前值：`PRCXI` / `PRCXI_Deck`。
+- 详见 [`pipetting_resource_transfer.md`](./pipetting_resource_transfer.md)。
 
 ## PRCXI 移液站
 
