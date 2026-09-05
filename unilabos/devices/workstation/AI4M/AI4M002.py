@@ -259,15 +259,27 @@ class AI4M002Device(OpcUaClientWithSubscription):
         ]
 
     @not_action
+    def _normalize_material(self, material):
+        """将前端资源快照中的空槽位占位符转换为无物料。"""
+        if (
+            material is None
+            or type(material).__name__ == "ResourceHolder"
+            or not hasattr(material, "name")
+        ):
+            return None
+        return material
+
+    @not_action
     def _first_material(self, warehouse):
         try:
             material = warehouse.sites[0] if warehouse.sites else None
         except Exception:
             return None
-        return None if type(material).__name__ == "ResourceHolder" else material
+        return self._normalize_material(material)
 
     @not_action
     def _unassign_material(self, warehouse, material, description: str) -> None:
+        material = self._normalize_material(material)
         if material is None:
             return
         try:
@@ -278,6 +290,7 @@ class AI4M002Device(OpcUaClientWithSubscription):
 
     @not_action
     def _assign_material(self, warehouse, material, site_key: str, description: str) -> None:
+        material = self._normalize_material(material)
         if material is None:
             return
         try:
@@ -393,11 +406,11 @@ class AI4M002Device(OpcUaClientWithSubscription):
                 cell = self.deck.warehouses[f"搅拌仪{target_cell_id}"]
                 raw_site_key = str(pick_code)
                 try:
-                    material = raw[raw_site_key]
+                    material = self._normalize_material(raw[raw_site_key])
                 except Exception:
                     material = None
                 if material is None:
-                    logger.warning(
+                    logger.info(
                         f"原始电极位置 {pick_code} 没有前端载具，硬件动作仍继续"
                     )
 
@@ -417,7 +430,8 @@ class AI4M002Device(OpcUaClientWithSubscription):
                 self._write_node(f"Electrolytic_Cell_{target_cell_id}_Done", False)
                 cell_site_key = list(cell._ordering.keys())[0]
                 self._assign_material(cell, material, cell_site_key, f"电解池{target_cell_id}")
-                self._sync_resource_to_frontend()
+                if material is not None:
+                    self._sync_resource_to_frontend()
                 break
 
         extra = {"electrolytic_cell_id": target_cell_id, "pick_code": pick_code}
@@ -497,7 +511,8 @@ class AI4M002Device(OpcUaClientWithSubscription):
             )
             water_site_key = list(water._ordering.keys())[0]
             self._assign_material(water, material, water_site_key, "水洗池")
-            self._sync_resource_to_frontend()
+            if material is not None:
+                self._sync_resource_to_frontend()
             self._unassign_material(water, material, "水洗池")
 
             self._run_axis_action(
@@ -562,11 +577,11 @@ class AI4M002Device(OpcUaClientWithSubscription):
         water = self.deck.warehouses["水洗池"]
         finished = self.deck.warehouses["完成电极堆栈"]
         try:
-            material = raw[str(pick_code)]
+            material = self._normalize_material(raw[str(pick_code)])
         except Exception:
             material = None
         if material is None:
-            logger.warning(f"原始电极位置 {pick_code} 没有前端载具，硬件动作仍继续")
+            logger.info(f"原始电极位置 {pick_code} 没有前端载具，跳过资源转移并继续执行硬件动作")
 
         with self._3axis_lock:
             self._run_axis_action(
@@ -586,7 +601,8 @@ class AI4M002Device(OpcUaClientWithSubscription):
             )
             acid_site_key = list(acid._ordering.keys())[0]
             self._assign_material(acid, material, acid_site_key, "酸洗池")
-            self._sync_resource_to_frontend()
+            if material is not None:
+                self._sync_resource_to_frontend()
             self._unassign_material(acid, material, "酸洗池")
 
             self._write_node(
@@ -602,7 +618,8 @@ class AI4M002Device(OpcUaClientWithSubscription):
             )
             water_site_key = list(water._ordering.keys())[0]
             self._assign_material(water, material, water_site_key, "水洗池")
-            self._sync_resource_to_frontend()
+            if material is not None:
+                self._sync_resource_to_frontend()
             self._unassign_material(water, material, "水洗池")
 
             self._run_axis_action(
@@ -612,7 +629,8 @@ class AI4M002Device(OpcUaClientWithSubscription):
                 f"将电极放到完成位置{place_code}",
             )
             self._assign_material(finished, material, str(place_code), f"完成电极位置{place_code}")
-            self._sync_resource_to_frontend()
+            if material is not None:
+                self._sync_resource_to_frontend()
 
         extra = {
             "pick_code": pick_code,
