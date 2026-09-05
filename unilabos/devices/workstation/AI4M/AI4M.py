@@ -340,9 +340,17 @@ class AI4MDevice(OpcUaClientWithSubscription):
 
                 rack = self.deck.warehouses["水凝胶烧杯堆栈"]
                 rack_site_key = f"A{pick_beaker_id}"
-                carrier = rack[rack_site_key]
+                # 前端资源只用于维护资源树，不作为机器人动作的前置条件。
+                # 现场有烧杯但前端没有对应载具时，仍然执行 PLC 取放动作，跳过资源转移。
+                try:
+                    carrier = rack[rack_site_key]
+                except Exception:
+                    carrier = None
+                # 空槽位在部分资源快照中会以 ResourceHolder 占位，不能当作真实载具转移。
+                if carrier is not None and type(carrier).__name__ == "ResourceHolder":
+                    carrier = None
                 if carrier is None:
-                    raise ValueError(f"堆栈位置 {rack_site_key} 没有载具")
+                    logger.info(f"堆栈位置 {rack_site_key} 没有前端载具，跳过资源转移并继续执行硬件动作")
 
                 self._run_robot_action(
                     RobotAction.PICK,
@@ -367,12 +375,13 @@ class AI4MDevice(OpcUaClientWithSubscription):
                     self._assign_to_station(carrier, place_station_id)
                 except Exception as exc:
                     logger.warning(f"绑定载具到反应工站失败（不影响硬件操作）: {exc}")
-                self._sync_resource_to_frontend()
+                if carrier is not None:
+                    self._sync_resource_to_frontend()
                 break
 
         extra = {
             "carrier_info": {
-                "name": carrier.name,
+                "name": getattr(carrier, "name", None),
                 "type": "carrier",
                 "rack_location": rack_site_key,
                 "station_id": place_station_id,
