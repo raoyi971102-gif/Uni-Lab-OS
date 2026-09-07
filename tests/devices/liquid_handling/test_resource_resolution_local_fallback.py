@@ -24,6 +24,11 @@ class _RemoteTree:
         return [self.remote_well]
 
 
+class _EmptyRemoteTree:
+    def to_plr_resources(self, requested_uuids=None):
+        raise ValueError("requested uuid is no longer present")
+
+
 def test_remote_detached_well_falls_back_to_local_parented_well() -> None:
     plate = SimpleNamespace(name="PRCXI_96_DeepWell")
     local_well = SimpleNamespace(name="PRCXI_96_DeepWell_well_A1", parent=plate)
@@ -45,3 +50,43 @@ def test_remote_detached_well_falls_back_to_local_parented_well() -> None:
 
     assert resolved == [local_well]
     assert resolved[0].parent is plate
+
+
+def test_stale_path_resolves_current_plate_by_frontend_name() -> None:
+    plate = SimpleNamespace(name="PRCXI_96_DeepWell_反应板", unilabos_uuid="new-plate-uuid")
+    current_well = SimpleNamespace(
+        name="PRCXI_96_DeepWell_反应板_well_H1",
+        unilabos_uuid="new-well-uuid",
+        unilabos_extra={"unilabos_frontend_name": "PRCXI_96_DeepWell_well_H1"},
+        parent=plate,
+    )
+    plate.get_all_children = lambda: [current_well]
+    tracker = _Tracker(local_well=SimpleNamespace(name="unrelated"))
+    calls = []
+
+    async def get_resource(_uuids, with_children=True):
+        return _EmptyRemoteTree()
+
+    async def get_resource_with_dir(resource_id, with_children=True):
+        calls.append(resource_id)
+        if resource_id == "PRCXI_96_DeepWell_反应板":
+            return plate
+        raise ValueError("stale path")
+
+    handler = object.__new__(LiquidHandlerAbstract)
+    handler._ros_node = SimpleNamespace(
+        resource_tracker=tracker,
+        get_resource=get_resource,
+        get_resource_with_dir=get_resource_with_dir,
+        lab_logger=lambda: SimpleNamespace(warning=lambda _message: None),
+    )
+    resource_dict = {
+        "id": "/AI4C_station/AI4C_deck/孔板上料架/PRCXI_96_DeepWell_反应板/PRCXI_96_DeepWell_well_H1",
+        "name": "PRCXI_96_DeepWell_well_H1",
+        "uuid": "old-well-uuid",
+    }
+
+    resolved = asyncio.run(handler._resolve_to_plr_resources([resource_dict]))
+
+    assert resolved == [current_well]
+    assert "PRCXI_96_DeepWell_反应板" in calls

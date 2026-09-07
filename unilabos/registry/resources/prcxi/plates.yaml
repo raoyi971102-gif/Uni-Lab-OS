@@ -22,6 +22,18 @@ PRCXI_96_DeepWell:
   icon: ''
   init_param_schema: {}
   version: 1.0.0
+PRCXI_96_DeepWellhplc:
+  category:
+  - prcxi
+  - plates
+  class:
+    module: 'unilabos.devices.liquid_handling.prcxi.prcxi_labware:PRCXI_96_DeepWellhplc'
+    type: pylabrobot
+  description: 'HPLC 工位专用 96 深孔板（与反应板几何相同，类型独立）'
+  handles: []
+  icon: ''
+  init_param_schema: {}
+  version: 1.0.0
 PRCXI_AGenBio_4_troughplate:
   category:
   - prcxi
@@ -126,6 +138,30 @@ PRCXI_nest_1_troughplate:
     module: 'unilabos.devices.liquid_handling.prcxi.prcxi_labware:PRCXI_nest_1_troughplate'
     type: pylabrobot
   description: '储液槽 (Code: ZX-58-10000)'
+  handles: []
+  icon: ''
+  init_param_schema: {}
+  version: 1.0.0
+PRCXI_nest_1_troughplate1:
+  category:
+  - prcxi
+  - plates
+  class:
+    module: 'unilabos.devices.liquid_handling.prcxi.prcxi_labware:PRCXI_nest_1_troughplate1'
+    type: pylabrobot
+  description: 'PRCXI 储液槽 1（独立资源类型）'
+  handles: []
+  icon: ''
+  init_param_schema: {}
+  version: 1.0.0
+PRCXI_nest_1_troughplate2:
+  category:
+  - prcxi
+  - plates
+  class:
+    module: 'unilabos.devices.liquid_handling.prcxi.prcxi_labware:PRCXI_nest_1_troughplate2'
+    type: pylabrobot
+  description: 'PRCXI 储液槽 2（独立资源类型）'
   handles: []
   icon: ''
   init_param_schema: {}

@@ -10,6 +10,18 @@ PRCXI_1000uL_Tips:
   icon: ''
   init_param_schema: {}
   version: 1.0.0
+PRCXI_1000uL_Tips1:
+  category:
+  - prcxi
+  - tip_racks
+  class:
+    module: 'unilabos.devices.liquid_handling.prcxi.prcxi_labware:PRCXI_1000uL_Tips1'
+    type: pylabrobot
+  description: '1000μL Tip头 1（独立资源类型）'
+  handles: []
+  icon: ''
+  init_param_schema: {}
+  version: 1.0.0
 PRCXI_10uL_Tips:
   category:
   - prcxi

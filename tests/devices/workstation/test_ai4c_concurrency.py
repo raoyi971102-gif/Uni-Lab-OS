@@ -38,6 +38,15 @@ def test_initialization_actions_and_status_mapping_exist() -> None:
     ):
         assert callable(getattr(AI4CDevice, action_name, None))
 
+    # 工站初始化需要出现在动作注册表中；PLC 执行层再由动作内部并行触发
+    # 三个独立初始化信号。
+    init_meta = get_action_meta(AI4CDevice.init_workstation)
+    assert init_meta is not None
+    assert init_meta["auto_prefix"] is True
+    assert "机械手" in init_meta["description"]
+    assert "固体称量" in init_meta["description"]
+    assert "磁搅" in init_meta["description"]
+
 
 def test_operation_lock_serializes_calls() -> None:
     device = _bare_device()

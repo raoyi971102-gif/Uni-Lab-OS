@@ -46,6 +46,7 @@ from unilabos.resources.resource_tracker import (
     ResourceDict,
     EXTRA_SAMPLE_UUID,
     EXTRA_UNILABOS_SAMPLE_UUID,
+    EXTRA_FRONTEND_NAME,
 )
 from unilabos.ros.nodes.base_device_node import BaseROS2DeviceNode, ROS2DeviceNode
 
@@ -1265,22 +1266,60 @@ class LiquidHandlerAbstract(LiquidHandlerMiddleware):
                 resource_ref = resource_data.get("id") or resource_data.get("name")
                 if not resource_ref:
                     raise ValueError("资源数据缺少可用于回退查询的 id/name")
-                root_resource = await self._ros_node.get_resource_with_dir(
-                    resource_id=str(resource_ref), with_children=True
-                )
                 wanted_uuid = resource_data.get("uuid") or resource_data.get("unilabos_uuid")
                 wanted_name = resource_data.get("name")
-                candidates = [root_resource, *list(root_resource.get_all_children())]
-                matched = next(
-                    (
-                        candidate
-                        for candidate in candidates
-                        if (wanted_uuid and getattr(candidate, "unilabos_uuid", None) == wanted_uuid)
-                        or (wanted_name and getattr(candidate, "name", None) == wanted_name)
-                    ),
-                    None,
-                )
-                resolved_refs.append(cast(Union[Container, TipRack], matched or root_resource))
+
+                def _candidate_names(candidate: Any) -> Set[str]:
+                    names = {str(getattr(candidate, "name", "") or "")}
+                    extra = getattr(candidate, "unilabos_extra", {}) or {}
+                    frontend_name = extra.get(EXTRA_FRONTEND_NAME)
+                    if frontend_name:
+                        names.add(str(frontend_name))
+                    return {name for name in names if name}
+
+                def _find_in_tree(root_resource: Any) -> Optional[Any]:
+                    candidates = [root_resource, *list(root_resource.get_all_children())]
+                    for candidate in candidates:
+                        if wanted_uuid and str(getattr(candidate, "unilabos_uuid", "")) == str(wanted_uuid):
+                            return candidate
+                    if wanted_name:
+                        for candidate in candidates:
+                            if str(wanted_name) in _candidate_names(candidate):
+                                return candidate
+                    return None
+
+                # 资源移动后，PUT 会给整棵树重新分配 UUID，动作里的完整 id 也会
+                # 保留移动前的父路径。先按原路径尝试；失败时再逐级用路径中的
+                # 板名/容器名查询当前资源树，并按 UUID、内部名或前端别名精确匹配。
+                query_refs = [str(resource_ref)]
+                path_parts = [part for part in str(resource_ref).strip("/").split("/") if part]
+                for part in reversed(path_parts[:-1]):
+                    if part not in query_refs:
+                        query_refs.append(part)
+                last_error: Optional[Exception] = None
+                for query_ref in query_refs:
+                    try:
+                        root_resource = await self._ros_node.get_resource_with_dir(
+                            resource_id=query_ref, with_children=True
+                        )
+                        matched = _find_in_tree(root_resource)
+                        if matched is not None:
+                            if query_ref != str(resource_ref):
+                                self._ros_node.lab_logger().warning(
+                                    "资源 UUID 已因跨设备移动更新，按当前父节点恢复引用: "
+                                    f"{resource_ref!r} -> {query_ref!r}"
+                                )
+                            resolved_refs.append(cast(Union[Container, TipRack], matched))
+                            break
+                        last_error = ValueError(
+                            f"查询 {query_ref!r} 返回资源树，但未找到目标 {wanted_name or wanted_uuid!r}"
+                        )
+                    except Exception as exc:
+                        last_error = exc
+                else:
+                    raise last_error or ValueError(
+                        f"无法按资源引用恢复 {wanted_name or wanted_uuid!r}"
+                    )
             return resolved_refs
 
         # 优先走远端资源树查询；若远端为空或 requested_uuids 无法解析，则降级到本地 tracker 按 UUID 解析。

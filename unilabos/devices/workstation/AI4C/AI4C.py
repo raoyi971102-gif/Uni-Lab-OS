@@ -29,6 +29,7 @@ from unilabos.devices.workstation.AI4C.bottle_carriers import (
     AI4C_WellPlateCarrier,
 )
 from unilabos.devices.workstation.AI4C.decks import AI4C_deck
+from unilabos.devices.workstation.AI4C.AI4C_warehouse import AI4C_WAREHOUSE_CONTENT_TYPE
 
 # 导入通讯基类
 from unilabos.devices.workstation.AI4C.base_opcua_client import OpcUaClientWithSubscription
@@ -263,6 +264,9 @@ class AI4CDevice(OpcUaClientWithSubscription):
         self.m_magnetic_stirrer_current_step = None
         self._held_well_plate = None
         self._held_powder_cylinder = None
+        # 机械臂只有一个夹具；记录持有物料来源，避免工作流分支交错时
+        # 后一次取料覆盖前一次尚未放下的物料。
+        self._held_resource_origins: dict[str, str] = {}
         self._placeholder_resource_counter = 0
         self._external_parent_uuid_cache: dict[str, str] = {}
 
@@ -299,6 +303,27 @@ class AI4CDevice(OpcUaClientWithSubscription):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             with lock:
+                # 工作流的不同支线可能同时提交取料动作。机械臂只有一个夹具，
+                # 此时若先向 PLC 发第二个 PICK，随后到达的 PLACE 就会把第一块
+                # 物料放到错误槽位。取料入口直接拒绝该请求，等待当前物料由其
+                # 对应的放料动作完成后，工作流再按依赖关系重试。
+                if func.__name__.startswith("pick_"):
+                    held = (
+                        self._held_well_plate
+                        if self._held_well_plate is not None
+                        else self._held_powder_cylinder
+                    )
+                    if held is not None:
+                        held_attr = (
+                            "_held_well_plate"
+                            if self._held_well_plate is held
+                            else "_held_powder_cylinder"
+                        )
+                        origin = self._held_resource_origins.get(held_attr, "未知来源")
+                        raise RuntimeError(
+                            f"机械臂仍持有 {getattr(held, 'name', held)}（来源 {origin}），"
+                            f"拒绝并发取料 {func.__name__}，避免物料槽位错配"
+                        )
                 logger.info(f"[机械臂] 已获取线程锁: {func.__name__}")
                 try:
                     return func(*args, **kwargs)
@@ -402,6 +427,20 @@ class AI4CDevice(OpcUaClientWithSubscription):
         elif registered_deck is None:
             logger.warning("AI4C deck 为空，无法注册")
             return
+
+        # 远端已有 Deck 可能由旧版本生成，仓库的 content_type 只包含
+        # bottle/tube/tip_rack，导致前端拖拽 PRCXI 的 plate 或 tube_rack 时
+        # 无法吸附。启动时统一补齐 AI4C 仓库允许的类型，随后随 Deck 更新上传，
+        # 让前端和 Edge 使用同一套放置规则。
+        for warehouse in (getattr(self.deck, "warehouses", {}) or {}).values():
+            current_types = list(getattr(warehouse, "content_type", None) or [])
+            merged_types = list(dict.fromkeys([*current_types, *AI4C_WAREHOUSE_CONTENT_TYPE]))
+            if merged_types != current_types:
+                warehouse.content_type = merged_types
+                logger.info(
+                    f"已补齐 {getattr(warehouse, 'name', warehouse)} 的可放置物料类型，"
+                    f"共 {len(merged_types)} 类"
+                )
 
         try:
             from unilabos.ros.nodes.base_device_node import ROS2DeviceNode
@@ -524,6 +563,26 @@ class AI4CDevice(OpcUaClientWithSubscription):
 
         old_resource_uuid = getattr(resource, "unilabos_uuid", None)
         tree_set = ResourceTreeSet.from_plr_resources([resource])
+        # 跨设备挂载时服务端可能为整棵资源树重新分配 UUID。把本次上传前的
+        # UUID 写入每个节点的 extra，目标设备即可用旧工作流引用解析到新实例，
+        # 避免按重复孔位名称误绑定到另一块板。
+        alias_key = "unilabos_source_uuids"
+        for tree in tree_set.trees:
+            stack = [tree.root_node]
+            while stack:
+                node = stack.pop()
+                content = node.res_content
+                extra = dict(content.extra or {})
+                aliases = extra.get(alias_key, [])
+                if isinstance(aliases, str):
+                    aliases = [aliases]
+                else:
+                    aliases = list(aliases or [])
+                if content.uuid and str(content.uuid) not in {str(item) for item in aliases}:
+                    aliases.append(str(content.uuid))
+                extra[alias_key] = aliases
+                content.extra = extra
+                stack.extend(getattr(node, "children", []) or [])
         for tree in tree_set.trees:
             tree.root_node.res_content.parent = None
             tree.root_node.res_content.parent_uuid = parent_uuid
@@ -661,9 +720,72 @@ class AI4CDevice(OpcUaClientWithSubscription):
             site_idx = self._get_warehouse_site_index(warehouse, site_key)
             resource = warehouse.sites[site_idx] if warehouse.sites else None
 
+        # 反序列化后的 ItemizedCarrier 可能把 occupied_by 保留为资源名称字符串。
+        # 若载架 children 中仍有同名 PLR 对象则恢复该对象，否则字符串只是前端
+        # 占位标记，不能继续传给解绑/迁移逻辑。
+        if isinstance(resource, str):
+            matches = [
+                child
+                for child in (getattr(warehouse, "children", []) or [])
+                if getattr(child, "name", None) == resource
+            ]
+            resource = matches[0] if len(matches) == 1 else None
         if resource is None or type(resource).__name__ == "ResourceHolder":
             return None
         return resource
+
+    @not_action
+    def _get_external_warehouse_resource(self, warehouse_name: str, site_key: str):
+        """读取外部设备 Deck 指定槽位的资源及其 tracker。
+
+        移液站物理上属于 PRCXI，但取放由 AI4C 机械臂执行。取板时必须拿到
+        PRCXI 当前持有的同一个 PLR 对象，整块板的 96 个孔位才能随对象移动。
+        """
+        parent_name = self._external_parent_name(warehouse_name)
+        if not parent_name:
+            return None, None, None
+        try:
+            from unilabos.ros.nodes.presets.host_node import HostNode
+
+            host = HostNode.get_instance(0)
+            deck = host._lookup_deck_for_slot("PRCXI", parent_name)
+            if deck is None:
+                return None, None, None
+            marker = str(site_key)
+            if marker.isdigit():
+                marker = f"T{marker}"
+            keys = [str(key) for key in getattr(deck, "_ordering", {}).keys()]
+            if marker not in keys:
+                logger.warning(f"外部设备 {parent_name} 不存在槽位 {marker}")
+                return None, deck, None
+            index = keys.index(marker)
+            sites = getattr(deck, "sites", None)
+            resource = None
+            if isinstance(sites, (list, tuple)) and index < len(sites):
+                resource = sites[index]
+            elif isinstance(sites, dict):
+                resource = sites.get(marker) or sites.get(str(site_key))
+            if resource is None or type(resource).__name__ == "ResourceHolder":
+                return None, deck, None
+
+            device = host.devices_instances.get("PRCXI")
+            if device is None:
+                device = next(
+                    (value for key, value in host.devices_instances.items() if str(key).rstrip("/").endswith("PRCXI")),
+                    None,
+                )
+            tracker = None
+            for path in ("resource_tracker", "_ros_node.resource_tracker", "_resource_tracker"):
+                obj = device
+                for part in path.split("."):
+                    obj = getattr(obj, part, None) if obj is not None else None
+                if obj is not None:
+                    tracker = obj
+                    break
+            return resource, deck, tracker
+        except Exception as exc:
+            logger.warning(f"读取外部设备 {parent_name}[{site_key}] 资源失败: {exc}")
+            return None, None, None
 
     @not_action
     def _create_placeholder_resource(self, resource_kind: str, warehouse_name: str, site_key: str):
@@ -687,7 +809,41 @@ class AI4CDevice(OpcUaClientWithSubscription):
     ) -> None:
         """硬件取料完成后，从源仓位解绑资源并放入机械臂临时持有态。"""
         try:
+            existing = getattr(self, held_attr, None)
+            if existing is None:
+                other_attr = (
+                    "_held_powder_cylinder"
+                    if held_attr == "_held_well_plate"
+                    else "_held_well_plate"
+                )
+                existing = getattr(self, other_attr, None)
+                if existing is not None:
+                    held_attr = other_attr
+            if existing is not None:
+                origin = self._held_resource_origins.get(held_attr, "未知来源")
+                raise RuntimeError(
+                    f"机械臂仍持有 {getattr(existing, 'name', existing)}（来源 {origin}），"
+                    f"拒绝再次取 {warehouse_name}[{site_key}]，避免覆盖待放物料"
+                )
             if warehouse_name not in self.deck.warehouses:
+                if self._external_parent_name(warehouse_name):
+                    resource, external_deck, external_tracker = self._get_external_warehouse_resource(
+                        warehouse_name, site_key
+                    )
+                    if resource is not None and external_deck is not None:
+                        external_deck.unassign_child_resource(resource)
+                        if external_tracker is not None:
+                            external_tracker.remove_resource(resource)
+                        local_tracker = getattr(self._ros_node, "resource_tracker", None)
+                        if local_tracker is not None:
+                            local_tracker.add_resource(resource)
+                        setattr(self, held_attr, resource)
+                        self._held_resource_origins[held_attr] = f"{warehouse_name}[{site_key}]"
+                        logger.info(
+                            f"✓ 已从外部 {warehouse_name}[{site_key}] 解绑资源 {resource.name} "
+                            f"及其 {len(getattr(resource, 'children', []) or [])} 个直接子节点"
+                        )
+                        return
                 if not self.create_placeholder_resource_when_missing:
                     logger.info(
                         f"{warehouse_name} 不在 AI4C_deck 上，且已关闭缺失资源占位创建；"
@@ -698,6 +854,7 @@ class AI4CDevice(OpcUaClientWithSubscription):
                 logger.info(f"{warehouse_name} 不在 AI4C_deck 上（由独立设备管理），按占位资源进入持有态")
                 resource = self._create_placeholder_resource(resource_kind, warehouse_name, site_key)
                 setattr(self, held_attr, resource)
+                self._held_resource_origins[held_attr] = f"{warehouse_name}[{site_key}]"
                 return
             warehouse = self.deck.warehouses[warehouse_name]
             site_key = str(site_key)
@@ -717,6 +874,7 @@ class AI4CDevice(OpcUaClientWithSubscription):
                 logger.info(f"✓ 已从 {warehouse_name}[{site_key}] 解绑资源 {resource.name}")
 
             setattr(self, held_attr, resource)
+            self._held_resource_origins[held_attr] = f"{warehouse_name}[{site_key}]"
             self._sync_resource_to_frontend(warehouse)
         except Exception as e:
             logger.warning(f"资源取料迁移失败（不影响硬件操作）: {e}")
@@ -750,6 +908,7 @@ class AI4CDevice(OpcUaClientWithSubscription):
                     except Exception as exc:
                         logger.debug(f"清理 AI4C 本地资源映射失败: {exc}")
                     setattr(self, held_attr, None)
+                    self._held_resource_origins.pop(held_attr, None)
                 else:
                     logger.warning(
                         f"{warehouse_name}[{site_key}] 资源同步未完成，保留机械臂持有态"
@@ -768,15 +927,31 @@ class AI4CDevice(OpcUaClientWithSubscription):
                 logger.warning(f"机械臂无持有资源，按硬件放料在 {warehouse_name}[{site_key}] 创建临时资源")
                 resource = self._create_placeholder_resource(resource_kind, warehouse_name, site_key)
 
-            stale_resource = self._get_warehouse_resource(warehouse_name, site_key)
-            if stale_resource is not None:
-                logger.warning(f"{warehouse_name}[{site_key}] 资源树已有 {stale_resource.name}，按硬件空位状态覆盖")
-                warehouse.unassign_child_resource(stale_resource)
+            origin = self._held_resource_origins.get(held_attr, "未知来源")
+            logger.info(
+                f"机械臂放料确认: {getattr(resource, 'name', resource)}（来源 {origin}） -> "
+                f"{warehouse_name}[{site_key}]"
+            )
 
             site_idx = self._get_warehouse_site_index(warehouse, site_key)
+            # 前端同步/反序列化可能将 occupied_by 保存成资源名字符串。先清理
+            # 这个不可操作的占位值，再绑定机械臂实际持有的资源，避免字符串被当
+            # 成 PLR 对象访问 name/parent。
+            raw_site = warehouse.sites[site_idx] if site_idx < len(warehouse.sites) else None
+            if isinstance(raw_site, str):
+                logger.warning(
+                    f"{warehouse_name}[{site_key}] 检测到字符串占位 {raw_site!r}，"
+                    "按空位清理后绑定实际物料"
+                )
+                warehouse.sites[site_idx] = None
+            elif raw_site is not None and type(raw_site).__name__ != "ResourceHolder":
+                logger.warning(f"{warehouse_name}[{site_key}] 资源树已有 {raw_site.name}，按硬件空位状态覆盖")
+                warehouse.unassign_child_resource(raw_site)
+
             location = warehouse.child_locations[site_key]
             warehouse.assign_child_resource(resource, location=location, spot=site_idx)
             setattr(self, held_attr, None)
+            self._held_resource_origins.pop(held_attr, None)
             logger.info(f"✓ 已绑定资源 {resource.name} 到 {warehouse_name}[{site_key}]")
             self._sync_resource_to_frontend(warehouse)
         except Exception as e:
@@ -856,9 +1031,9 @@ class AI4CDevice(OpcUaClientWithSubscription):
             fault_node,
         )
 
-    @not_action
+    @action(auto_prefix=True, description="初始化 AI4C 工站（机械手、固体称量、磁搅）")
     def init_workstation(self) -> dict:
-        """兼容旧的本地调试入口，并行启动三项独立初始化。"""
+        """上传为工站初始化动作，执行时并行触发三个独立工位初始化。"""
         logger.info("停止机械臂动作触发并复位机械手")
         self.set_node_value("Robotic_Arm_Action_Trigger", False)
         self.set_node_value("Robotic_Arm_Reset", True)

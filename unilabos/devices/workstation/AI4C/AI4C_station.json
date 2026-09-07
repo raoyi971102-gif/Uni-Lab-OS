@@ -136,7 +136,7 @@
                 "setup": true,
                 "is_9320": true,
                 "timeout": 10,
-                "matrix_id": "724c7858-c025-44be-8832-f3a4f5cc345f",
+                "matrix_id": "ec9cbe9a-f777-417c-937e-41e80008f94a",
                 "simulator": false,
                 "validate_material_volume": false,
                 "channel_num": 8,

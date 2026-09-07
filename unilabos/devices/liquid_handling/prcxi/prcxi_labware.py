@@ -10,6 +10,17 @@ from pylabrobot.resources.height_volume_functions import (
 )
 
 from .prcxi import PRCXI9300Plate, PRCXI9300TipRack, PRCXI9300Trash, PRCXI9300TubeRack, PRCXI9300PlateAdapter
+from unilabos.resources.resource_tracker import EXTRA_CLASS
+
+
+def _set_resource_class(resource: Any, resource_class: str) -> Any:
+    """给几何相同的物料写入稳定的注册类型标识。"""
+    resource.model = resource_class
+    extra = dict(getattr(resource, "unilabos_extra", None) or {})
+    extra[EXTRA_CLASS] = resource_class
+    resource.unilabos_extra = extra
+    return resource
+
 
 def _make_tip_helper(volume: float, length: float, depth: float) -> Tip:
     """
@@ -78,7 +89,7 @@ def PRCXI_nest_1_troughplate(name: str) -> PRCXI9300Plate:
         "material_z_thickness": 0.9999999999999973,
     }
 
-    return PRCXI9300Plate(
+    plate = PRCXI9300Plate(
         name=name,
         size_x=127.76,
         size_y=85.48,
@@ -99,6 +110,26 @@ def PRCXI_nest_1_troughplate(name: str) -> PRCXI9300Plate:
             **well_kwargs,
         ),
     )
+    normalized_name = str(name).casefold()
+    if normalized_name.endswith("troughplate1"):
+        resource_class = "PRCXI_nest_1_troughplate1"
+    elif normalized_name.endswith("troughplate2"):
+        resource_class = "PRCXI_nest_1_troughplate2"
+    else:
+        resource_class = "PRCXI_nest_1_troughplate"
+    return _set_resource_class(plate, resource_class)
+
+
+def PRCXI_nest_1_troughplate1(name: str) -> PRCXI9300Plate:
+    """储液槽实例 1：与其他储液槽几何相同，但注册类型独立。"""
+    return _set_resource_class(PRCXI_nest_1_troughplate(name), "PRCXI_nest_1_troughplate1")
+
+
+def PRCXI_nest_1_troughplate2(name: str) -> PRCXI9300Plate:
+    """储液槽实例 2：与其他储液槽几何相同，但注册类型独立。"""
+    return _set_resource_class(PRCXI_nest_1_troughplate(name), "PRCXI_nest_1_troughplate2")
+
+
 def PRCXI_BioRad_384_wellplate(name: str) -> PRCXI9300Plate:
     """
     对应 JSON Code: q3 (384板)
@@ -339,7 +370,7 @@ def PRCXI_96_DeepWell(name: str) -> PRCXI9300Plate:
     """
     对应 JSON Code: q2 (96深孔板)
     """
-    return PRCXI9300Plate(
+    plate = PRCXI9300Plate(
         name=name,
         size_x=127.3,
         size_y=85.35,
@@ -364,6 +395,25 @@ def PRCXI_96_DeepWell(name: str) -> PRCXI9300Plate:
             cross_section_type=CrossSectionType.CIRCLE,
         ),
     )
+    # HPLC 工位板与反应板几何完全相同，但必须保留独立的资源类型，
+    # 避免资源树刷新或工作流编辑时按同一注册类型混淆两块板。
+    is_hplc = "hplc" in str(name).casefold()
+    if is_hplc:
+        plate.model = "PRCXI_96_DeepWellhplc"
+    extra = dict(getattr(plate, "unilabos_extra", None) or {})
+    extra[EXTRA_CLASS] = "PRCXI_96_DeepWellhplc" if is_hplc else "PRCXI_96_DeepWell"
+    plate.unilabos_extra = extra
+    return plate
+
+
+def PRCXI_96_DeepWellhplc(name: str) -> PRCXI9300Plate:
+    """华谱 HPLC 工位专用 96 深孔板。
+
+    几何和 PRCXI 物料参数与反应板一致，仅通过独立注册名区分用途。
+    """
+    return _set_resource_class(PRCXI_96_DeepWell(name), "PRCXI_96_DeepWellhplc")
+
+
 def PRCXI_48_DeepWell(name: str) -> PRCXI9300Plate:
     """
     Code: 22 (48孔深孔板)
@@ -505,7 +555,7 @@ def PRCXI_1000uL_Tips(name: str) -> PRCXI9300TipRack:
     """
     Code: ZX-001-1000
     """
-    return PRCXI9300TipRack(
+    rack = PRCXI9300TipRack(
         name=name,
         size_x=127.76,
         size_y=85.48,
@@ -527,6 +577,20 @@ def PRCXI_1000uL_Tips(name: str) -> PRCXI9300TipRack:
             make_tip=lambda: _make_tip_helper(volume=1000.0, length=100.0, depth=8.2)
         )
     )
+    normalized_name = str(name).casefold()
+    resource_class = (
+        "PRCXI_1000uL_Tips1"
+        if normalized_name.endswith("1000ul_tips1")
+        else "PRCXI_1000uL_Tips"
+    )
+    return _set_resource_class(rack, resource_class)
+
+
+def PRCXI_1000uL_Tips1(name: str) -> PRCXI9300TipRack:
+    """1000 µL 枪头盒实例 1：与原枪头盒几何相同，但注册类型独立。"""
+    return _set_resource_class(PRCXI_1000uL_Tips(name), "PRCXI_1000uL_Tips1")
+
+
 def PRCXI_200uL_Tips(name: str) -> PRCXI9300TipRack:
     """
     Code: ZX-001-200

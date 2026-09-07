@@ -1187,12 +1187,17 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         print("--------------------------------")
         print(f"backend.matrix_id: {backend.matrix_id}")
 
+        self._refresh_matrix_if_trash_layout_changed()
         if backend.matrix_id:
             return
 
         material_list = api.get_all_materials()
         if not material_list:
             return
+
+        # 矩阵仅因垃圾桶槽位失效时，优先复用服务端已经接受过的旧矩阵，
+        # 只替换对应垃圾桶条目，避免重新推断其它槽位的物料导致整张矩阵被拒绝。
+        matrix_template = getattr(self, "_matrix_rebuild_template", None)
 
         # 按 materialEnum 分组: {enum_value: [material, ...]}
         material_dict = {}
@@ -1206,80 +1211,174 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         work_tablets = []
         slot_none = [i for i in range(1, 17)]
 
-        for child in self.deck.children:
+        if isinstance(matrix_template, dict):
+            template_tablets = matrix_template.get("WorkTablets") or matrix_template.get("workTablets")
+            if isinstance(template_tablets, list):
+                template_by_slot = {}
+                for tablet in template_tablets:
+                    if not isinstance(tablet, dict):
+                        continue
+                    try:
+                        number = int(tablet.get("Number", tablet.get("number")))
+                    except (TypeError, ValueError):
+                        continue
+                    template_by_slot[number] = tablet
 
-            resource = child
-            number = self._get_slot_number(resource)
-            if number is None:
-                continue
+                # 选择旧矩阵中已被服务端接受的废弃槽物料作为替换值；
+                # 若旧矩阵没有可用项，再从物料表中按 q1/废弃槽名称兜底。
+                waste_material = None
+                for tablet in template_by_slot.values():
+                    material = tablet.get("Material")
+                    if isinstance(material, dict) and material.get("uuid") == "730067cf07ae43849ddf4034299030e9":
+                        waste_material = material
+                        break
+                if waste_material is None:
+                    for material in material_list:
+                        text = " ".join(str(material.get(k, "")) for k in ("Code", "Name", "SummaryName")).casefold()
+                        if material.get("uuid") == "730067cf07ae43849ddf4034299030e9" or material.get("Code") == "q1" or "废弃槽" in text:
+                            waste_material = material
+                            break
 
-            # 如果 resource 已有 Material UUID，直接使用
-            if hasattr(resource, "_unilabos_state") and "Material" in getattr(resource, "_unilabos_state", {}):
-                mat_uuid = resource._unilabos_state["Material"].get("uuid")
-                if mat_uuid and mat_uuid in material_uuid_map:
-                    work_tablets.append({"Number": number, "Material": material_uuid_map[mat_uuid]})
-                    slot_none.remove(number)
+                for number in range(1, 17):
+                    tablet = template_by_slot.get(number)
+                    if tablet is None:
+                        continue
+                    material = tablet.get("Material")
+                    if number in self._trash_slots() and waste_material is not None:
+                        material = waste_material
+                    # 旧矩阵返回的 Material 有时只有 uuid；提交新矩阵时
+                    # 用当前物料表中的完整记录补全 Code/Name/孔数等字段。
+                    if isinstance(material, dict):
+                        fresh_material = material_uuid_map.get(material.get("uuid"))
+                        if fresh_material is not None:
+                            material = fresh_material
+                    if not isinstance(material, dict) or not material.get("uuid"):
+                        continue
+                    work_tablets.append({"Number": number, "Code": f"T{number}", "Material": material})
+                    if number in slot_none:
+                        slot_none.remove(number)
+                matrix_template = None
+                self._matrix_rebuild_template = None
+
+        if not work_tablets:
+            for child in self.deck.children:
+
+                resource = child
+                number = self._get_slot_number(resource)
+                if number is None:
                     continue
+
+                # 垃圾桶必须按资源类型写入 WasteBox（materialEnum=6）。
+            # 不能沿用前端残留的 Material UUID，否则 T12/T16 可能被矩阵
+            # 误标成 96 孔板。其他资源仍优先使用已有的有效 Material UUID。
+                if (
+                    not isinstance(resource, Trash)
+                    and hasattr(resource, "_unilabos_state")
+                    and "Material" in getattr(resource, "_unilabos_state", {})
+                ):
+                    mat_uuid = resource._unilabos_state["Material"].get("uuid")
+                    if mat_uuid and mat_uuid in material_uuid_map:
+                        work_tablets.append(
+                            {"Number": number, "Code": f"T{number}", "Material": material_uuid_map[mat_uuid]}
+                        )
+                        slot_none.remove(number)
+                        continue
 
             # 根据 resource 类型推断 materialEnum
             # MaterialEnum: Other=0, Tips=1, DeepWellPlate=2, PCRPlate=3, ELISAPlate=4, Reservoir=5, WasteBox=6
-            expected_enum = None
-            if isinstance(resource, TipRack):
-                expected_enum = 1  # Tips
-            elif isinstance(resource, Trash):
-                expected_enum = 6  # WasteBox
-            elif isinstance(resource, (PRCXI9300Plate, Plate)):
-                expected_enum = None  # Plate 可能是 DeepWellPlate/PCRPlate/ELISAPlate，不限定
+                expected_enum = None
+                if isinstance(resource, TipRack):
+                    expected_enum = 1  # Tips
+                elif isinstance(resource, Trash):
+                    expected_enum = 6  # WasteBox
+                elif isinstance(resource, (PRCXI9300Plate, Plate)):
+                    expected_enum = None  # Plate 可能是 DeepWellPlate/PCRPlate/ELISAPlate，不限定
 
 
             # 根据 expected_enum 筛选候选耗材列表
-            if expected_enum is not None:
-                candidates = material_dict.get(expected_enum, [])
-            else:
-                # expected_enum 未确定时，搜索所有耗材
-                candidates = material_list
+                if expected_enum is not None:
+                    candidates = material_dict.get(expected_enum, [])
+                # 部分 PRCXI 服务端的“废弃槽”历史物料记录仍标为
+                # materialEnum=0。垃圾桶不能因此退回到未分类槽位，优先
+                # 复用同一废弃槽 UUID，并在本次矩阵中明确写成 WasteBox。
+                    if isinstance(resource, Trash) and not candidates:
+                        waste_candidates = []
+                        for material in material_list:
+                            name_text = " ".join(
+                                str(material.get(key, ""))
+                                for key in ("Code", "Name", "SummaryName")
+                            ).casefold()
+                            if (
+                                material.get("uuid") == "730067cf07ae43849ddf4034299030e9"
+                                or material.get("Code") == "q1"
+                                or "废弃槽" in name_text
+                                or "垃圾桶" in name_text
+                                or "waste" in name_text
+                                or "trash" in name_text
+                            ):
+                            # 保留服务端记录的完整物料对象（包括 UUID 对应的
+                            # 原始 materialEnum）。PRCXI 会校验 UUID 与枚举的一致性，
+                            # 不能只改枚举后重新提交。
+                                waste_candidates.append(dict(material))
+                        candidates = waste_candidates
+                else:
+                    # expected_enum 未确定时，搜索所有耗材
+                    candidates = material_list
 
             # 根据 children 个数和容量匹配最相似的耗材
-            num_children = len(resource.children)
-            child_max_volume = None
-            if resource.children:
-                first_child = resource.children[0]
-                if hasattr(first_child, "max_volume") and first_child.max_volume is not None:
-                    child_max_volume = first_child.max_volume
+                num_children = len(resource.children)
+                child_max_volume = None
+                if resource.children:
+                    first_child = resource.children[0]
+                    if hasattr(first_child, "max_volume") and first_child.max_volume is not None:
+                        child_max_volume = first_child.max_volume
 
-            best_material = None
-            best_score = float("inf")
+                best_material = None
+                best_score = float("inf")
 
-            for material in candidates:
-                hole_count = (material.get("HoleRow", 0) or 0) * (material.get("HoleColum", 0) or 0)
-                material_volume = material.get("Volume", 0) or 0
+                for material in candidates:
+                    hole_count = (material.get("HoleRow", 0) or 0) * (material.get("HoleColum", 0) or 0)
+                    material_volume = material.get("Volume", 0) or 0
 
                 # 孔数差异（高权重优先匹配孔数）
-                hole_diff = abs(num_children - hole_count)
+                    hole_diff = abs(num_children - hole_count)
                 # 容量差异（归一化）
-                if child_max_volume is not None and material_volume > 0:
-                    vol_diff = abs(child_max_volume - material_volume) / material_volume
-                else:
-                    vol_diff = 0
+                    if child_max_volume is not None and material_volume > 0:
+                        vol_diff = abs(child_max_volume - material_volume) / material_volume
+                    else:
+                        vol_diff = 0
 
-                score = hole_diff * 1000 + vol_diff
-                if score < best_score:
-                    best_score = score
-                    best_material = material
+                    score = hole_diff * 1000 + vol_diff
+                    if score < best_score:
+                        best_score = score
+                        best_material = material
 
-            if best_material:
-                work_tablets.append({"Number": number, "Material": best_material})
-                slot_none.remove(number)
+                if best_material:
+                    work_tablets.append(
+                        {"Number": number, "Code": f"T{number}", "Material": best_material}
+                    )
+                    slot_none.remove(number)
 
         if not work_tablets:
             return
 
         matrix_id = str(uuid.uuid4())
+        default_material = material_uuid_map.get("57b1e4711e9e4a32b529f3132fc5931f") or {
+            "uuid": "57b1e4711e9e4a32b529f3132fc5931f"
+        }
         matrix_info = {
             "MatrixId": matrix_id,
             "MatrixName": "matrix_" + str(time.time()),
+            "MatrixCount": 16,
             "WorkTablets": work_tablets + 
-                            [{"Number": number, "Material": {"uuid": "730067cf07ae43849ddf4034299030e9"}} for number in slot_none],
+                            [
+                                {
+                                    "Number": number,
+                                    "Code": f"T{number}",
+                                    "Material": default_material,
+                                }
+                                for number in slot_none
+                            ],
         }
         res = api.add_WorkTablet_Matrix(matrix_info)
         if res.get("Success"):
@@ -1393,7 +1492,117 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
 
             print(f"Auto-matched materials and created matrix: {matrix_id}")
         else:
+            try:
+                summary = [
+                    {
+                        "Number": tablet.get("Number"),
+                        "Code": tablet.get("Code"),
+                        "MaterialUUID": (tablet.get("Material") or {}).get("uuid"),
+                    }
+                    for tablet in matrix_info.get("WorkTablets", [])
+                    if isinstance(tablet, dict)
+                ]
+                self._ros_node.lab_logger().error(
+                    f"PRCXI 矩阵创建被服务端拒绝，提交槽位物料摘要: {summary}"
+                )
+            except Exception:
+                pass
             raise PRCXIError(f"Failed to create auto-matched matrix: {res.get('Message', 'Unknown error')}")
+
+    def _trash_slots(self) -> Dict[int, Trash]:
+        """返回当前 Deck 上按槽位编号索引的垃圾桶。"""
+        result: Dict[int, Trash] = {}
+        deck = getattr(self, "deck", None)
+        if not isinstance(deck, PRCXI9300Deck):
+            return result
+        for resource in self._resource_tree(deck):
+            if not isinstance(resource, Trash):
+                continue
+            slot = self._get_slot_number(resource)
+            if slot is not None:
+                result[int(slot)] = resource
+        return result
+
+    @staticmethod
+    def _matrix_material_enum(tablet: Dict[str, Any]) -> Optional[int]:
+        """读取 WorkTablet 条目的物料枚举，兼容 PLC 返回的大小写字段。"""
+        material = tablet.get("Material") or tablet.get("material") or tablet
+        if not isinstance(material, dict):
+            return None
+        value = material.get("materialEnum")
+        if value is None:
+            value = material.get("MaterialEnum")
+        try:
+            return int(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    def _refresh_matrix_if_trash_layout_changed(self) -> None:
+        """矩阵中的垃圾桶定义与当前 Deck 不一致时，自动重新建矩阵。
+
+        ``matrix_id`` 通常来自启动配置，可能仍是旧实验室或旧槽位布局的矩阵。
+        对移液动作而言，T12/T16 不仅是槽位号，PLC 还会根据矩阵中的
+        ``materialEnum=6`` 判断该槽位是垃圾桶。若沿用旧矩阵，软件虽生成
+        ``UnLoad T12``，PLC 仍可能按孔板处理。这里只在存在垃圾桶且能读到
+        当前矩阵的 WorkTablets 时校验，无法读取矩阵时保留原有行为。
+        """
+        backend = self._unilabos_backend
+        matrix_id = str(getattr(backend, "matrix_id", "") or "")
+        trash_slots = self._trash_slots()
+        if not matrix_id or not trash_slots:
+            return
+
+        try:
+            matrix = backend.api_client.matrix_by_id(matrix_id)
+            if not isinstance(matrix, dict):
+                return
+            tablets = matrix.get("WorkTablets") or matrix.get("workTablets")
+            if not isinstance(tablets, list) or not tablets:
+                return
+            by_slot = {}
+            for tablet in tablets:
+                if not isinstance(tablet, dict):
+                    continue
+                number = tablet.get("Number", tablet.get("number"))
+                try:
+                    if number is not None:
+                        by_slot[int(number)] = tablet
+                except (TypeError, ValueError):
+                    continue
+
+            mismatches = []
+            for slot, resource in sorted(trash_slots.items()):
+                tablet = by_slot.get(slot, {})
+                enum = self._matrix_material_enum(tablet)
+                material = tablet.get("Material") if isinstance(tablet, dict) else None
+                material_uuid = material.get("uuid") if isinstance(material, dict) else None
+                # 旧版 PRCXI 服务端将 q1（废弃槽）登记为 materialEnum=0，
+                # 但该 UUID 本身就是垃圾桶，视为有效垃圾桶定义。
+                is_known_waste_uuid = material_uuid == "730067cf07ae43849ddf4034299030e9"
+                if enum != 6 and not is_known_waste_uuid:
+                    mismatches.append(
+                        f"T{slot}={getattr(resource, 'name', '?')}（矩阵 materialEnum={enum!r}）"
+                    )
+            if not mismatches:
+                return
+
+            try:
+                self._ros_node.lab_logger().warning(
+                    "检测到 PRCXI 矩阵中的垃圾桶槽位与当前 Deck 不一致，"
+                    f"将根据当前资源重建矩阵：{'; '.join(mismatches)}"
+                )
+            except Exception:
+                pass
+            # 将服务端已接受的旧矩阵交给重建逻辑，只替换失效的垃圾桶槽位。
+            self._matrix_rebuild_template = matrix
+            backend.matrix_id = ""
+            self.no_matrix_id = True
+        except Exception as exc:
+            # 矩阵查询失败时不改变既有矩阵，避免因 PLC 查询短暂异常阻断动作。
+            try:
+                self._ros_node.lab_logger().warning(f"校验 PRCXI 垃圾桶矩阵失败，沿用现有矩阵：{exc}")
+            except Exception:
+                pass
 
     def calibrate_from_points(
         self,
@@ -2592,13 +2801,28 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         for resource in trash_resources:
             names = {name.casefold() for name in self._trash_resource_names(resource)}
             if selector in names:
+                self._log_trash_selection(trash_name, resource)
+                return resource
+
+        # 兼容旧资源树：默认垃圾桶名称为 ``PRCXI_trash``，第二个垃圾桶
+        # 名称为 ``PRCXI_trash1``，但工作流逻辑名称仍是 TRASH1/TRASH2。
+        legacy_aliases = {
+            "trash1": {"trash", "prcxi_trash"},
+            "trash2": {"prcxi_trash1"},
+        }
+        for resource in trash_resources:
+            names = {name.casefold() for name in self._trash_resource_names(resource)}
+            if names & legacy_aliases.get(selector, set()):
+                self._log_trash_selection(trash_name, resource)
                 return resource
 
         # 旧资源树通常只有一个名为 trash / PRCXI_trash 的垃圾桶。新参数默认 TRASH1，
         # 因此在没有同名资源时让 TRASH1 继续使用旧默认；TRASH2 必须显式存在。
         if selector == "trash1":
             try:
-                return self.deck.get_trash_area()
+                resource = self.deck.get_trash_area()
+                self._log_trash_selection(trash_name, resource)
+                return resource
             except Exception:
                 pass
 
@@ -2613,6 +2837,16 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
             f"未找到名为 {trash_name!r} 的 PRCXI 垃圾桶；"
             f"请在 PRCXI Deck 上挂载对应 Trash 资源。当前垃圾桶: {available}"
         )
+
+    def _log_trash_selection(self, selector: str, resource: Trash) -> None:
+        """记录一次逻辑垃圾桶到实际资源/槽位的解析结果。"""
+        try:
+            self._ros_node.lab_logger().info(
+                f"枪头丢弃目标 {selector} -> {getattr(resource, 'name', '?')} "
+                f"(T{self._get_slot_number(resource) or '?'})"
+            )
+        except Exception:
+            pass
 
     async def discard_tips(
         self,

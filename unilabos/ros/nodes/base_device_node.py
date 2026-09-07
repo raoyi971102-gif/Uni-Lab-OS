@@ -196,6 +196,24 @@ def _find_resource_site_index(resource: Any, sites: List[Any]) -> Optional[int]:
     return None
 
 
+def _find_resource_site_by_location(resource: Any, sites: List[Any]) -> Optional[int]:
+    """仅按资源坐标定位站点，不使用 occupied_by，避免旧占用名遮蔽新位置。"""
+    location = getattr(resource, "location", None)
+    if location is None:
+        return None
+    for index, site in enumerate(sites):
+        position = site.get("position") if isinstance(site, dict) else getattr(site, "location", None)
+        if isinstance(position, dict):
+            if all(
+                abs(float(getattr(location, axis)) - float(position.get(axis, 0))) < 2
+                for axis in ("x", "y", "z")
+            ):
+                return index
+        elif position is not None and location == position:
+            return index
+    return None
+
+
 # 实现同时记录自定义日志和ROS2日志的适配器
 class ROSLoggerAdapter:
     """同时向自定义日志和ROS2日志发送消息的适配器"""
@@ -1172,6 +1190,7 @@ class BaseROS2DeviceNode(Node, Generic[T]):
                 old_name = original_instance.name
                 new_name = plr_resource.name
                 parent_appended = False
+                preserve_runtime_location = False
 
                 # Update操作中包含改名：需要先remove再add，这里更新父节点即可
                 if not not_same_parent and old_name != new_name:
@@ -1236,6 +1255,26 @@ class BaseROS2DeviceNode(Node, Generic[T]):
                             if parent is not None:
                                 original_instances.append(parent)
                                 parent_appended = True
+                    elif sites is not None:
+                        # 前端拖拽同一 Deck 内的物料时，提交的 location 是画布绝对坐标，
+                        # 通常无法直接与 PLR 的本地槽位坐标比较。若提交的是本地槽位坐标，
+                        # 仍按目标槽位重新 assign；无法识别时保留当前运行时坐标，避免
+                        # 把物料写成脱离 Deck 的绝对坐标后失去槽位吸附。
+                        target_index = _find_resource_site_by_location(plr_resource, sites)
+                        current_index = _find_resource_site_index(original_instance, sites)
+                        if target_index is None:
+                            preserve_runtime_location = True
+                            self.lab_logger().debug(
+                                f"资源 {original_instance.name} 的前端坐标不属于 Deck 本地槽位，保留当前槽位"
+                            )
+                        elif target_index != current_index:
+                            site_names = list(original_instance.parent._ordering.keys())
+                            additional_add_params = dict(additional_add_params)
+                            additional_add_params["site"] = site_names[target_index]
+                            parent = self.transfer_to_new_resource(original_instance, tree, additional_add_params)
+                            if parent is not None:
+                                original_instances.append(parent)
+                                parent_appended = True
 
                 # 加载状态
                 # noinspection PyProtectedMember
@@ -1246,7 +1285,8 @@ class BaseROS2DeviceNode(Node, Generic[T]):
                 original_instance._size_z = plr_resource._size_z
                 # noinspection PyProtectedMember
                 original_instance._local_size_z = plr_resource._local_size_z
-                original_instance.location = plr_resource.location
+                if not parent_appended and not preserve_runtime_location:
+                    original_instance.location = plr_resource.location
                 original_instance.rotation = plr_resource.rotation
                 original_instance.barcode = plr_resource.barcode
                 original_instance.load_all_state(states)
@@ -2366,29 +2406,27 @@ class BaseROS2DeviceNode(Node, Generic[T]):
                 # 处理单个 ResourceSlot
                 if arg_type == "unilabos.registry.placeholder_type:ResourceSlot":
                     resource_data = function_args[arg_name]
-                    if isinstance(resource_data, dict) and "id" in resource_data:
+                    if isinstance(resource_data, dict) and any(
+                        key in resource_data for key in ("id", "uuid", "name")
+                    ):
                         try:
-                            function_args[arg_name] = self._convert_resources_sync(resource_data["uuid"])[0]
-                        except Exception as e:
-                            # UUID 在资源树中不存在，尝试从传入的完整 dict 直接构建 PLR 资源
-                            self.lab_logger().warning(
-                                f"UUID查询 {arg_name} 失败，尝试从传入数据直接构建: {e}"
-                            )
-                            try:
-                                fallback_tree = ResourceTreeSet.from_raw_dict_list([resource_data])
-                                if len(fallback_tree.trees) == 0:
-                                    raise
-                                plr_list = fallback_tree.to_plr_resources()
-                                if not plr_list:
-                                    raise
-                                plr_res = plr_list[0]
-                                figured = self.resource_tracker.figure_resource(plr_res, try_mode=True)
-                                function_args[arg_name] = figured[0] if figured else plr_res
-                            except Exception:
-                                self.lab_logger().error(
-                                    f"转换ResourceSlot参数 {arg_name} 失败（含回退）: {e}\n{traceback.format_exc()}"
+                            resolved = self._resolve_resource_local(resource_data)
+                            if resolved is None and resource_data.get("uuid"):
+                                resolved = self._convert_resources_sync(resource_data["uuid"])[0]
+                            if resolved is None:
+                                raise ValueError(
+                                    f"当前设备找不到资源 uuid={resource_data.get('uuid')!r}, "
+                                    f"id={resource_data.get('id')!r}, name={resource_data.get('name')!r}"
                                 )
-                                raise JsonCommandInitError(f"ResourceSlot参数转换失败: {arg_name}")
+                            function_args[arg_name] = resolved
+                        except Exception as e:
+                            self.lab_logger().warning(
+                                f"资源查询 {arg_name} 失败，不使用孤立资源回退: {e}"
+                            )
+                            self.lab_logger().error(
+                                f"转换ResourceSlot参数 {arg_name} 失败: {e}\n{traceback.format_exc()}"
+                            )
+                            raise JsonCommandInitError(f"ResourceSlot参数转换失败: {arg_name}")
 
                 # 处理 ResourceSlot 列表
                 elif isinstance(arg_type, tuple) and len(arg_type) == 2:
@@ -2397,28 +2435,29 @@ class BaseROS2DeviceNode(Node, Generic[T]):
                         resource_list = function_args[arg_name]
                         if isinstance(resource_list, list):
                             try:
-                                uuids = [r["uuid"] for r in resource_list if isinstance(r, dict) and "id" in r]
-                                function_args[arg_name] = self._convert_resources_sync(*uuids) if uuids else []
+                                driver_resources = []
+                                for resource_data in resource_list:
+                                    if not isinstance(resource_data, dict) or not any(
+                                        key in resource_data for key in ("id", "uuid", "name")
+                                    ):
+                                        raise ValueError("列表中存在无效资源引用")
+                                    resolved = self._resolve_resource_local(resource_data)
+                                    if resolved is None and resource_data.get("uuid"):
+                                        resolved = self._convert_resources_sync(resource_data["uuid"])[0]
+                                    if resolved is None:
+                                        raise ValueError(
+                                            f"当前设备找不到资源 uuid={resource_data.get('uuid')!r}, "
+                                            f"id={resource_data.get('id')!r}, name={resource_data.get('name')!r}"
+                                        )
+                                    driver_resources.append(resolved)
+                                if driver_resources or not resource_list:
+                                    function_args[arg_name] = driver_resources
+                                    continue
                             except Exception as e:
-                                self.lab_logger().warning(
-                                    f"UUID查询列表 {arg_name} 失败，尝试从传入数据直接构建: {e}"
+                                self.lab_logger().error(
+                                    f"转换ResourceSlot列表参数 {arg_name} 失败: {e}\n{traceback.format_exc()}"
                                 )
-                                try:
-                                    dict_items = [r for r in resource_list if isinstance(r, dict) and "id" in r]
-                                    fallback_tree = ResourceTreeSet.from_raw_dict_list(dict_items)
-                                    if len(fallback_tree.trees) == 0:
-                                        raise
-                                    plr_list = fallback_tree.to_plr_resources()
-                                    resolved = []
-                                    for plr_res in plr_list:
-                                        figured = self.resource_tracker.figure_resource(plr_res, try_mode=True)
-                                        resolved.append(figured[0] if figured else plr_res)
-                                    function_args[arg_name] = resolved
-                                except Exception:
-                                    self.lab_logger().error(
-                                        f"转换ResourceSlot列表参数 {arg_name} 失败（含回退）: {e}\n{traceback.format_exc()}"
-                                    )
-                                    raise JsonCommandInitError(f"ResourceSlot列表参数转换失败: {arg_name}")
+                                raise JsonCommandInitError(f"ResourceSlot列表参数转换失败: {arg_name}")
 
             if is_exception_handling_enabled(function):
                 task_id = unilabos_param.get("task_id", "")
@@ -2575,7 +2614,9 @@ class BaseROS2DeviceNode(Node, Generic[T]):
                 _is_resource_slot = isinstance(arg_type, str) and arg_type.endswith(":ResourceSlot")
                 if _is_resource_slot:
                     resource_data = function_args[arg_name]
-                    if isinstance(resource_data, dict) and "id" in resource_data:
+                    if isinstance(resource_data, dict) and any(
+                        key in resource_data for key in ("id", "uuid", "name")
+                    ):
                         try:
                             converted_resource = await self._convert_resource_async(resource_data)
                             function_args[arg_name] = converted_resource
@@ -2593,7 +2634,9 @@ class BaseROS2DeviceNode(Node, Generic[T]):
                             try:
                                 converted_resources = []
                                 for resource_data in resource_list:
-                                    if isinstance(resource_data, dict) and "id" in resource_data:
+                                    if isinstance(resource_data, dict) and any(
+                                        key in resource_data for key in ("id", "uuid", "name")
+                                    ):
                                         converted_resource = await self._convert_resource_async(resource_data)
                                         converted_resources.append(converted_resource)
                                 function_args[arg_name] = converted_resources
@@ -2628,30 +2671,115 @@ class BaseROS2DeviceNode(Node, Generic[T]):
                 f"执行动作时JSON缺少function_name或function_args: {ex}\n原JSON: {string}\n{traceback.format_exc()}"
             )
 
+    def _iter_driver_resources(self):
+        """遍历当前驱动持有的资源树，避免依赖 PLR 的名称查找行为。"""
+        if not hasattr(self, "driver_instance"):
+            return
+        roots = []
+        driver = self.driver_instance
+        for attr in ("root", "deck"):
+            root = getattr(driver, attr, None)
+            if root is not None and not any(root is existing for existing in roots):
+                roots.append(root)
+        seen = set()
+
+        def walk(resource):
+            marker = id(resource)
+            if marker in seen:
+                return
+            seen.add(marker)
+            yield resource
+            for child in list(getattr(resource, "children", []) or []):
+                yield from walk(child)
+
+        for root in roots:
+            yield from walk(root)
+
+    def _find_driver_resource_by_uuid_or_alias(self, uuid: str) -> Optional[Any]:
+        """按当前 UUID 或跨设备同步保存的旧 UUID 别名查找资源。"""
+        if not uuid:
+            return None
+        wanted = str(uuid)
+        for resource in self._iter_driver_resources() or ():
+            current_uuid = getattr(resource, "unilabos_uuid", None)
+            if current_uuid and str(current_uuid) == wanted:
+                return resource
+            extra = getattr(resource, "unilabos_extra", {}) or {}
+            aliases = extra.get("unilabos_source_uuids", [])
+            if isinstance(aliases, str):
+                aliases = [aliases]
+            if wanted in {str(alias) for alias in aliases}:
+                return resource
+            source_uuid = extra.get("unilabos_source_uuid")
+            if source_uuid and str(source_uuid) == wanted:
+                return resource
+        return None
+
+    def _resource_ref_parts(self, resource_data: "ResourceDictType"):
+        """提取资源引用的名称和父级名称，用于安全的层级内名称回退。"""
+        raw_id = resource_data.get("id")
+        parts = [part for part in str(raw_id).strip("/").split("/") if part] if raw_id else []
+        name = resource_data.get("name") or (parts[-1] if parts else None)
+        parent_name = parts[-2] if len(parts) >= 2 else None
+        return str(name) if name else None, parent_name
+
     def _resolve_resource_local(self, resource_data: "ResourceDictType") -> Optional[Any]:
-        """云端 UUID 未命中时，按 uuid / id / name 在本地 resource_tracker 解析。"""
+        """云端 UUID 未命中时解析本地资源。
+
+        工作流中保存的资源引用可能来自资源层级调整前的设备（例如
+        ``/AI4C_station/AI4C_deck/...``），其 UUID 在当前设备的资源树中
+        已经不可见，但物料名称和孔位名称保持不变。此时优先从驱动实例
+        持有的 PLR 根资源（PRCXI_Deck）按名称查找，确保传给驱动的是当前
+        设备树中的对象，而不是用旧数据重新构造出一个无父节点的孤立对象。
+        """
         uid = resource_data.get("uuid")
         if uid:
             matches = self.resource_tracker.figure_resource({"uuid": uid}, try_mode=True)
             if matches:
                 return matches[0]
+            aliased = self._find_driver_resource_by_uuid_or_alias(uid)
+            if aliased is not None:
+                self.lab_logger().debug(f"资源引用 uuid={uid} 按跨设备 UUID 别名解析")
+                return aliased
 
-        for key in ("id", "name"):
-            val = resource_data.get(key)
-            if not val:
-                continue
-            if key == "id":
-                matches = self.resource_tracker.figure_resource({"id": val}, try_mode=True)
-                if matches:
-                    return matches[0]
-            leaf = val.rsplit("/", 1)[-1] if isinstance(val, str) and "/" in val else val
-            for candidate in (leaf, val):
-                if not candidate:
-                    continue
-                matches = self.resource_tracker.figure_resource({"name": candidate}, try_mode=True)
-                if matches:
-                    return matches[0]
+        name, parent_name = self._resource_ref_parts(resource_data)
+        if name:
+            driver_resource = self._find_driver_resource_by_name(name, parent_name=parent_name)
+            if driver_resource is not None:
+                self.lab_logger().debug(
+                    f"资源引用 {resource_data.get('id') or name!r} 未按 UUID 命中，按唯一层级名称解析"
+                )
+                return driver_resource
+            matches = self.resource_tracker.figure_resource({"name": name}, try_mode=True)
+            if len(matches) == 1:
+                return matches[0]
         return None
+
+    def _find_driver_resource_by_name(self, name: str, parent_name: Optional[str] = None) -> Optional[Any]:
+        """在驱动实例持有的资源树中按名称查找资源。
+
+        孔位名称可能在多块板中重复，因此只有唯一匹配时才允许名称回退。
+        """
+        if not name or not hasattr(self, "driver_instance"):
+            return None
+
+        def _matches_name(resource, expected: str) -> bool:
+            if getattr(resource, "name", None) == expected:
+                return True
+            extra = getattr(resource, "unilabos_extra", {}) or {}
+            return str(extra.get(EXTRA_FRONTEND_NAME, "")) == expected
+
+        matches = [
+            resource
+            for resource in (self._iter_driver_resources() or ())
+            if _matches_name(resource, name)
+            and (
+                parent_name is None
+                or _matches_name(getattr(resource, "parent", None), parent_name)
+            )
+        ]
+        # 孔位名称在多个板中通常重复，出现歧义时禁止猜测。
+        return matches[0] if len(matches) == 1 else None
 
     async def _convert_resource_async(self, resource_data: "ResourceDictType"):
         """异步转换 ResourceDictType 为 PLR 实例，优先用 uuid 查询"""
@@ -2659,6 +2787,10 @@ class BaseROS2DeviceNode(Node, Generic[T]):
         plr_resource = None
 
         if unilabos_uuid:
+            # 先使用当前驱动实例，兼容跨设备同步后云端重新分配 UUID 的情况。
+            local_resource = self._find_driver_resource_by_uuid_or_alias(unilabos_uuid)
+            if local_resource is not None:
+                return local_resource
             try:
                 resource_tree = await self.get_resource([unilabos_uuid], with_children=True)
                 plr_resources = resource_tree.to_plr_resources()
@@ -2669,12 +2801,23 @@ class BaseROS2DeviceNode(Node, Generic[T]):
 
         if plr_resource is None:
             plr_resource = self._resolve_resource_local(resource_data)
+        elif unilabos_uuid:
+            # 云端查询可能返回迁移前快照，仍优先确认当前 UUID/别名对应的驱动对象。
+            local_resource = self._find_driver_resource_by_uuid_or_alias(unilabos_uuid)
+            if local_resource is not None:
+                return local_resource
 
         if plr_resource is None:
             res_id = resource_data.get("id") or resource_data.get("name", "")
             if not res_id:
                 raise ValueError(f"资源数据缺少 uuid 和 id: {list(resource_data.keys())}")
-            plr_resource = await self.get_resource_with_dir(resource_id=res_id, with_children=True)
+            try:
+                plr_resource = await self.get_resource_with_dir(resource_id=res_id, with_children=True)
+            except Exception as exc:
+                raise ValueError(
+                    "资源引用已失效，当前设备无法确认对应的板/孔位；"
+                    f"请先重新同步资源或重新生成工作流 (uuid={unilabos_uuid!r}, id={res_id!r}): {exc}"
+                ) from exc
 
         # 通过资源跟踪器获取本地实例
         res = self.resource_tracker.figure_resource(plr_resource, try_mode=True)
