@@ -69,6 +69,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
     _ACTUAL_POWDER_LOG_FILENAME = "实际加粉日志.xlsx"
     _ACTUAL_POWDER_LOG_LOCK = threading.RLock()
     _PARAMETER_RECORD_LOCK = threading.RLock()
+    _RECORD_TIMESTAMP_FORMAT = "%Y%m%d_%H%M%S"
     _BALL_MILL_TIME_UNIT_SECONDS = 60.0
     _MUFFLE_FURNACE_TIME_UNIT_SECONDS = 60.0
     _POWDER_FAULT_SIGNALS = (
@@ -1137,6 +1138,24 @@ class XUSEDevice(OpcUaClientWithSubscription):
         )
 
     @not_action
+    def _timestamped_record_path(self, directory: Path, suffix: str, label: str = "") -> Path:
+        """生成以时间戳开头的日志/曲线文件路径，同秒冲突时追加序号。"""
+        import re
+
+        directory.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime(self._RECORD_TIMESTAMP_FORMAT)
+        safe_label = re.sub(r'[\\/:*?"<>|\r\n\t]+', "_", str(label or "").strip())[:80]
+        stem = f"{timestamp}_{safe_label}" if safe_label else timestamp
+        if not suffix.startswith("."):
+            suffix = f".{suffix}"
+        destination = directory / f"{stem}{suffix}"
+        counter = 1
+        while destination.exists():
+            destination = directory / f"{stem}_{counter}{suffix}"
+            counter += 1
+        return destination
+
+    @not_action
     def _plot_muffle_temperature_curve(
         self,
         furnace_position: int,
@@ -1150,19 +1169,17 @@ class XUSEDevice(OpcUaClientWithSubscription):
 
             raw_path = str(output_path or "").strip().strip('"').strip("'")
             if raw_path.lower().endswith((".png", ".jpg", ".jpeg", ".svg", ".pdf")):
-                destination = Path(raw_path).expanduser()
-                destination.parent.mkdir(parents=True, exist_ok=True)
+                output = Path(raw_path).expanduser()
+                directory = output.parent
+                suffix = output.suffix
             else:
                 directory = Path(raw_path).expanduser() if raw_path else Path(__file__).resolve().parent / "records"
-                directory.mkdir(parents=True, exist_ok=True)
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                destination = directory / f"马弗炉{furnace_position}_温度曲线_{timestamp}.png"
-            if destination.exists():
-                stem, suffix = destination.stem, destination.suffix
-                counter = 1
-                while destination.exists():
-                    destination = destination.with_name(f"{stem}_{counter}{suffix}")
-                    counter += 1
+                suffix = ".png"
+            destination = self._timestamped_record_path(
+                directory,
+                suffix,
+                f"马弗炉{furnace_position}温度曲线",
+            )
 
             figure, axis = plt.subplots(figsize=(9, 5))
             if samples:
@@ -3845,7 +3862,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         Args:
             muffle_furnace_position[马弗炉位置]: 马弗炉编号，范围 1~6。
             check_can_occupied[是否检查坩埚占位]: True=烧结前检查占位；False=跳过占位检查。
-            temperature_curve_path[\u6e29\u5ea6\u66f2\u7ebf\u8f93\u51fa\u8def\u5f84]: \u53ef\u4f20\u5165 PNG \u6587\u4ef6\u8def\u5f84\u6216\u8f93\u51fa\u76ee\u5f55\uff1b\u7559\u7a7a\u4f7f\u7528 XUSE/records\u76ee\u5f55\u3002
+            temperature_curve_path[温度曲线输出路径]: 可传入 PNG 文件路径或输出目录；实际文件名固定以时间戳开头，留空使用 XUSE/records。
         """
         logger.info(f"开始马弗炉{muffle_furnace_position}烧结（check_can_occupied={check_can_occupied}）")
         MIN_MUFFLE_FURNACE_POSITION = 1
@@ -4322,21 +4339,13 @@ class XUSEDevice(OpcUaClientWithSubscription):
         rows_by_sheet: dict,
         record_dir: str = "",
     ) -> str:
-        """\u5c06\u7403\u78e8\u6216\u9a6c\u5f17\u7089\u672c\u6b21\u53c2\u6570\u4e0b\u53d1\u5feb\u7167\u4fdd\u5b58\u4e3a xlsx \u65e5\u5fd7\u3002"""
-        import re
+        """将球磨或马弗炉本次参数下发快照保存为以时间戳命名的 xlsx 日志。"""
         import openpyxl
         from openpyxl.styles import Alignment, Font, PatternFill
 
         raw_dir = str(record_dir or "").strip().strip('"').strip("'")
         directory = Path(raw_dir).expanduser() if raw_dir else Path(__file__).resolve().parent / "records"
-        directory.mkdir(parents=True, exist_ok=True)
-        safe_name = re.sub(r'[\\/:*?"<>|\r\n\t]+', "_", str(process_name).strip())[:80] or "parameter"
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        destination = directory / f"{timestamp}_{safe_name}.xlsx"
-        counter = 1
-        while destination.exists():
-            destination = directory / f"{timestamp}_{safe_name}_{counter}.xlsx"
-            counter += 1
+        destination = self._timestamped_record_path(directory, ".xlsx", process_name or "parameter")
 
         header_fill = PatternFill("solid", fgColor="FF1A3A63")
         header_font = Font(bold=True, color="FFFFFFFF")

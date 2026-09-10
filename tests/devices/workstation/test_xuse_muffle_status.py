@@ -1,6 +1,10 @@
 import importlib
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from pathlib import Path
+
+import pytest
 
 from unilabos.registry.ast_registry_scanner import scan_directory
 from unilabos.registry.decorators import get_topic_config
@@ -64,3 +68,32 @@ def test_muffle_furnace_status_topics_are_registered_as_six_groups():
         "muffle_furnace_current_temperature",
     ):
         assert name not in status
+
+
+def test_parameter_snapshot_filename_starts_with_timestamp():
+    pytest.importorskip("openpyxl")
+    device = object.__new__(XUSEDevice)
+    with tempfile.TemporaryDirectory() as raw_dir:
+        workdir = Path(raw_dir)
+        source = workdir / "source.xlsx"
+        source.write_bytes(b"dummy")
+        path = Path(device._dump_parameter_snapshot("马弗炉参数", str(source), {"马弗炉1": []}, str(workdir)))
+        assert path.is_file()
+        assert path.name.startswith(datetime.now().strftime("%Y%m%d_"))
+        assert path.name.endswith("_马弗炉参数.xlsx")
+
+
+def test_parameter_and_curve_files_use_timestamp_names():
+    device = object.__new__(XUSEDevice)
+    with tempfile.TemporaryDirectory() as raw_dir:
+        workdir = Path(raw_dir)
+        first = device._timestamped_record_path(workdir, ".xlsx", "球磨参数")
+        first.write_text("occupied", encoding="utf-8")
+        second = device._timestamped_record_path(workdir, ".xlsx", "球磨参数")
+        curve = device._timestamped_record_path(workdir, ".png", "马弗炉1温度曲线")
+
+        assert first.name.startswith(datetime.now().strftime("%Y%m%d_"))
+        assert first.name.endswith("_球磨参数.xlsx")
+        assert second.name.endswith("_球磨参数_1.xlsx")
+        assert curve.name.endswith("_马弗炉1温度曲线.png")
+        assert curve.name[:8].isdigit()
