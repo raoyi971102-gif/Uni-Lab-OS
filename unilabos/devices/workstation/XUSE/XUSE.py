@@ -568,7 +568,6 @@ class XUSEDevice(OpcUaClientWithSubscription):
 
     # 初始化工站（人工确认）
     @action(
-        always_free=True,
         node_type=NodeType.MANUAL_CONFIRM,
         placeholder_keys={"assignee_user_ids": "unilabos_manual_confirm"},
         goal_default={"timeout_seconds": 3600, "assignee_user_ids": []},
@@ -598,7 +597,6 @@ class XUSEDevice(OpcUaClientWithSubscription):
 
     # 初始化工站（无需人工确认）
     @action(
-        always_free=True,
         description="工站初始化（无需人工确认：直接停止机械臂触发，触发工站初始化并等待完成）",
     )
     def trigger_init_without_confirmation(self) -> dict:
@@ -782,17 +780,38 @@ class XUSEDevice(OpcUaClientWithSubscription):
         """\u7403\u78e8\u53c2\u6570\u8bbe\u5b9a\u7684\u603b\u65f6\u95f4\uff0c\u5355\u4f4d\u4e3a\u79d2\u3002"""
         return round(float(getattr(self, "_ball_mill_status", {}).get("total_seconds", 0.0) or 0.0), 1)
 
-    @topic_config(period=1.0, name="muffle_furnace_current_runtime")
-    def muffle_furnace_current_runtime(self) -> list[float]:
-        """6 \u53f0\u9a6c\u5f17\u7089\u5f53\u524d\u8fd0\u884c\u65f6\u95f4\uff0c\u5355\u4f4d\u4e3a\u79d2\uff0c\u7d22\u5f15\u5bf9\u5e94\u7089\u53f7\u51cf\u4e00\u3002"""
+    @not_action
+    def _muffle_current_runtime(self, furnace_position: int) -> float:
         status = getattr(self, "_muffle_furnace_status", {})
-        return [round(self._runtime_seconds(status.get(idx, {})), 1) for idx in range(1, 7)]
+        return round(self._runtime_seconds(status.get(furnace_position, {})), 1)
 
-    @topic_config(period=1.0, name="muffle_furnace_total_set_time")
-    def muffle_furnace_total_set_time(self) -> list[float]:
-        """6 \u53f0\u9a6c\u5f17\u7089\u7a0b\u5e8f\u603b\u8bbe\u5b9a\u65f6\u95f4\uff0c\u5355\u4f4d\u4e3a\u79d2\uff0c\u7d22\u5f15\u5bf9\u5e94\u7089\u53f7\u51cf\u4e00\u3002"""
+    @not_action
+    def _muffle_total_set_time(self, furnace_position: int) -> float:
         status = getattr(self, "_muffle_furnace_status", {})
-        return [round(float(status.get(idx, {}).get("total_seconds", 0.0) or 0.0), 1) for idx in range(1, 7)]
+        return round(float(status.get(furnace_position, {}).get("total_seconds", 0.0) or 0.0), 1)
+
+    @not_action
+    def _muffle_set_temperature(self, furnace_position: int) -> float:
+        status = getattr(self, "_muffle_furnace_status", {}).get(furnace_position, {})
+        return round(self._muffle_setpoint_for_elapsed(furnace_position, self._runtime_seconds(status)), 1)
+
+    @not_action
+    def _muffle_current_temperature(self, furnace_position: int) -> float:
+        values = getattr(self, "_muffle_temperature_cache", [0.0] * 6)
+        index = furnace_position - 1
+        if index < 0 or index >= len(values):
+            return 0.0
+        return round(float(values[index] or 0.0), 1)
+
+    @not_action
+    def muffle_furnace_current_runtime(self) -> list[float]:
+        """6 台马弗炉当前运行时间，单位为秒，索引对应炉号减一。"""
+        return [self._muffle_current_runtime(idx) for idx in range(1, 7)]
+
+    @not_action
+    def muffle_furnace_total_set_time(self) -> list[float]:
+        """6 台马弗炉程序总设定时间，单位为秒，索引对应炉号减一。"""
+        return [self._muffle_total_set_time(idx) for idx in range(1, 7)]
 
     @not_action
     def _muffle_setpoint_for_elapsed(self, furnace_position: int, elapsed_seconds: float) -> float:
@@ -812,19 +831,135 @@ class XUSEDevice(OpcUaClientWithSubscription):
             last_temperature = temperature
         return last_temperature
 
-    @topic_config(period=1.0, name="muffle_furnace_set_temperature")
+    @not_action
     def muffle_furnace_set_temperature(self) -> list[float]:
-        """6 \u53f0\u9a6c\u5f17\u7089\u5f53\u524d\u7a0b\u5e8f\u8bbe\u5b9a\u6e29\u5ea6\uff0c\u5355\u4f4d\u4e3a\u6444\u6c0f\u5ea6\uff0c\u7d22\u5f15\u5bf9\u5e94\u7089\u53f7\u51cf\u4e00\u3002"""
-        return [
-            round(self._muffle_setpoint_for_elapsed(idx, self._runtime_seconds(status)), 1)
-            for idx, status in getattr(self, "_muffle_furnace_status", {}).items()
-        ] or [0.0] * 6
+        """6 台马弗炉当前程序设定温度，单位为摄氏度，索引对应炉号减一。"""
+        return [self._muffle_set_temperature(idx) for idx in range(1, 7)]
 
-    @topic_config(period=1.0, name="muffle_furnace_current_temperature")
+    @not_action
     def muffle_furnace_current_temperature(self) -> list[float]:
-        """6 \u53f0\u9a6c\u5f17\u7089\u5f53\u524d\u6e29\u5ea6\uff0c\u7d22\u5f15\u5bf9\u5e94\u7089\u53f7\u51cf\u4e00\u3002"""
-        values = getattr(self, "_muffle_temperature_cache", [0.0] * 6)
-        return [round(float(value or 0.0), 1) for value in values]
+        """6 台马弗炉当前温度，索引对应炉号减一。"""
+        return [self._muffle_current_temperature(idx) for idx in range(1, 7)]
+
+    @topic_config(period=1.0)
+    def muffle_furnace_1_current_runtime(self) -> float:
+        """马弗炉1当前运行时间（秒）"""
+        return self._muffle_current_runtime(1)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_2_current_runtime(self) -> float:
+        """马弗炉2当前运行时间（秒）"""
+        return self._muffle_current_runtime(2)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_3_current_runtime(self) -> float:
+        """马弗炉3当前运行时间（秒）"""
+        return self._muffle_current_runtime(3)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_4_current_runtime(self) -> float:
+        """马弗炉4当前运行时间（秒）"""
+        return self._muffle_current_runtime(4)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_5_current_runtime(self) -> float:
+        """马弗炉5当前运行时间（秒）"""
+        return self._muffle_current_runtime(5)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_6_current_runtime(self) -> float:
+        """马弗炉6当前运行时间（秒）"""
+        return self._muffle_current_runtime(6)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_1_total_set_time(self) -> float:
+        """马弗炉1程序总设定时间（秒）"""
+        return self._muffle_total_set_time(1)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_2_total_set_time(self) -> float:
+        """马弗炉2程序总设定时间（秒）"""
+        return self._muffle_total_set_time(2)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_3_total_set_time(self) -> float:
+        """马弗炉3程序总设定时间（秒）"""
+        return self._muffle_total_set_time(3)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_4_total_set_time(self) -> float:
+        """马弗炉4程序总设定时间（秒）"""
+        return self._muffle_total_set_time(4)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_5_total_set_time(self) -> float:
+        """马弗炉5程序总设定时间（秒）"""
+        return self._muffle_total_set_time(5)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_6_total_set_time(self) -> float:
+        """马弗炉6程序总设定时间（秒）"""
+        return self._muffle_total_set_time(6)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_1_set_temperature(self) -> float:
+        """马弗炉1当前程序设定温度（℃）"""
+        return self._muffle_set_temperature(1)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_2_set_temperature(self) -> float:
+        """马弗炉2当前程序设定温度（℃）"""
+        return self._muffle_set_temperature(2)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_3_set_temperature(self) -> float:
+        """马弗炉3当前程序设定温度（℃）"""
+        return self._muffle_set_temperature(3)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_4_set_temperature(self) -> float:
+        """马弗炉4当前程序设定温度（℃）"""
+        return self._muffle_set_temperature(4)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_5_set_temperature(self) -> float:
+        """马弗炉5当前程序设定温度（℃）"""
+        return self._muffle_set_temperature(5)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_6_set_temperature(self) -> float:
+        """马弗炉6当前程序设定温度（℃）"""
+        return self._muffle_set_temperature(6)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_1_current_temperature(self) -> float:
+        """马弗炉1当前温度（℃）"""
+        return self._muffle_current_temperature(1)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_2_current_temperature(self) -> float:
+        """马弗炉2当前温度（℃）"""
+        return self._muffle_current_temperature(2)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_3_current_temperature(self) -> float:
+        """马弗炉3当前温度（℃）"""
+        return self._muffle_current_temperature(3)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_4_current_temperature(self) -> float:
+        """马弗炉4当前温度（℃）"""
+        return self._muffle_current_temperature(4)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_5_current_temperature(self) -> float:
+        """马弗炉5当前温度（℃）"""
+        return self._muffle_current_temperature(5)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_6_current_temperature(self) -> float:
+        """马弗炉6当前温度（℃）"""
+        return self._muffle_current_temperature(6)
 
     @not_action
     def _refresh_ball_mill_total_from_plc(self) -> float:
@@ -3551,7 +3686,6 @@ class XUSEDevice(OpcUaClientWithSubscription):
         
     
     @action(
-        always_free=True,
         node_type=NodeType.MANUAL_CONFIRM,
         placeholder_keys={"assignee_user_ids": "unilabos_manual_confirm"},
         goal_default={"timeout_seconds": 3600, "assignee_user_ids": []},
@@ -3695,7 +3829,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             raise ValueError(error_msg)
 
 
-    @action()
+    @action(always_free=True)
     def muffle_furnace_sintering(
         self,
         muffle_furnace_position: int,
