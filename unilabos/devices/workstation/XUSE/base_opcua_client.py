@@ -46,6 +46,8 @@ class BaseOpcUaClient(UniversalDriver):
     _name_mapping: Dict[str, str] = {}  # 英文名到中文名的映射
     _reverse_mapping: Dict[str, str] = {}  # 中文名到英文名的映射
     _found_node_objects: Dict[str, Any] = {}  # 缓存已找到的 ua.Node 对象
+    # 同一节点的重复访问日志汇总周期，单位：秒。
+    NODE_USAGE_LOG_SUMMARY_INTERVAL = 60.0
 
     def __init__(self):
         super().__init__()
@@ -57,6 +59,9 @@ class BaseOpcUaClient(UniversalDriver):
         # 初始化线程锁
         import threading
         self._client_lock = threading.RLock()
+        # use_node 可能被动作线程和状态采集线程同时调用，访问日志统计需要独立加锁。
+        self._node_usage_lock = threading.RLock()
+        self._node_usage_stats: Dict[str, Dict[str, Any]] = {}
 
     def _set_client(self, client: Optional[Client]) -> None:
         if client is None:
@@ -247,7 +252,7 @@ class BaseOpcUaClient(UniversalDriver):
             chinese_name = self._name_mapping[name]
             if chinese_name in self._node_registry:
                 node = self._node_registry[chinese_name]
-                logger.debug(f"使用节点: '{name}' -> '{chinese_name}', NodeId: {node.node_id}")
+                self._log_node_usage(node, display_name=chinese_name, alias=name)
                 return node
             elif chinese_name in self._variables_to_find:
                 logger.warning(f"节点 {chinese_name} (英文名: {name}) 尚未找到，尝试重新查找")
@@ -272,8 +277,51 @@ class BaseOpcUaClient(UniversalDriver):
             logger.error(f"❌ 节点 '{name}' 未注册或未找到。已注册节点: {list(self._node_registry.keys())[:5]}...")
             raise ValueError(f'节点 {name} 未注册或未找到')
         node = self._node_registry[name]
-        logger.debug(f"使用节点: '{name}', NodeId: {node.node_id}")
+        self._log_node_usage(node, display_name=name)
         return node
+
+    def _log_node_usage(
+        self,
+        node: OpcUaNodeBase,
+        *,
+        display_name: str,
+        alias: Optional[str] = None,
+    ) -> None:
+        """以首次记录加周期汇总的形式记录节点访问，避免轮询节点刷屏。"""
+        usage_key = str(node.node_id) or display_name
+        now = time.monotonic()
+        with self._node_usage_lock:
+            stat = self._node_usage_stats.setdefault(
+                usage_key,
+                {
+                    "display_name": display_name,
+                    "node_id": str(node.node_id),
+                    "count": 0,
+                    "last_summary_at": now,
+                    "announced": False,
+                },
+            )
+            stat["count"] += 1
+
+            if not stat["announced"]:
+                stat["announced"] = True
+                if alias and alias != display_name:
+                    logger.debug(
+                        f"首次使用节点: '{alias}' -> '{display_name}', NodeId: {stat['node_id']}"
+                    )
+                else:
+                    logger.debug(
+                        f"首次使用节点: '{display_name}', NodeId: {stat['node_id']}"
+                    )
+                return
+
+            if now - stat["last_summary_at"] >= self.NODE_USAGE_LOG_SUMMARY_INTERVAL:
+                logger.debug(
+                    f"节点使用汇总: '{stat['display_name']}', NodeId: {stat['node_id']}, "
+                    f"最近 {self.NODE_USAGE_LOG_SUMMARY_INTERVAL:g} 秒访问 {stat['count']} 次"
+                )
+                stat["count"] = 0
+                stat["last_summary_at"] = now
 
     def get_node_registry(self) -> Dict[str, OpcUaNodeBase]:
         """获取所有已注册的节点"""

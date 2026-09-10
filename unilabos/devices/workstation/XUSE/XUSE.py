@@ -68,6 +68,27 @@ class XUSEDevice(OpcUaClientWithSubscription):
     _DEFAULT_POWDER_PARAMS_DIR = "unilabos/devices/workstation/XUSE/powder_params"
     _ACTUAL_POWDER_LOG_FILENAME = "实际加粉日志.xlsx"
     _ACTUAL_POWDER_LOG_LOCK = threading.RLock()
+    _PARAMETER_RECORD_LOCK = threading.RLock()
+    _BALL_MILL_TIME_UNIT_SECONDS = 60.0
+    _MUFFLE_FURNACE_TIME_UNIT_SECONDS = 60.0
+    _POWDER_FAULT_SIGNALS = (
+        ("Powder_Injection_Turntable_Fault", "\u6ce8\u7c89\u8f6c\u76d8\u51fa\u73b0\u6545\u969c"),
+        ("Powder_X_Axis_Fault", "\u52a0\u7c89X\u8f74\u51fa\u73b0\u6545\u969c"),
+        ("Powder_Drop_Prevention_Motor_Fault", "\u9632\u6389\u7c89\u7535\u673a\u51fa\u73b0\u6545\u969c"),
+        ("Powder_Z_Axis_Fault", "\u52a0\u7c89Z\u8f74\u51fa\u73b0\u6545\u969c"),
+        ("Powder_Rotation_Axis_Fault", "\u52a0\u7c89\u65cb\u8f6c\u8f74\u51fa\u73b0\u6545\u969c"),
+        ("\u7384\u5203\u521d\u59cb\u5316", "\u7384\u5203\u521d\u59cb\u5316\u51fa\u73b0\u6545\u969c"),
+        ("\u7384\u5203\u7801\u81ea\u68c0", "\u7384\u5203\u7801\u81ea\u68c0\u51fa\u73b0\u6545\u969c"),
+        ("\u7384\u5203\u81ea\u52a8\u4e2d", "\u7384\u5203\u81ea\u52a8\u4e2d\u51fa\u73b0\u6545\u969c"),
+    )
+    _MUFFLE_ERROR_DESCRIPTIONS = {
+        1: {1: "\u5f00\u95e8\u5f02\u5e38", 2: "\u5173\u95e8\u8d85\u65f6", 4: "\u5347\u6e29\u8d85\u65f6"},
+        2: {1: "\u5f00\u95e8\u5f02\u5e38", 2: "\u5173\u95e8\u8d85\u65f6", 5: "\u5347\u6e29\u8d85\u65f6"},
+        3: {1: "\u5f00\u95e8\u5f02\u5e38", 2: "\u5173\u95e8\u8d85\u65f6", 6: "\u5347\u6e29\u8d85\u65f6"},
+        4: {1: "\u5f00\u95e8\u5f02\u5e38", 2: "\u5173\u95e8\u8d85\u65f6", 7: "\u5347\u6e29\u8d85\u65f6"},
+        5: {1: "\u5f00\u95e8\u5f02\u5e38", 2: "\u5173\u95e8\u8d85\u65f6", 8: "\u5347\u6e29\u8d85\u65f6"},
+        6: {1: "\u5f00\u95e8\u5f02\u5e38", 2: "\u5173\u95e8\u8d85\u65f6", 9: "\u5347\u6e29\u8d85\u65f6"},
+    }
 
     @classmethod
     def _validate_ball_mill_can_number(cls, can_number: int) -> int:
@@ -153,6 +174,25 @@ class XUSEDevice(OpcUaClientWithSubscription):
             )
         except Exception:
             self._powder_weight_cache = 0.0
+
+        # \u7403\u78e8/\u9a6c\u5f17\u7089\u8fd0\u884c\u72b6\u6001\u5747\u5728\u672c\u5730\u7ef4\u62a4\uff0cPLC \u6ca1\u6709\u5bf9\u5e94\u8282\u70b9\u3002
+        self._ball_mill_status = {
+            "started_at": None,
+            "elapsed_seconds": 0.0,
+            "total_seconds": 0.0,
+        }
+        self._muffle_furnace_status = {
+            idx: {
+                "started_at": None,
+                "elapsed_seconds": 0.0,
+                "total_seconds": 0.0,
+                "set_temperature": 0.0,
+                "profile": [],
+            }
+            for idx in range(1, 7)
+        }
+        self._muffle_temperature_enabled_cache = [False] * 6
+        self._muffle_temperature_cache = [0.0] * 6
 
         # 工站状态本地缓存 + 后台轮询线程。
         # 原因：状态方法会被 ROS 各自的定时器周期调用，如果直接走 get_node_value
@@ -434,6 +474,74 @@ class XUSEDevice(OpcUaClientWithSubscription):
             time.sleep(interval)
 
     @not_action
+    def _read_fault_signal(self, node_name: str, description: str):
+        try:
+            return self.get_node_value(node_name, use_cache=False, force_read=True)
+        except Exception as exc:
+            logger.warning(f"\u8bfb\u53d6{description}\u76d1\u63a7\u5931\u8d25\uff0c\u8df3\u8fc7\u672c\u6b21\u6545\u969c\u5224\u65ad: {exc}")
+            return None
+
+    @not_action
+    def _raise_on_fault_signals(self, operation: str, signals) -> None:
+        faults = []
+        for node_name, description in signals:
+            value = self._read_fault_signal(node_name, description)
+            if value is None:
+                continue
+            if isinstance(value, str):
+                is_fault = value.strip().casefold() not in {"", "0", "off", "false", "none"}
+            else:
+                try:
+                    is_fault = bool(value)
+                except Exception:
+                    is_fault = False
+            if is_fault:
+                faults.append(f"{description}\uff08{node_name}={value!r}\uff09")
+        if faults:
+            error_msg = f"{operation}\u5931\u8d25\uff0c\u68c0\u6d4b\u5230\u6545\u969c\uff1a" + "\uff1b".join(faults)
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+    @not_action
+    def _check_add_powder_faults(self) -> None:
+        self._raise_on_fault_signals("\u52a0\u7c89", self._POWDER_FAULT_SIGNALS)
+
+    @not_action
+    def _check_ball_mill_fault(self) -> None:
+        value = self._read_fault_signal("\u7403\u78e8\u673a\u6545\u969c\u7801\u901a\u8baf", "\u7403\u78e8\u673a\u6545\u969c\u7801\u901a\u8baf")
+        if value is None:
+            return
+        try:
+            is_fault = int(value) != 0
+        except (TypeError, ValueError):
+            is_fault = True
+        if is_fault:
+            error_msg = f"\u7403\u78e8\u5931\u8d25\uff0c\u7403\u78e8\u673a\u6545\u969c\u7801\u901a\u8baf\u975e0\uff0c\u6545\u969c\u7801={value}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+    @not_action
+    def _check_muffle_furnace_faults(self, muffle_furnace_position: int) -> None:
+        faults = []
+        error_node = f"\u9a6c\u5f17\u7089\u9519\u8bef\u4ee3\u7801[{muffle_furnace_position - 1}]"
+        error_code = self._read_fault_signal(error_node, error_node)
+        if error_code is not None:
+            try:
+                error_code = int(error_code or 0)
+            except (TypeError, ValueError):
+                error_code = None
+            if error_code:
+                description = self._MUFFLE_ERROR_DESCRIPTIONS.get(muffle_furnace_position, {}).get(
+                    error_code, "\u672a\u5b9a\u4e49\u6545\u969c\u7801"
+                )
+                faults.append(f"\u9a6c\u5f17\u7089{muffle_furnace_position}{description}\uff08\u6545\u969c\u7801={error_code}\uff09")
+
+        if faults:
+            error_msg = f"\u9a6c\u5f17\u7089{muffle_furnace_position}\u70e7\u7ed3\u5931\u8d25\uff0c\u68c0\u6d4b\u5230\u6545\u969c\uff1a" + "\uff1b".join(faults)
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+    @not_action
     def _execute_station_init(self) -> dict:
         """执行工站初始化的 PLC 操作，供人工确认和直接初始化动作共用。"""
         logger.info("停止机械臂触发...")
@@ -654,6 +762,297 @@ class XUSEDevice(OpcUaClientWithSubscription):
     def powder_weight(self) -> float:
         """PLC 实际加粉重量（REAL），每 5 秒以 powder_weight 状态发布。"""
         return float(getattr(self, "_powder_weight_cache", 0.0))
+
+    @not_action
+    def _runtime_seconds(self, status: dict) -> float:
+        started_at = status.get("started_at")
+        if started_at is None:
+            return max(0.0, float(status.get("elapsed_seconds", 0.0) or 0.0))
+        elapsed = max(0.0, time.monotonic() - started_at)
+        status["elapsed_seconds"] = elapsed
+        return elapsed
+
+    @topic_config(period=1.0, name="ball_mill_current_runtime")
+    def ball_mill_current_runtime(self) -> float:
+        """\u7403\u78e8\u5f53\u524d\u8fd0\u884c\u65f6\u95f4\uff0c\u5355\u4f4d\u4e3a\u79d2\u3002"""
+        return round(self._runtime_seconds(getattr(self, "_ball_mill_status", {})), 1)
+
+    @topic_config(period=1.0, name="ball_mill_total_set_time")
+    def ball_mill_total_set_time(self) -> float:
+        """\u7403\u78e8\u53c2\u6570\u8bbe\u5b9a\u7684\u603b\u65f6\u95f4\uff0c\u5355\u4f4d\u4e3a\u79d2\u3002"""
+        return round(float(getattr(self, "_ball_mill_status", {}).get("total_seconds", 0.0) or 0.0), 1)
+
+    @topic_config(period=1.0, name="muffle_furnace_current_runtime")
+    def muffle_furnace_current_runtime(self) -> list[float]:
+        """6 \u53f0\u9a6c\u5f17\u7089\u5f53\u524d\u8fd0\u884c\u65f6\u95f4\uff0c\u5355\u4f4d\u4e3a\u79d2\uff0c\u7d22\u5f15\u5bf9\u5e94\u7089\u53f7\u51cf\u4e00\u3002"""
+        status = getattr(self, "_muffle_furnace_status", {})
+        return [round(self._runtime_seconds(status.get(idx, {})), 1) for idx in range(1, 7)]
+
+    @topic_config(period=1.0, name="muffle_furnace_total_set_time")
+    def muffle_furnace_total_set_time(self) -> list[float]:
+        """6 \u53f0\u9a6c\u5f17\u7089\u7a0b\u5e8f\u603b\u8bbe\u5b9a\u65f6\u95f4\uff0c\u5355\u4f4d\u4e3a\u79d2\uff0c\u7d22\u5f15\u5bf9\u5e94\u7089\u53f7\u51cf\u4e00\u3002"""
+        status = getattr(self, "_muffle_furnace_status", {})
+        return [round(float(status.get(idx, {}).get("total_seconds", 0.0) or 0.0), 1) for idx in range(1, 7)]
+
+    @not_action
+    def _muffle_setpoint_for_elapsed(self, furnace_position: int, elapsed_seconds: float) -> float:
+        status = getattr(self, "_muffle_furnace_status", {}).get(furnace_position, {})
+        profile = status.get("profile", [])
+        if not profile:
+            return float(status.get("set_temperature", 0.0) or 0.0)
+        accumulated = 0.0
+        last_temperature = float(status.get("set_temperature", 0.0) or 0.0)
+        for segment in profile:
+            duration = max(0.0, float(segment.get("duration_seconds", 0.0) or 0.0))
+            temperature = float(segment.get("temperature", last_temperature) or 0.0)
+            if duration > 0 and elapsed_seconds <= accumulated + duration:
+                return temperature
+            if duration > 0:
+                accumulated += duration
+            last_temperature = temperature
+        return last_temperature
+
+    @topic_config(period=1.0, name="muffle_furnace_set_temperature")
+    def muffle_furnace_set_temperature(self) -> list[float]:
+        """6 \u53f0\u9a6c\u5f17\u7089\u5f53\u524d\u7a0b\u5e8f\u8bbe\u5b9a\u6e29\u5ea6\uff0c\u5355\u4f4d\u4e3a\u6444\u6c0f\u5ea6\uff0c\u7d22\u5f15\u5bf9\u5e94\u7089\u53f7\u51cf\u4e00\u3002"""
+        return [
+            round(self._muffle_setpoint_for_elapsed(idx, self._runtime_seconds(status)), 1)
+            for idx, status in getattr(self, "_muffle_furnace_status", {}).items()
+        ] or [0.0] * 6
+
+    @topic_config(period=1.0, name="muffle_furnace_current_temperature")
+    def muffle_furnace_current_temperature(self) -> list[float]:
+        """6 \u53f0\u9a6c\u5f17\u7089\u5f53\u524d\u6e29\u5ea6\uff0c\u7d22\u5f15\u5bf9\u5e94\u7089\u53f7\u51cf\u4e00\u3002"""
+        values = getattr(self, "_muffle_temperature_cache", [0.0] * 6)
+        return [round(float(value or 0.0), 1) for value in values]
+
+    @not_action
+    def _refresh_ball_mill_total_from_plc(self) -> float:
+        total = 0.0
+        for step in range(1, 7):
+            node_name = f"\u7403\u78e8\u5de5\u827a\u53c2\u6570[1].\u6b65\u9aa4{step}_\u5de5\u4f5c\u65f6\u95f4"
+            try:
+                total += max(0.0, float(self.get_node_value(node_name, use_cache=False, force_read=True)))
+            except Exception:
+                pass
+        total_seconds = total * self._BALL_MILL_TIME_UNIT_SECONDS
+        getattr(self, "_ball_mill_status", {}).update(total_seconds=total_seconds)
+        return total_seconds
+
+    @not_action
+    def _refresh_muffle_profile_from_plc(self, furnace_position: int) -> dict:
+        status = getattr(self, "_muffle_furnace_status", {}).setdefault(
+            furnace_position,
+            {"started_at": None, "elapsed_seconds": 0.0, "total_seconds": 0.0, "set_temperature": 0.0, "profile": []},
+        )
+        profile = []
+        total_minutes = 0.0
+        for segment_idx in range(1, 21):
+            time_node = f"\u9a6c\u5f17\u7089_\u5199[{furnace_position}].\u7b2c{segment_idx}\u6bb5\u7a0b\u5e8f\u65f6\u95f4"
+            temp_node = f"\u9a6c\u5f17\u7089_\u5199[{furnace_position}].\u7b2c{segment_idx}\u6bb5\u7a0b\u5e8f\u6e29\u5ea6"
+            try:
+                duration_minutes = max(0.0, float(self.get_node_value(time_node, use_cache=False, force_read=True))) / 10.0
+            except Exception:
+                duration_minutes = 0.0
+            try:
+                temperature = float(self.get_node_value(temp_node, use_cache=False, force_read=True)) / 10.0
+            except Exception:
+                temperature = 0.0
+            if duration_minutes > 0:
+                profile.append({"duration_seconds": duration_minutes * self._MUFFLE_FURNACE_TIME_UNIT_SECONDS, "temperature": temperature})
+                total_minutes += duration_minutes
+        try:
+            start_temperature = float(
+                self.get_node_value(
+                    f"\u9a6c\u5f17\u7089_\u5199[{furnace_position}].\u8d77\u59cb\u6e29\u5ea6",
+                    use_cache=False,
+                    force_read=True,
+                )
+            ) / 10.0
+        except Exception:
+            start_temperature = float(status.get("set_temperature", 0.0) or 0.0)
+        status["profile"] = profile
+        status["set_temperature"] = start_temperature or (profile[0]["temperature"] if profile else 0.0)
+        status["total_seconds"] = total_minutes * self._MUFFLE_FURNACE_TIME_UNIT_SECONDS
+        return status
+
+    @not_action
+    def _begin_ball_mill_run(self) -> None:
+        status = getattr(self, "_ball_mill_status", None)
+        if status is None:
+            self._ball_mill_status = status = {"started_at": None, "elapsed_seconds": 0.0, "total_seconds": 0.0}
+        if not status.get("total_seconds"):
+            self._refresh_ball_mill_total_from_plc()
+        status["elapsed_seconds"] = 0.0
+        status["started_at"] = time.monotonic()
+
+    @not_action
+    def _end_ball_mill_run(self) -> None:
+        status = getattr(self, "_ball_mill_status", None)
+        if status:
+            self._runtime_seconds(status)
+            status["started_at"] = None
+
+    @not_action
+    def _begin_muffle_furnace_run(self, furnace_position: int) -> None:
+        status = getattr(self, "_muffle_furnace_status", {}).setdefault(
+            furnace_position,
+            {"started_at": None, "elapsed_seconds": 0.0, "total_seconds": 0.0, "set_temperature": 0.0, "profile": []},
+        )
+        if not status.get("profile") and not status.get("total_seconds"):
+            self._refresh_muffle_profile_from_plc(furnace_position)
+        status["elapsed_seconds"] = 0.0
+        status["started_at"] = time.monotonic()
+
+    @not_action
+    def _end_muffle_furnace_run(self, furnace_position: int) -> None:
+        status = getattr(self, "_muffle_furnace_status", {}).get(furnace_position)
+        if status:
+            self._runtime_seconds(status)
+            status["started_at"] = None
+
+    @not_action
+    def _record_muffle_temperature_sample(
+        self,
+        furnace_position: int,
+        started_at: float,
+        samples: list[dict],
+        force: bool = False,
+    ) -> bool:
+        index = furnace_position - 1
+        enable_node = f"\u9a6c\u5f17\u7089\u6e29\u5ea6[{index}]"
+        temp_node = f"\u9a6c\u5f17\u7089\u6e29\u5ea6\u76d1\u63a7[{index}]"
+        try:
+            enabled = bool(self.get_node_value(enable_node, use_cache=False, force_read=True))
+        except Exception:
+            return False
+        if not enabled and not force:
+            return False
+        if not enabled:
+            return False
+        try:
+            temperature = float(self.get_node_value(temp_node, use_cache=False, force_read=True))
+        except Exception:
+            return False
+        elapsed_seconds = max(0.0, time.monotonic() - started_at)
+        self._muffle_temperature_enabled_cache[index] = True
+        self._muffle_temperature_cache[index] = temperature
+        samples.append(
+            {
+                "elapsed_seconds": elapsed_seconds,
+                "temperature": temperature,
+                "set_temperature": self._muffle_setpoint_for_elapsed(furnace_position, elapsed_seconds),
+            }
+        )
+        return True
+
+    @not_action
+    def _muffle_temperature_monitor_loop(
+        self,
+        furnace_position: int,
+        started_at: float,
+        stop_event: threading.Event,
+        samples: list[dict],
+    ) -> None:
+        next_sample_at = None
+        while not stop_event.is_set():
+            now = time.monotonic()
+            if next_sample_at is None or now >= next_sample_at:
+                if self._record_muffle_temperature_sample(furnace_position, started_at, samples):
+                    next_sample_at = now + 60.0
+                else:
+                    next_sample_at = now + 1.0
+            wait_seconds = 1.0 if next_sample_at is None else max(0.05, min(1.0, next_sample_at - time.monotonic()))
+            stop_event.wait(wait_seconds)
+
+    @not_action
+    def _start_muffle_temperature_monitor(self, furnace_position: int, started_at: float) -> dict:
+        stop_event = threading.Event()
+        samples = []
+        thread = threading.Thread(
+            target=self._muffle_temperature_monitor_loop,
+            args=(furnace_position, started_at, stop_event, samples),
+            name=f"XUSEMuffleTemperature{furnace_position}",
+            daemon=True,
+        )
+        thread.start()
+        return {"stop_event": stop_event, "thread": thread, "samples": samples, "started_at": started_at}
+
+    @not_action
+    def _stop_muffle_temperature_monitor(
+        self,
+        furnace_position: int,
+        monitor: Optional[dict],
+        temperature_curve_path: str = "",
+    ) -> Optional[str]:
+        if not monitor:
+            return None
+        monitor["stop_event"].set()
+        monitor["thread"].join(timeout=2.0)
+        self._record_muffle_temperature_sample(
+            furnace_position,
+            monitor["started_at"],
+            monitor["samples"],
+            force=True,
+        )
+        return self._plot_muffle_temperature_curve(
+            furnace_position,
+            monitor["samples"],
+            temperature_curve_path,
+        )
+
+    @not_action
+    def _plot_muffle_temperature_curve(
+        self,
+        furnace_position: int,
+        samples: list[dict],
+        output_path: str = "",
+    ) -> Optional[str]:
+        try:
+            import matplotlib
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+
+            raw_path = str(output_path or "").strip().strip('"').strip("'")
+            if raw_path.lower().endswith((".png", ".jpg", ".jpeg", ".svg", ".pdf")):
+                destination = Path(raw_path).expanduser()
+                destination.parent.mkdir(parents=True, exist_ok=True)
+            else:
+                directory = Path(raw_path).expanduser() if raw_path else Path(__file__).resolve().parent / "records"
+                directory.mkdir(parents=True, exist_ok=True)
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                destination = directory / f"马弗炉{furnace_position}_温度曲线_{timestamp}.png"
+            if destination.exists():
+                stem, suffix = destination.stem, destination.suffix
+                counter = 1
+                while destination.exists():
+                    destination = destination.with_name(f"{stem}_{counter}{suffix}")
+                    counter += 1
+
+            figure, axis = plt.subplots(figsize=(9, 5))
+            if samples:
+                x_values = [item["elapsed_seconds"] / 60.0 for item in samples]
+                y_values = [item["temperature"] for item in samples]
+                set_values = [item["set_temperature"] for item in samples]
+                axis.plot(x_values, y_values, marker="o", label="实时温度")
+                if any(value is not None for value in set_values):
+                    axis.plot(x_values, set_values, linestyle="--", label="设定温度")
+                axis.set_xlim(left=0)
+                axis.set_ylim(bottom=0)
+                axis.legend()
+            else:
+                axis.text(0.5, 0.5, "温度监控未启用或未读取到有效数据", ha="center", va="center", transform=axis.transAxes)
+            axis.set_title(f"马弗炉{furnace_position}温度曲线")
+            axis.set_xlabel("运行时间（分钟）")
+            axis.set_ylabel("温度（摄氏度）")
+            axis.grid(True, alpha=0.3)
+            figure.tight_layout()
+            figure.savefig(destination)
+            plt.close(figure)
+            return str(destination.resolve())
+        except Exception as exc:
+            logger.warning(f"马弗炉{furnace_position}温度曲线生成失败: {exc}")
+            return None
 
     @not_action
     def is_open_can_upper_lid_occupied(self) -> bool:
@@ -1191,6 +1590,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
             can_number[球磨罐号]: 由上游动作 handle 传入，范围 1~32；用于实际加粉日志。
         """
         can_number = self._validate_ball_mill_can_number(can_number)
+        self._check_add_powder_faults()
         logger.info(
             f"为 {can_number} 号球磨罐加粉..."
             f"（check_can_occupied={check_can_occupied}）"
@@ -2045,6 +2445,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             require_full[是否需满4罐]: 是否要求球磨区 4 个位置全部放满才开始加工。
                 True=必须满 4 个；False=只要有球磨罐即可开始（默认 True）。
         """
+        self._check_ball_mill_fault()
+
         if require_full:
             for mill_position in [1, 2, 3, 4]:
                 if not self._wait_condition(lambda mp=mill_position: self.is_ball_mill_occupied(mp)):
@@ -2060,23 +2462,35 @@ class XUSEDevice(OpcUaClientWithSubscription):
                 raise ValueError(error_msg)
             logger.info(f"球磨区已占位 {occupied}（不要求满 4 个），开始加工")
 
-        if self._wait_until_true("Ball_Mill_Request_Process", description="球磨请求加工"):
-            logger.info("收到球磨请求加工")
-            self.set_node_value("Ball_Mill_Start_Process", True) # 设置球磨开始
-            if self._wait_until_true("Ball_Mill_Process_Complete", description="等待球磨完成"):
-                logger.info("球磨完成")
-                self.set_node_value("Ball_Mill_Start_Process", False) # 复位球磨开始
+        if self._wait_until_true("Ball_Mill_Request_Process", description="\u7403\u78e8\u8bf7\u6c42\u52a0\u5de5"):
+            logger.info("\u6536\u5230\u7403\u78e8\u8bf7\u6c42\u52a0\u5de5")
+            self.set_node_value("Ball_Mill_Start_Process", True) # \u8bbe\u7f6e\u7403\u78e8\u5f00\u59cb
+            self._begin_ball_mill_run()
+            try:
+                completed = self._wait_until_true(
+                    "Ball_Mill_Process_Complete",
+                    description="\u7b49\u5f85\u7403\u78e8\u5b8c\u6210",
+                )
+            finally:
+                try:
+                    self.set_node_value("Ball_Mill_Start_Process", False) # \u590d\u4f4d\u7403\u78e8\u5f00\u59cb
+                finally:
+                    self._end_ball_mill_run()
+            if completed:
+                logger.info("\u7403\u78e8\u5b8c\u6210")
                 return {
                     "success": True,
-                    "message": "球磨完成",
+                    "message": "\u7403\u78e8\u5b8c\u6210",
+                    "data": {
+                        "current_runtime": self.ball_mill_current_runtime(),
+                        "total_set_time": self.ball_mill_total_set_time(),
+                    },
                 }
-            else:
-                self.set_node_value("Ball_Mill_Start_Process", False) # 复位球磨开始
-                error_msg = "球磨失败，操作超时"
-                logger.error(error_msg)
-                raise ValueError(error_msg)
+            error_msg = "\u7403\u78e8\u5931\u8d25\uff0c\u64cd\u4f5c\u8d85\u65f6"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
         else:
-            error_msg = "球磨加工失败，未收到加工请求"
+            error_msg = "\u7403\u78e8\u52a0\u5de5\u5931\u8d25\uff0c\u672a\u6536\u5230\u52a0\u5de5\u8bf7\u6c42"
             logger.error(error_msg)
             raise ValueError(error_msg)
     
@@ -3286,6 +3700,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         self,
         muffle_furnace_position: int,
         check_can_occupied: bool = True,
+        temperature_curve_path: str = "",
     ) -> dict:
         """马弗炉烧结（加热）。
 
@@ -3296,6 +3711,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         Args:
             muffle_furnace_position[马弗炉位置]: 马弗炉编号，范围 1~6。
             check_can_occupied[是否检查坩埚占位]: True=烧结前检查占位；False=跳过占位检查。
+            temperature_curve_path[\u6e29\u5ea6\u66f2\u7ebf\u8f93\u51fa\u8def\u5f84]: \u53ef\u4f20\u5165 PNG \u6587\u4ef6\u8def\u5f84\u6216\u8f93\u51fa\u76ee\u5f55\uff1b\u7559\u7a7a\u4f7f\u7528 XUSE/records\u76ee\u5f55\u3002
         """
         logger.info(f"开始马弗炉{muffle_furnace_position}烧结（check_can_occupied={check_can_occupied}）")
         MIN_MUFFLE_FURNACE_POSITION = 1
@@ -3305,6 +3721,8 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
         
+        self._check_muffle_furnace_faults(muffle_furnace_position)
+
         if check_can_occupied:
             if not self._wait_condition(lambda: self.is_muffle_furnace_occupied(muffle_furnace_position)):
                 error_msg = f"马弗炉位置{muffle_furnace_position}未占位，无法烧结"
@@ -3313,21 +3731,52 @@ class XUSEDevice(OpcUaClientWithSubscription):
         else:
             logger.info(f"跳过马弗炉{muffle_furnace_position}占位检查，直接等待烧结请求...")
         
-        if self._wait_until_true(f"Muffle_Furnace_Request_Process_{muffle_furnace_position}", description=f"马弗炉{muffle_furnace_position}开始请求"):
-            self.set_node_value(f"Muffle_Furnace_Start_Process_{muffle_furnace_position}", True) # 设置开始烧结
-            if self._wait_until_true(f"Muffle_Furnace_Process_Complete_{muffle_furnace_position}", description=f"马弗炉{muffle_furnace_position}烧结完成"):
-                logger.info(f"马弗炉{muffle_furnace_position}烧结完成")
-                self.set_node_value(f"Muffle_Furnace_Start_Process_{muffle_furnace_position}", False) # 复位动作触发
+        # \u5728\u7b49\u5f85 PLC \u8bf7\u6c42\u671f\u95f4\u5148\u51c6\u5907\u603b\u8bbe\u5b9a\u65f6\u95f4\u548c\u6e29\u5ea6\u66f2\u7ebf\uff0c\u52a8\u4f5c\u771f\u6b63\u5f00\u59cb\u65f6\u518d\u6e05\u96f6\u8fd0\u884c\u65f6\u95f4\u3002
+        furnace_status = getattr(self, "_muffle_furnace_status", {}).get(muffle_furnace_position)
+        if furnace_status is not None and not furnace_status.get("profile") and not furnace_status.get("total_seconds"):
+            self._refresh_muffle_profile_from_plc(muffle_furnace_position)
+
+        if self._wait_until_true(f"Muffle_Furnace_Request_Process_{muffle_furnace_position}", description=f"\u9a6c\u5f17\u7089{muffle_furnace_position}\u5f00\u59cb\u8bf7\u6c42"):
+            start_node = f"Muffle_Furnace_Start_Process_{muffle_furnace_position}"
+            self.set_node_value(start_node, True) # \u8bbe\u7f6e\u5f00\u59cb\u70e7\u7ed3
+            self._begin_muffle_furnace_run(muffle_furnace_position)
+            started_at = getattr(self, "_muffle_furnace_status", {}).get(muffle_furnace_position, {}).get("started_at") or time.monotonic()
+            monitor = None
+            curve_path = None
+            try:
+                monitor = self._start_muffle_temperature_monitor(muffle_furnace_position, started_at)
+                completed = self._wait_until_true(
+                    f"Muffle_Furnace_Process_Complete_{muffle_furnace_position}",
+                    description=f"\u9a6c\u5f17\u7089{muffle_furnace_position}\u70e7\u7ed3\u5b8c\u6210",
+                )
+            finally:
+                try:
+                    self.set_node_value(start_node, False) # \u590d\u4f4d\u52a8\u4f5c\u89e6\u53d1
+                finally:
+                    curve_path = self._stop_muffle_temperature_monitor(
+                        muffle_furnace_position,
+                        monitor,
+                        temperature_curve_path,
+                    )
+                    self._end_muffle_furnace_run(muffle_furnace_position)
+            if completed:
+                logger.info(f"\u9a6c\u5f17\u7089{muffle_furnace_position}\u70e7\u7ed3\u5b8c\u6210")
+                status = getattr(self, "_muffle_furnace_status", {}).get(muffle_furnace_position, {})
                 return {
                     "success": True,
-                    "message": f"马弗炉{muffle_furnace_position}烧结完成",
+                    "message": f"\u9a6c\u5f17\u7089{muffle_furnace_position}\u70e7\u7ed3\u5b8c\u6210",
+                    "data": {
+                        "current_runtime": round(float(status.get("elapsed_seconds", 0.0) or 0.0), 1),
+                        "total_set_time": round(float(status.get("total_seconds", 0.0) or 0.0), 1),
+                        "set_temperature": self.muffle_furnace_set_temperature()[muffle_furnace_position - 1],
+                        "current_temperature": self.muffle_furnace_current_temperature()[muffle_furnace_position - 1],
+                        "temperature_curve_file": curve_path,
+                    },
                 }
-            else:
-                logger.error(f"马弗炉{muffle_furnace_position}烧结失败")
-                self.set_node_value(f"Muffle_Furnace_Start_Process_{muffle_furnace_position}", False) # 复位动作触发
-                raise ValueError(f"马弗炉{muffle_furnace_position}烧结失败，等待烧结超时")
+            logger.error(f"\u9a6c\u5f17\u7089{muffle_furnace_position}\u70e7\u7ed3\u5931\u8d25")
+            raise ValueError(f"\u9a6c\u5f17\u7089{muffle_furnace_position}\u70e7\u7ed3\u5931\u8d25\uff0c\u7b49\u5f85\u70e7\u7ed3\u8d85\u65f6")
         else:
-            error_msg = f"马弗炉{muffle_furnace_position}烧结失败，未收到请求"
+            error_msg = f"\u9a6c\u5f17\u7089{muffle_furnace_position}\u70e7\u7ed3\u5931\u8d25\uff0c\u672a\u6536\u5230\u8bf7\u6c42"
             logger.error(error_msg)
             raise ValueError(error_msg)
 
@@ -3731,13 +4180,77 @@ class XUSEDevice(OpcUaClientWithSubscription):
             "message": f"整体流程运行完成",
         } 
 
+    @not_action
+    def _dump_parameter_snapshot(
+        self,
+        process_name: str,
+        param_file: str,
+        rows_by_sheet: dict,
+        record_dir: str = "",
+    ) -> str:
+        """\u5c06\u7403\u78e8\u6216\u9a6c\u5f17\u7089\u672c\u6b21\u53c2\u6570\u4e0b\u53d1\u5feb\u7167\u4fdd\u5b58\u4e3a xlsx \u65e5\u5fd7\u3002"""
+        import re
+        import openpyxl
+        from openpyxl.styles import Alignment, Font, PatternFill
+
+        raw_dir = str(record_dir or "").strip().strip('"').strip("'")
+        directory = Path(raw_dir).expanduser() if raw_dir else Path(__file__).resolve().parent / "records"
+        directory.mkdir(parents=True, exist_ok=True)
+        safe_name = re.sub(r'[\\/:*?"<>|\r\n\t]+', "_", str(process_name).strip())[:80] or "parameter"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        destination = directory / f"{timestamp}_{safe_name}.xlsx"
+        counter = 1
+        while destination.exists():
+            destination = directory / f"{timestamp}_{safe_name}_{counter}.xlsx"
+            counter += 1
+
+        header_fill = PatternFill("solid", fgColor="FF1A3A63")
+        header_font = Font(bold=True, color="FFFFFFFF")
+        header_alignment = Alignment(horizontal="center", vertical="center")
+        with self._PARAMETER_RECORD_LOCK:
+            workbook = openpyxl.Workbook()
+            workbook.remove(workbook.active)
+            metadata = workbook.create_sheet("_meta_")
+            metadata.append(["字段", "值"])
+            metadata.append(["过程", process_name])
+            metadata.append(["生成时间", datetime.now().isoformat(timespec="seconds")])
+            metadata.append(["源文件", str(Path(param_file).expanduser().resolve())])
+            metadata.append(["参数项数", sum(len(rows) for rows in rows_by_sheet.values())])
+            for cell in metadata[1]:
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = header_alignment
+
+            for sheet_name, rows in rows_by_sheet.items():
+                worksheet = workbook.create_sheet(str(sheet_name)[:31] or "参数")
+                worksheet.append(["参数名", "Excel原始值", "PLC下发值", "写入状态"])
+                for cell in worksheet[1]:
+                    cell.fill = header_fill
+                    cell.font = header_font
+                    cell.alignment = header_alignment
+                for row in rows:
+                    worksheet.append([
+                        row.get("name", ""),
+                        row.get("input_value", ""),
+                        row.get("plc_value", ""),
+                        row.get("write_status", ""),
+                    ])
+                worksheet.freeze_panes = "A2"
+                worksheet.column_dimensions["A"].width = 34
+                worksheet.column_dimensions["B"].width = 20
+                worksheet.column_dimensions["C"].width = 18
+                worksheet.column_dimensions["D"].width = 14
+            workbook.save(destination)
+            workbook.close()
+        return str(destination.resolve())
+
     @action()
-    def set_muffle_furnace_params(self, param_file: str) -> dict:
+    def set_muffle_furnace_params(self, param_file: str, record_dir: str = "") -> dict:
         """
         设置马弗炉烧结参数（6 台分别设置）。
 
         从 Excel 参数文件读取并下发到各马弗炉写节点 马弗炉_写[N].<参数名>：
-        文本 ``none``（忽略大小写和首尾空格）固定下发 -121；加热运行控制、自整定功能、
+        文本 ``none``（忽略大小写和首尾空格）固定下发 -1210；加热运行控制、自整定功能、
         程序段跳转、输出功率上限按原值下发；其余非空数值乘以 10 后下发。
         Excel 含若干 sheet，每个 sheet 对应一台马弗炉（sheet 名中的数字 1~6 即炉号）；
         每个 sheet 两列：第一列"参数名"，第二列"参数值"，首行为表头；参数值为空的行会被跳过。
@@ -3745,6 +4258,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
 
         Args:
             param_file[马弗炉参数文件]: 马弗炉参数 Excel(.xlsx) 文件路径，含 6 个 sheet 分别设置 6 台马弗炉。
+            record_dir[\u53c2\u6570\u65e5\u5fd7\u76ee\u5f55]: \u65e5\u5fd7\u4fdd\u5b58\u76ee\u5f55\uff0c\u7559\u7a7a\u4f7f\u7528 XUSE/records\u3002
         """
         import re
         from decimal import Decimal
@@ -3767,6 +4281,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
         total_written = 0
         per_furnace = {}
         errors = []
+        parameter_rows = {}
         unscaled_param_names = {
             "加热运行控制",
             "自整定功能",
@@ -3784,21 +4299,26 @@ class XUSEDevice(OpcUaClientWithSubscription):
                 continue
 
             written = 0
+            furnace_rows = []
+            profile_segments = {}
+            start_temperature = None
             for row_idx, row in enumerate(sheet.iter_rows(values_only=True), start=1):
-                if row_idx == 1:  # 跳过表头
+                if row_idx == 1:
                     continue
                 if not row or row[0] is None or str(row[0]).strip() == "":
                     continue
                 param_name = str(row[0]).strip()
                 value = row[1] if len(row) > 1 else None
                 if value is None or str(value).strip() == "":
-                    continue  # 参数值为空则跳过该参数
-                node_name = f"马弗炉_写[{furnace_idx}].{param_name}"
+                    continue
+                node_name = f"\u9a6c\u5f17\u7089_\u5199[{furnace_idx}].{param_name}"
+                plc_value = ""
+                write_status = "\u5931\u8d25"
                 try:
                     raw_value = str(value).strip()
                     if raw_value.casefold() == "none":
-                        plc_value = -121
-                        conversion = "特殊值 none → -121"
+                        plc_value = -1210
+                        conversion = "特殊值 none -> -1210"
                     elif param_name in unscaled_param_names:
                         plc_value = int(Decimal(raw_value))
                         conversion = "控制参数按原值下发"
@@ -3806,15 +4326,56 @@ class XUSEDevice(OpcUaClientWithSubscription):
                         plc_value = int(Decimal(raw_value) * 10)
                         conversion = "已乘以 10"
                     logger.info(
-                        f"[马弗炉参数下发] 写入 {node_name} = {plc_value} "
-                        f"(Excel 原始值={value!r}, {conversion})"
+                        f"[\u9a6c\u5f17\u7089\u53c2\u6570\u4e0b\u53d1] \u5199\u5165 {node_name} = {plc_value} "
+                        f"(Excel \u539f\u59cb\u503c={value!r}, {conversion})"
                     )
                     if self.set_node_value(node_name, plc_value):
                         written += 1
+                        write_status = "\u6210\u529f"
                     else:
-                        errors.append(f"{node_name} 写入失败")
+                        errors.append(f"{node_name} \u5199\u5165\u5931\u8d25")
                 except Exception as e:
-                    errors.append(f"{node_name} 写入出错: {e}")
+                    errors.append(f"{node_name} \u5199\u5165\u51fa\u9519: {e}")
+                furnace_rows.append({
+                    "name": param_name,
+                    "input_value": value,
+                    "plc_value": plc_value,
+                    "write_status": write_status,
+                })
+
+                # Excel 时间单位为分钟，温度单位为摄氏度；PLC 写入值分别放大 10 倍。
+                try:
+                    if param_name == "\u8d77\u59cb\u6e29\u5ea6":
+                        start_temperature = float(plc_value) / 10.0
+                    else:
+                        match = re.fullmatch(r"第(\d+)段程序时间", param_name)
+                        if match:
+                            profile_segments.setdefault(int(match.group(1)), {})["duration_minutes"] = max(0.0, float(plc_value) / 10.0)
+                        match = re.fullmatch(r"第(\d+)段程序温度", param_name)
+                        if match:
+                            profile_segments.setdefault(int(match.group(1)), {})["temperature"] = float(plc_value) / 10.0
+                except (TypeError, ValueError):
+                    pass
+
+            parameter_rows[f"\u9a6c\u5f17\u7089{furnace_idx}"] = furnace_rows
+            status = getattr(self, "_muffle_furnace_status", {}).get(furnace_idx)
+            if status is not None:
+                profile = []
+                for segment_idx in sorted(profile_segments):
+                    segment = profile_segments[segment_idx]
+                    duration_minutes = float(segment.get("duration_minutes", 0.0) or 0.0)
+                    if duration_minutes > 0:
+                        profile.append({
+                            "duration_seconds": duration_minutes * self._MUFFLE_FURNACE_TIME_UNIT_SECONDS,
+                            "temperature": float(segment.get("temperature", 0.0) or 0.0),
+                        })
+                status["profile"] = profile
+                status["total_seconds"] = sum(item["duration_seconds"] for item in profile)
+                status["set_temperature"] = (
+                    float(start_temperature)
+                    if start_temperature is not None
+                    else (profile[0]["temperature"] if profile else 0.0)
+                )
 
             per_furnace[furnace_idx] = written
             total_written += written
@@ -3833,15 +4394,27 @@ class XUSEDevice(OpcUaClientWithSubscription):
             logger.error(error_msg)
             raise ValueError(error_msg)
 
+        record_path = None
+        try:
+            record_path = self._dump_parameter_snapshot(
+                "\u9a6c\u5f17\u7089\u53c2\u6570",
+                param_file,
+                parameter_rows,
+                record_dir,
+            )
+            logger.info(f"\u9a6c\u5f17\u7089\u53c2\u6570\u65e5\u5fd7\u5df2\u751f\u6210: {record_path}")
+        except Exception as exc:
+            logger.warning(f"\u9a6c\u5f17\u7089\u53c2\u6570\u65e5\u5fd7\u5199\u5165\u5931\u8d25\uff08\u4e0d\u5f71\u54cd\u4e3b\u6d41\u7a0b\uff09: {exc}")
+
         return {
             "success": True,
-            "message": f"马弗炉参数下发完成，共写入 {total_written} 项",
-            "data": {"total_written": total_written, "per_furnace": per_furnace},
+            "message": f"\u9a6c\u5f17\u7089\u53c2\u6570\u4e0b\u53d1\u5b8c\u6210\uff0c\u5171\u5199\u5165 {total_written} \u9879",
+            "data": {"total_written": total_written, "per_furnace": per_furnace, "record_file": record_path},
             "error": errors,
         }
 
     @action()
-    def set_ball_mill_params(self, param_file: str) -> dict:
+    def set_ball_mill_params(self, param_file: str, record_dir: str = "") -> dict:
         """
         设置球磨工艺参数。
 
@@ -3852,6 +4425,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
 
         Args:
             param_file[球磨参数文件]: 球磨参数 Excel(.xlsx) 文件路径。
+            record_dir[\u53c2\u6570\u65e5\u5fd7\u76ee\u5f55]: \u65e5\u5fd7\u4fdd\u5b58\u76ee\u5f55\uff0c\u7559\u7a7a\u4f7f\u7528 XUSE/records\u3002
         """
         import openpyxl
 
@@ -3872,23 +4446,46 @@ class XUSEDevice(OpcUaClientWithSubscription):
         sheet = wb.worksheets[0]  # 球磨仅 1 台，取第一个 sheet
         written = 0
         errors = []
+        import re
+        parameter_rows = []
+        step_times = {}
         for row_idx, row in enumerate(sheet.iter_rows(values_only=True), start=1):
-            if row_idx == 1:  # 跳过表头
+            if row_idx == 1:
                 continue
             if not row or row[0] is None or str(row[0]).strip() == "":
                 continue
             param_name = str(row[0]).strip()
             value = row[1] if len(row) > 1 else None
             if value is None or str(value).strip() == "":
-                continue  # 参数值为空则跳过该参数
-            node_name = f"球磨工艺参数[1].{param_name}"
+                continue
+            node_name = f"\u7403\u78e8\u5de5\u827a\u53c2\u6570[1].{param_name}"
+            plc_value = ""
+            write_status = "\u5931\u8d25"
             try:
-                if self.set_node_value(node_name, int(float(value))):
+                plc_value = int(float(value))
+                if self.set_node_value(node_name, plc_value):
                     written += 1
+                    write_status = "\u6210\u529f"
                 else:
-                    errors.append(f"{node_name} 写入失败")
+                    errors.append(f"{node_name} \u5199\u5165\u5931\u8d25")
             except Exception as e:
-                errors.append(f"{node_name} 写入出错: {e}")
+                errors.append(f"{node_name} \u5199\u5165\u51fa\u9519: {e}")
+            parameter_rows.append({
+                "name": param_name,
+                "input_value": value,
+                "plc_value": plc_value,
+                "write_status": write_status,
+            })
+            match = re.fullmatch(r"步骤(\d+)_工作时间", param_name)
+            if match:
+                try:
+                    step_times[int(match.group(1))] = max(0.0, float(plc_value))
+                except (TypeError, ValueError):
+                    pass
+
+        status = getattr(self, "_ball_mill_status", None)
+        if status is not None and step_times:
+            status["total_seconds"] = sum(step_times.values()) * self._BALL_MILL_TIME_UNIT_SECONDS
 
         if written == 0:
             error_msg = f"球磨参数下发失败，未写入任何参数（文件: {param_file}）"
@@ -3903,10 +4500,25 @@ class XUSEDevice(OpcUaClientWithSubscription):
         )
 
         logger.info(f"球磨参数下发完成，共 {written} 项")
+        record_path = None
+        try:
+            record_path = self._dump_parameter_snapshot(
+                "\u7403\u78e8\u53c2\u6570",
+                param_file,
+                {"\u7403\u78e8": parameter_rows},
+                record_dir,
+            )
+        except Exception as exc:
+            logger.warning(f"\u7403\u78e8\u53c2\u6570\u65e5\u5fd7\u5199\u5165\u5931\u8d25\uff08\u4e0d\u5f71\u54cd\u4e3b\u6d41\u7a0b\uff09: {exc}")
+
         return {
             "success": True,
-            "message": f"球磨参数下发完成，共写入 {written} 项",
-            "data": {"written": written},
+            "message": f"\u7403\u78e8\u53c2\u6570\u4e0b\u53d1\u5b8c\u6210\uff0c\u5171\u5199\u5165 {written} \u9879",
+            "data": {
+                "written": written,
+                "record_file": record_path,
+                "total_set_time": round(float(getattr(self, "_ball_mill_status", {}).get("total_seconds", 0.0) or 0.0), 1),
+            },
             "error": errors,
         }
 
