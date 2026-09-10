@@ -4508,6 +4508,7 @@ class XUSEDevice(OpcUaClientWithSubscription):
                 {"\u7403\u78e8": parameter_rows},
                 record_dir,
             )
+            logger.info(f"\u7403\u78e8\u53c2\u6570\u65e5\u5fd7\u5df2\u751f\u6210: {record_path}")
         except Exception as exc:
             logger.warning(f"\u7403\u78e8\u53c2\u6570\u65e5\u5fd7\u5199\u5165\u5931\u8d25\uff08\u4e0d\u5f71\u54cd\u4e3b\u6d41\u7a0b\uff09: {exc}")
 
