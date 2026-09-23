@@ -1,0 +1,5412 @@
+"""
+XUSE 厦大固态实验设备驱动
+继承自 OPC UA 通讯基类，实现具体的设备动作函数
+"""
+
+import json
+import math
+import time
+import traceback
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+import os
+import threading
+
+# 导入日志类
+from unilabos.utils.log import logger
+import logging
+
+from unilabos.registry.decorators import (
+    action,
+    device,
+    not_action,
+    topic_config,
+    ActionInputHandle,
+    ActionOutputHandle,
+    DataSource,
+    NodeType,
+)
+
+# 导入通讯基类
+from unilabos.devices.workstation.XUSE.base_opcua_client import OpcUaClientWithSubscription
+
+# 导入 deck 资源树
+from unilabos.devices.workstation.XUSE.decks import XUSE_deck
+
+# 导入常量定义
+from unilabos.devices.workstation.XUSE.XUSE_CONSTS import RoboticArmTargetPosition_1, RoboticArmPickPlaceCode_1
+from unilabos.devices.workstation.XUSE.XUSE_CONSTS import RoboticArmPickPlaceCode_2, RoboticArmTargetPosition_3
+from unilabos.devices.workstation.XUSE.XUSE_CONSTS import RoboticArmPickPlaceCode_3
+from unilabos.devices.workstation.XUSE.XUSE_CONSTS import OpenCanActionCode, SieveActionCode, ScrapePowderActionCode
+from unilabos.devices.workstation.XUSE.XUSE_CONSTS import SmallCrucibleDischargePosition, LargeCrucibleFeedPosition
+from unilabos.devices.workstation.XUSE.XUSE_CONSTS import (
+    ARM_LOCK_MAP,
+    PUBLISHED_BOOLEAN_STATUS_NODES,
+)
+
+# 定义 XUSE 设备通信类
+# 包含三个机械臂，一个罐架区，一个加珠区，一个开罐区，一个刮粉区，一个过筛区，一个加粉区，一个球磨区，一个马弗炉区，一个出料区
+@device(
+    id="XUSE_station",
+    category=["XUSE_station"],
+    description="厦门大学固态实验工站（XUSE），包含 3 个机械臂、罐架区、加珠区、开罐区、刮粉区、过筛区、加粉区、球磨区、马弗炉区和出料区",
+    display_name="XUSE 厦大固态实验工站",
+    icon="XUSE_station.png",
+    version="1.0.0",
+)
+class XUSEDevice(OpcUaClientWithSubscription):
+    """
+    XUSE 设备类
+    继承自 OpcUaClientWithSubscription，实现具体的设备动作函数
+    """
+
+    # 动作 -> 机械臂编号 映射（定义见 XUSE_CONSTS.ARM_LOCK_MAP）。
+    _ARM_LOCK_MAP = ARM_LOCK_MAP
+    _BALL_MILL_CAN_MIN = 1
+    _BALL_MILL_CAN_MAX = 32
+    _DEFAULT_POWDER_PARAMS_DIR = "unilabos/devices/workstation/XUSE/powder_params"
+    _ACTUAL_POWDER_LOG_FILENAME = "实际加粉日志.xlsx"
+    _ACTUAL_POWDER_LOG_LOCK = threading.RLock()
+    _PARAMETER_RECORD_LOCK = threading.RLock()
+    _RECORD_TIMESTAMP_FORMAT = "%Y%m%d_%H%M%S"
+    _BALL_MILL_TIME_UNIT_SECONDS = 60.0
+    _MUFFLE_FURNACE_TIME_UNIT_SECONDS = 60.0
+    _POWDER_FAULT_SIGNALS = (
+        ("Powder_Injection_Turntable_Fault", "\u6ce8\u7c89\u8f6c\u76d8\u51fa\u73b0\u6545\u969c"),
+        ("Powder_X_Axis_Fault", "\u52a0\u7c89X\u8f74\u51fa\u73b0\u6545\u969c"),
+        ("Powder_Drop_Prevention_Motor_Fault", "\u9632\u6389\u7c89\u7535\u673a\u51fa\u73b0\u6545\u969c"),
+        ("Powder_Z_Axis_Fault", "\u52a0\u7c89Z\u8f74\u51fa\u73b0\u6545\u969c"),
+        ("Powder_Rotation_Axis_Fault", "\u52a0\u7c89\u65cb\u8f6c\u8f74\u51fa\u73b0\u6545\u969c"),
+        ("\u7384\u5203\u521d\u59cb\u5316", "\u7384\u5203\u521d\u59cb\u5316\u51fa\u73b0\u6545\u969c"),
+        ("\u7384\u5203\u7801\u81ea\u68c0", "\u7384\u5203\u7801\u81ea\u68c0\u51fa\u73b0\u6545\u969c"),
+        ("\u7384\u5203\u81ea\u52a8\u4e2d", "\u7384\u5203\u81ea\u52a8\u4e2d\u51fa\u73b0\u6545\u969c"),
+    )
+    _MUFFLE_ERROR_DESCRIPTIONS = {
+        1: {1: "\u5f00\u95e8\u5f02\u5e38", 2: "\u5173\u95e8\u8d85\u65f6", 4: "\u5347\u6e29\u8d85\u65f6"},
+        2: {1: "\u5f00\u95e8\u5f02\u5e38", 2: "\u5173\u95e8\u8d85\u65f6", 5: "\u5347\u6e29\u8d85\u65f6"},
+        3: {1: "\u5f00\u95e8\u5f02\u5e38", 2: "\u5173\u95e8\u8d85\u65f6", 6: "\u5347\u6e29\u8d85\u65f6"},
+        4: {1: "\u5f00\u95e8\u5f02\u5e38", 2: "\u5173\u95e8\u8d85\u65f6", 7: "\u5347\u6e29\u8d85\u65f6"},
+        5: {1: "\u5f00\u95e8\u5f02\u5e38", 2: "\u5173\u95e8\u8d85\u65f6", 8: "\u5347\u6e29\u8d85\u65f6"},
+        6: {1: "\u5f00\u95e8\u5f02\u5e38", 2: "\u5173\u95e8\u8d85\u65f6", 9: "\u5347\u6e29\u8d85\u65f6"},
+    }
+
+    @classmethod
+    def _validate_ball_mill_can_number(cls, can_number: int) -> int:
+        """规范化球磨罐号，并限制为罐架支持的 1~32。"""
+        if isinstance(can_number, bool):
+            raise ValueError("球磨罐号必须是 1~32 的整数")
+        try:
+            normalized = int(can_number)
+        except (TypeError, ValueError) as e:
+            raise ValueError("球磨罐号必须是 1~32 的整数") from e
+        if str(can_number).strip() not in {str(normalized), f"{normalized}.0"}:
+            raise ValueError("球磨罐号必须是 1~32 的整数")
+        if not cls._BALL_MILL_CAN_MIN <= normalized <= cls._BALL_MILL_CAN_MAX:
+            raise ValueError(
+                f"球磨罐号超出范围: {normalized}，必须为 "
+                f"{cls._BALL_MILL_CAN_MIN}~{cls._BALL_MILL_CAN_MAX}"
+            )
+        return normalized
+
+    def __init__(
+        self, 
+        url: str, 
+        deck: Optional[XUSE_deck] = None,
+        csv_path: str = None, 
+        username: str = None, 
+        password: str = None,
+        use_subscription: bool = True,
+        cache_timeout: float = 5.0,
+        subscription_interval: int = 500,
+        *args,
+        **kwargs,
+    ):
+        """
+        初始化 XUSE 设备
+        
+        参数:
+            url: OPC UA 服务器地址
+            deck: XUSE 资源树配置
+            csv_path: 节点配置 CSV 文件路径
+            username: OPC UA 用户名
+            password: OPC UA 密码
+            use_subscription: 是否启用订阅模式
+            cache_timeout: 缓存超时时间（秒）
+            subscription_interval: 订阅发布间隔（毫秒）
+        """
+        # 调用父类构造函数
+        super().__init__(
+            url=url,
+            username=username,
+            password=password,
+            use_subscription=use_subscription,
+            cache_timeout=cache_timeout,
+            subscription_interval=subscription_interval,
+            *args,
+            **kwargs
+        )
+
+        # 处理 deck 参数
+        if deck is None or isinstance(deck.get("data") if isinstance(deck, dict) else deck, dict):
+            self.deck = XUSE_deck(setup=True)
+        else:
+            self.deck = deck.get("data") if isinstance(deck, dict) else deck
+
+        if self.deck is None:
+            raise ValueError("Deck 配置不能为空")
+
+        # 统计仓库信息
+        if hasattr(self.deck, "children"):
+            warehouse_count = len(self.deck.children)
+            logger.info(f"Deck 初始化完成，加载 {warehouse_count} 个资源")
+
+        # 机械臂暂存载具（动作间转移物料用）：{arm_id: carrier}
+        self._held_carriers = {}
+
+        # 如果提供了 CSV 路径，则直接加载节点
+        if csv_path:
+            self.load_nodes_from_csv(csv_path)
+
+        # 加粉重量监控缓存：PLC REAL 在 OPC UA 中对应 Float。
+        try:
+            self._powder_weight_cache = float(
+                self.get_node_value("Powder_Weight", use_cache=False, force_read=True)
+            )
+        except Exception:
+            self._powder_weight_cache = 0.0
+
+        # \u7403\u78e8/\u9a6c\u5f17\u7089\u8fd0\u884c\u72b6\u6001\u5747\u5728\u672c\u5730\u7ef4\u62a4\uff0cPLC \u6ca1\u6709\u5bf9\u5e94\u8282\u70b9\u3002
+        self._ball_mill_status = {
+            "started_at": None,
+            "elapsed_seconds": 0.0,
+            "total_seconds": 0.0,
+        }
+        self._muffle_furnace_status = {
+            idx: {
+                "started_at": None,
+                "elapsed_seconds": 0.0,
+                "total_seconds": 0.0,
+                "set_temperature": 0.0,
+                "profile": [],
+            }
+            for idx in range(1, 7)
+        }
+        self._muffle_temperature_enabled_cache = [False] * 6
+        self._muffle_temperature_cache = [0.0] * 6
+
+        # 工站状态本地缓存 + 后台轮询线程。
+        # 原因：状态方法会被 ROS 各自的定时器周期调用，如果直接走 get_node_value
+        # （共享 OPC 锁、可能因动作占用而阻塞），部分发布回调会卡住，导致对应 topic 不发布、
+        # host 扫不到、前端状态显示不全。这里用单一后台线程每 5 秒统一刷新缓存，
+        # 状态方法只读缓存即时返回，保证机械臂状态和加粉重量都能稳定发布。
+        self._arm_status_nodes = list(PUBLISHED_BOOLEAN_STATUS_NODES)
+        # 启动时先同步读一次真实值初始化缓存（读失败才退回 False 兜底），
+        # 保证所有布尔状态从一开始就是 OPC UA 的真实状态，且始终是具体 bool。
+        self._arm_status_cache = {}
+        for _n in self._arm_status_nodes:
+            try:
+                self._arm_status_cache[_n] = bool(self.get_node_value(_n))
+            except Exception:
+                self._arm_status_cache[_n] = False
+        self._arm_status_poller_stop = threading.Event()
+        self._arm_status_thread = threading.Thread(
+            target=self._arm_status_poll_loop, name="XUSEArmStatusPoller", daemon=True
+        )
+        self._arm_status_thread.start()
+
+        # 机械臂线程锁：机器人 1/2/3 各一把，保证同一机械臂同一时间只执行一个动作。
+        # 仿照 AI4M，用线程锁串行化同一机械臂的动作；用 RLock 允许同线程内嵌套调用（如编排动作）。
+        self._arm_locks = {1: threading.RLock(), 2: threading.RLock(), 3: threading.RLock()}
+        for _mname, _arm_id in self._ARM_LOCK_MAP.items():
+            _orig = getattr(self, _mname, None)
+            if callable(_orig):
+                setattr(self, _mname, self._make_arm_locked(_orig, _arm_id))
+            else:
+                logger.warning(f"机械臂线程锁包裹失败，方法不存在: {_mname}")
+
+    @not_action
+    def _make_arm_locked(self, func, arm_id: int):
+        """把动作方法包裹成"先获取对应机械臂线程锁，执行后释放"的版本（实例级替换）。"""
+        import functools
+
+        lock = self._arm_locks[arm_id]
+
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            lock.acquire()
+            logger.info(f"[机械臂{arm_id}] 已获取线程锁: {func.__name__}")
+            try:
+                return func(*args, **kwargs)
+            finally:
+                lock.release()
+                logger.info(f"[机械臂{arm_id}] 已释放线程锁: {func.__name__}")
+
+        return wrapper
+
+    @not_action
+    def _arm_status_poll_loop(self):
+        """后台每 5 秒轮询机械臂状态及加粉重量（读取失败时保留上次值）。
+
+        缓存在启动时已用真实值初始化，topic 方法只读取本地缓存，不阻塞 ROS 发布线程。
+        """
+        while not self._arm_status_poller_stop.is_set():
+            for node_name in self._arm_status_nodes:
+                try:
+                    self._arm_status_cache[node_name] = bool(self.get_node_value(node_name))
+                except Exception:
+                    pass
+            try:
+                self._powder_weight_cache = float(
+                    self.get_node_value(
+                        "Powder_Weight", use_cache=False, force_read=True
+                    )
+                )
+            except Exception:
+                pass
+            self._arm_status_poller_stop.wait(5.0)
+
+    @not_action
+    def post_init(self, ros_node):
+        """ROS2 节点就绪后的初始化：本地注册并上传 deck 到云端"""
+        if not (hasattr(self, "deck") and self.deck):
+            return
+
+        if not (hasattr(ros_node, "resource_tracker") and ros_node.resource_tracker):
+            logger.warning("resource_tracker 不存在，无法注册 deck")
+            return
+
+        # 保存 ros_node 引用
+        self._ros_node = ros_node
+
+        # 1. 本地注册（必需）
+        ros_node.resource_tracker.add_resource(self.deck)
+
+        # 2. 上传云端
+        try:
+            from unilabos.ros.nodes.base_device_node import ROS2DeviceNode
+            ROS2DeviceNode.run_async_func(
+                ros_node.update_resource,
+                True,
+                resources=[self.deck]
+            )
+            logger.info("Deck 已上传到云端")
+        except Exception as e:
+            logger.error(f"上传失败: {e}")
+
+    # =================== 前端物料转移辅助方法 ===================
+
+    @not_action
+    def _sync_deck_to_frontend(self) -> None:
+        """将 deck 资源树同步到前端"""
+        if hasattr(self, "_ros_node") and self._ros_node:
+            try:
+                from unilabos.ros.nodes.base_device_node import ROS2DeviceNode
+                ROS2DeviceNode.run_async_func(self._ros_node.update_resource, True, resources=[self.deck])
+                logger.info("✓ 已同步资源更新到前端")
+            except Exception as e:
+                logger.warning(f"前端资源更新失败: {e}")
+
+    @not_action
+    def _find_carrier_in_warehouse(self, warehouse):
+        """在堆栈中查找已有载具：兼容 直接位于 site / 嵌套在 ResourceHolder / children 兜底。
+
+        返回找到的载具（保留其原始名称），未找到返回 None。
+        """
+        if warehouse is None:
+            return None
+        # 1) 直接位于 site 上的载具
+        for s in (warehouse.sites or []):
+            if s is not None and type(s).__name__ != "ResourceHolder":
+                return s
+        # 2) 嵌套在 ResourceHolder 内部的载具
+        for s in (warehouse.sites or []):
+            if s is not None and type(s).__name__ == "ResourceHolder":
+                inner = getattr(s, "resource", None)
+                if inner is not None:
+                    return inner
+        # 3) 兜底：遍历 children 找载具
+        for ch in getattr(warehouse, "children", []) or []:
+            if getattr(ch, "category", "") == "bottle_carrier" or "Carrier" in type(ch).__name__:
+                return ch
+        return None
+
+    @not_action
+    def _pick_carrier_from_warehouse(self, warehouse_name: str, arm_id: int):
+        """从指定 1x1 堆栈取走载具：解绑 → 暂存到机械臂 → 同步前端。
+
+        - 若堆栈已有物料：取走并保留其原始名称（不会改名）。
+        - 若堆栈为空：不做任何转移，也不新建物料（动作照常进行，不报错）。
+
+        参数:
+        - warehouse_name: 源堆栈名称（如「开盖区」）
+        - arm_id: 机械臂编号（暂存键）
+        """
+        warehouse = self.deck.warehouses.get(warehouse_name) if getattr(self, "deck", None) else None
+        carrier = self._find_carrier_in_warehouse(warehouse)
+        if carrier is not None:
+            try:
+                parent = getattr(carrier, "parent", None) or warehouse
+                parent.unassign_child_resource(carrier)
+                logger.info(f"✓ 已从「{warehouse_name}」取走载具 {carrier.name}（保留原名）")
+            except Exception as e:
+                logger.warning(f"从「{warehouse_name}」解绑载具失败（不影响硬件操作）: {e}")
+            self._held_carriers[arm_id] = carrier
+            self._sync_deck_to_frontend()
+        else:
+            logger.info(f"「{warehouse_name}」无物料，跳过物料转移")
+            self._held_carriers[arm_id] = None
+        return carrier
+
+    @not_action
+    def _place_carrier_to_warehouse(self, warehouse_name: str, arm_id: int):
+        """将机械臂暂存载具放入指定 1x1 堆栈：绑定 → 清空暂存 → 同步前端。
+
+        - 若机械臂有暂存物料：放入目标堆栈。
+        - 若没有暂存物料：不做任何转移，也不新建物料（动作照常进行，不报错）。
+
+        参数:
+        - warehouse_name: 目标堆栈名称（如「加样区」）
+        - arm_id: 机械臂编号（暂存键）
+        """
+        warehouse = self.deck.warehouses.get(warehouse_name) if getattr(self, "deck", None) else None
+        carrier = self._held_carriers.get(arm_id)
+        if warehouse is not None and carrier is not None:
+            try:
+                site_idx = 0
+                site_key = list(warehouse._ordering.keys())[site_idx]
+                location = warehouse.child_locations[site_key]
+                warehouse.assign_child_resource(carrier, location=location, spot=site_idx)
+                logger.info(f"✓ 已将载具 {carrier.name} 放入「{warehouse_name}」")
+            except Exception as e:
+                logger.warning(f"将载具放入「{warehouse_name}」失败（不影响硬件操作）: {e}")
+            self._held_carriers[arm_id] = None
+            self._sync_deck_to_frontend()
+        else:
+            logger.info(f"机械臂{arm_id}无暂存物料，跳过物料转移")
+        return carrier
+
+    @not_action
+    def _pick_carrier_from_warehouse_at(self, warehouse_name: str, site_key, arm_id: int):
+        """从多位堆栈指定位 site_key 取走载具，暂存到机械臂（无物料则跳过，不报错）。
+
+        参数:
+        - warehouse_name: 源堆栈名称（如「球磨罐仓库」）
+        - site_key: 堆栈内位键（如「1-1」「C-1」「2」）
+        - arm_id: 机械臂编号（暂存键）
+        """
+        warehouse = self.deck.warehouses.get(warehouse_name) if getattr(self, "deck", None) else None
+        carrier = None
+        if warehouse is not None:
+            try:
+                site_idx = list(warehouse._ordering.keys()).index(str(site_key))
+                site = warehouse.sites[site_idx]
+                if site is not None and type(site).__name__ == "ResourceHolder":
+                    holder = site
+                    carrier = getattr(site, "resource", None)
+                else:
+                    holder = None
+                    carrier = site  # 直接位于位上的载具
+                if carrier is not None:
+                    parent = getattr(carrier, "parent", None) or holder or warehouse
+                    parent.unassign_child_resource(carrier)
+                    logger.info(f"✓ 已从「{warehouse_name}」[{site_key}] 取走载具 {carrier.name}（保留原名）")
+            except Exception as e:
+                logger.warning(f"从「{warehouse_name}」[{site_key}] 取载具失败（不影响硬件操作）: {e}")
+                carrier = None
+        if carrier is not None:
+            self._held_carriers[arm_id] = carrier
+            self._sync_deck_to_frontend()
+        else:
+            logger.info(f"「{warehouse_name}」[{site_key}] 无物料，跳过物料转移")
+            self._held_carriers[arm_id] = None
+        return carrier
+
+    @not_action
+    def _place_carrier_to_warehouse_at(self, warehouse_name: str, site_key, arm_id: int):
+        """将机械臂暂存载具放入多位堆栈指定位 site_key（无暂存则跳过，不报错）。
+
+        参数:
+        - warehouse_name: 目标堆栈名称（如「过筛区」）
+        - site_key: 堆栈内位键（如「1」「1-1」「D-1」）
+        - arm_id: 机械臂编号（暂存键）
+        """
+        warehouse = self.deck.warehouses.get(warehouse_name) if getattr(self, "deck", None) else None
+        carrier = self._held_carriers.get(arm_id)
+        if warehouse is not None and carrier is not None:
+            try:
+                site_idx = list(warehouse._ordering.keys()).index(str(site_key))
+                location = warehouse.child_locations[str(site_key)]
+                warehouse.assign_child_resource(carrier, location=location, spot=site_idx)
+                logger.info(f"✓ 已将载具 {carrier.name} 放入「{warehouse_name}」[{site_key}]")
+            except Exception as e:
+                logger.warning(f"将载具放入「{warehouse_name}」[{site_key}] 失败（不影响硬件操作）: {e}")
+            self._held_carriers[arm_id] = None
+            self._sync_deck_to_frontend()
+        else:
+            logger.info(f"机械臂{arm_id}无暂存物料，跳过物料转移")
+        return carrier
+
+    @not_action
+    def _can_rack_site_key(self, position: int) -> str:
+        """罐架位置号(1-32) → 球磨罐仓库位键（按行：1→1-1, 9→2-1, 32→4-8）。"""
+        return f"{(position - 1) // 8 + 1}-{(position - 1) % 8 + 1}"
+
+    @not_action
+    def _small_crucible_rack_site_key(self, position: int) -> str:
+        """坩埚位置号(1-20) → 小坩埚仓库位键（1→1-1, 10→1-10, 11→2-1, 20→2-10）。"""
+        return f"{(position - 1) // 10 + 1}-{(position - 1) % 10 + 1}"
+
+    @not_action
+    def _wait_condition(self, predicate, timeout: float = 3.0, interval: float = 0.1) -> bool:
+        """持续检测占位条件：满足返回 True；超过 timeout（默认 3 秒）仍不满足返回 False。
+
+        用于所有占位检测：条件不满足时不立即报错，而是持续轮询到超时再交由调用方处理。
+        """
+        deadline = time.time() + timeout
+        while True:
+            try:
+                if predicate():
+                    return True
+            except Exception as e:
+                logger.warning(f"占位检测异常，重试中: {e}")
+            if time.time() >= deadline:
+                return False
+            time.sleep(interval)
+
+    @not_action
+    def _read_fault_signal(self, node_name: str, description: str):
+        try:
+            return self.get_node_value(node_name, use_cache=False, force_read=True)
+        except Exception as exc:
+            logger.warning(f"\u8bfb\u53d6{description}\u76d1\u63a7\u5931\u8d25\uff0c\u8df3\u8fc7\u672c\u6b21\u6545\u969c\u5224\u65ad: {exc}")
+            return None
+
+    @not_action
+    def _raise_on_fault_signals(self, operation: str, signals) -> None:
+        faults = []
+        for node_name, description in signals:
+            value = self._read_fault_signal(node_name, description)
+            if value is None:
+                continue
+            if isinstance(value, str):
+                is_fault = value.strip().casefold() not in {"", "0", "off", "false", "none"}
+            else:
+                try:
+                    is_fault = bool(value)
+                except Exception:
+                    is_fault = False
+            if is_fault:
+                faults.append(f"{description}\uff08{node_name}={value!r}\uff09")
+        if faults:
+            error_msg = f"{operation}\u5931\u8d25\uff0c\u68c0\u6d4b\u5230\u6545\u969c\uff1a" + "\uff1b".join(faults)
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+    @not_action
+    def _check_add_powder_faults(self) -> None:
+        self._raise_on_fault_signals("\u52a0\u7c89", self._POWDER_FAULT_SIGNALS)
+
+    @not_action
+    def _check_ball_mill_fault(self) -> None:
+        value = self._read_fault_signal("\u7403\u78e8\u673a\u6545\u969c\u7801\u901a\u8baf", "\u7403\u78e8\u673a\u6545\u969c\u7801\u901a\u8baf")
+        if value is None:
+            return
+        try:
+            is_fault = int(value) != 0
+        except (TypeError, ValueError):
+            is_fault = True
+        if is_fault:
+            error_msg = f"\u7403\u78e8\u5931\u8d25\uff0c\u7403\u78e8\u673a\u6545\u969c\u7801\u901a\u8baf\u975e0\uff0c\u6545\u969c\u7801={value}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+    @not_action
+    def _check_muffle_furnace_faults(self, muffle_furnace_position: int) -> None:
+        faults = []
+        error_node = f"\u9a6c\u5f17\u7089\u9519\u8bef\u4ee3\u7801[{muffle_furnace_position - 1}]"
+        error_code = self._read_fault_signal(error_node, error_node)
+        if error_code is not None:
+            try:
+                error_code = int(error_code or 0)
+            except (TypeError, ValueError):
+                error_code = None
+            if error_code:
+                description = self._MUFFLE_ERROR_DESCRIPTIONS.get(muffle_furnace_position, {}).get(
+                    error_code, "\u672a\u5b9a\u4e49\u6545\u969c\u7801"
+                )
+                faults.append(f"\u9a6c\u5f17\u7089{muffle_furnace_position}{description}\uff08\u6545\u969c\u7801={error_code}\uff09")
+
+        if faults:
+            error_msg = f"\u9a6c\u5f17\u7089{muffle_furnace_position}\u70e7\u7ed3\u5931\u8d25\uff0c\u68c0\u6d4b\u5230\u6545\u969c\uff1a" + "\uff1b".join(faults)
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+    @not_action
+    def _execute_station_init(self) -> dict:
+        """执行工站初始化的 PLC 操作，供人工确认和直接初始化动作共用。"""
+        logger.info("停止机械臂触发...")
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", False)
+        self.set_node_value("Robotic_Arm_Action_Trigger_2", False)
+        self.set_node_value("Robotic_Arm_Action_Trigger_3", False)
+
+        logger.info("进行初始化...")
+        self.set_node_value("Station_Initialize_Complete", False)
+        time.sleep(1.0)
+        self.set_node_value("Station_Initialize", True)
+        time.sleep(1.0)
+        if self._wait_until_true("Station_Initialize_Complete", description="初始化工站"):
+            logger.info("初始化工站成功")
+            self.set_node_value("Station_Initialize", False)
+            return {
+                "success": True,
+                "message": "初始化工站成功",
+            }
+
+        logger.error("初始化工站失败")
+        self.set_node_value("Station_Initialize", False)
+        raise ValueError("初始化工站失败")
+
+    # 初始化工站（人工确认）
+    @action(
+        node_type=NodeType.MANUAL_CONFIRM,
+        placeholder_keys={"assignee_user_ids": "unilabos_manual_confirm"},
+        goal_default={"timeout_seconds": 3600, "assignee_user_ids": []},
+        feedback_interval=300,
+        description="工站初始化（人工确认节点：确认通过后停止机械臂触发，触发工站初始化，等待初始化完成）",
+    )
+    def trigger_init(
+        self,
+        timeout_seconds: int = 3600,
+        assignee_user_ids: Optional[list] = None,
+        **kwargs,
+    ) -> dict:
+        """
+        初始化函数（人工确认节点：云端确认通过后才会执行）：
+        - 停止 3 个机械臂触发
+        - 触发工站初始化
+        - 等待初始化完成
+
+        Args:
+            timeout_seconds[超时时间]: 人工确认超时时间，单位秒。
+            assignee_user_ids[确认人]: 指定处理人工确认任务的用户 ID 列表。
+
+        Returns:
+            dict: 包含 success 和 message
+        """
+        return self._execute_station_init()
+
+    # 初始化工站（无需人工确认）
+    @action(
+        description="工站初始化（无需人工确认：直接停止机械臂触发，触发工站初始化并等待完成）",
+    )
+    def trigger_init_without_confirmation(self) -> dict:
+        """直接初始化工站，不创建人工确认任务。"""
+        return self._execute_station_init()
+
+    # 加样单元初始化
+    @action(description="加样单元初始化（触发 Add_Sample_Initialize，等待 Add_Sample_Initialize_Complete）")
+    def trigger_add_powder_init(self) -> dict:
+        """
+        加样单元初始化：
+        - 先复位完成标志 Add_Sample_Initialize_Complete
+        - 触发 Add_Sample_Initialize（上升沿）
+        - 等待 Add_Sample_Initialize_Complete 变为 True
+        - 复位 Add_Sample_Initialize，返回成功
+
+        本动作只负责加样单元的自初始化，不影响机械臂等其它模块；与 trigger_init（整站初始化）
+        独立。如需在整站初始化前后单独重置加样单元，可调本动作。
+
+        Returns:
+            dict: 包含 success 和 message
+        """
+        logger.info("开始加样单元初始化...")
+        # 先复位完成标志与触发标志，避免残留信号
+        self.set_node_value("Add_Sample_Initialize_Complete", False)
+        time.sleep(1.0)
+        self.set_node_value("Add_Sample_Initialize", True)  # 上升沿触发
+        time.sleep(1.0)
+        if self._wait_until_true("Add_Sample_Initialize_Complete", description="加样初始化"):
+            logger.info("加样单元初始化成功")
+            self.set_node_value("Add_Sample_Initialize", False)  # 复位触发
+            return {
+                "success": True,
+                "message": "加样单元初始化成功",
+            }
+        else:
+            logger.error("加样单元初始化失败")
+            self.set_node_value("Add_Sample_Initialize", False)
+            raise ValueError("加样单元初始化失败")
+
+    # 马弗炉单独初始化
+    @action(description="马弗炉单独初始化（选择 1~6 号炉，触发初始化并等待完成）")
+    def trigger_muffle_furnace_init(self, muffle_furnace_position: int) -> dict:
+        """单独初始化指定马弗炉，不影响工站及其它模块。
+
+        Args:
+            muffle_furnace_position[马弗炉位置]: 马弗炉编号，范围 1~6。
+
+        Returns:
+            dict: 包含 success 和 message。
+        """
+        min_position = 1
+        max_position = 6
+        if not min_position <= muffle_furnace_position <= max_position:
+            error_msg = f"马弗炉位置{muffle_furnace_position}不在有效范围内"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        initialize_node = f"Muffle_Furnace_Initialize_{muffle_furnace_position}"
+        complete_node = f"Muffle_Furnace_Initialize_Complete_{muffle_furnace_position}"
+        description = f"马弗炉{muffle_furnace_position}初始化"
+
+        logger.info(f"开始{description}...")
+        # 先复位触发和完成标志，确保本次使用新的上升沿。
+        self.set_node_value(initialize_node, False)
+        self.set_node_value(complete_node, False)
+        time.sleep(1.0)
+        self.set_node_value(initialize_node, True)
+        time.sleep(1.0)
+
+        if self._wait_until_true(complete_node, description=description):
+            self.set_node_value(initialize_node, False)
+            logger.info(f"{description}成功")
+            return {
+                "success": True,
+                "message": f"{description}成功",
+            }
+
+        self.set_node_value(initialize_node, False)
+        error_msg = f"{description}失败"
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+
+    def is_robotic_arm_idle(self, arm_id: int) -> bool:
+        """
+        检查机械臂是否空闲
+        
+        参数:
+            arm_id: 机械臂ID,1,2,3
+        
+        Returns:
+            bool: 如果机械臂空闲，返回True，否则返回False
+        """
+        if arm_id not in [1, 2, 3]:
+            raise ValueError("机械臂ID必须为1,2,3")
+        return self.get_node_value(f"Robotic_Arm_Idle_{arm_id}")
+
+    # =================== 设备节点状态（前端显示） ===================
+
+    @not_action
+    def _read_bool_node(self, node_name: str) -> bool:
+        """读取布尔状态缓存：非阻塞、永不抛错、永不返回 None（默认 False）。"""
+        return bool(self._arm_status_cache.get(node_name, False))
+
+    @topic_config(period=5.0)
+    def robotic_arm_1_idle(self) -> bool:
+        """机械臂1空闲状态"""
+        return self._read_bool_node("Robotic_Arm_Idle_1")
+
+    @topic_config(period=5.0)
+    def robotic_arm_2_idle(self) -> bool:
+        """机械臂2空闲状态"""
+        return self._read_bool_node("Robotic_Arm_Idle_2")
+
+    @topic_config(period=5.0)
+    def robotic_arm_3_idle(self) -> bool:
+        """机械臂3空闲状态"""
+        return self._read_bool_node("Robotic_Arm_Idle_3")
+
+    @topic_config(period=5.0)
+    def robotic_arm_1_fault(self) -> bool:
+        """机械臂1故障状态"""
+        return self._read_bool_node("Robotic_Arm_Fault_1")
+
+    @topic_config(period=5.0)
+    def robotic_arm_2_fault(self) -> bool:
+        """机械臂2故障状态"""
+        return self._read_bool_node("Robotic_Arm_Fault_2")
+
+    @topic_config(period=5.0)
+    def robotic_arm_3_fault(self) -> bool:
+        """机械臂3故障状态"""
+        return self._read_bool_node("Robotic_Arm_Fault_3")
+
+    @topic_config(period=5.0)
+    def powder_injection_turntable_fault(self) -> bool:
+        """注粉转盘故障状态"""
+        return self._read_bool_node("Powder_Injection_Turntable_Fault")
+
+    @topic_config(period=5.0)
+    def powder_x_axis_fault(self) -> bool:
+        """加粉 X 轴故障状态"""
+        return self._read_bool_node("Powder_X_Axis_Fault")
+
+    @topic_config(period=5.0)
+    def powder_drop_prevention_motor_fault(self) -> bool:
+        """防掉粉电机故障状态"""
+        return self._read_bool_node("Powder_Drop_Prevention_Motor_Fault")
+
+    @topic_config(period=5.0)
+    def powder_z_axis_fault(self) -> bool:
+        """加粉 Z 轴故障状态"""
+        return self._read_bool_node("Powder_Z_Axis_Fault")
+
+    @topic_config(period=5.0)
+    def powder_rotation_axis_fault(self) -> bool:
+        """加粉旋转轴故障状态"""
+        return self._read_bool_node("Powder_Rotation_Axis_Fault")
+
+    @topic_config(period=5.0)
+    def powder_weight(self) -> float:
+        """PLC 实际加粉重量（REAL），每 5 秒以 powder_weight 状态发布。"""
+        return float(getattr(self, "_powder_weight_cache", 0.0))
+
+    @not_action
+    def _runtime_seconds(self, status: dict) -> float:
+        started_at = status.get("started_at")
+        if started_at is None:
+            return max(0.0, float(status.get("elapsed_seconds", 0.0) or 0.0))
+        elapsed = max(0.0, time.monotonic() - started_at)
+        status["elapsed_seconds"] = elapsed
+        return elapsed
+
+    @topic_config(period=1.0, name="ball_mill_current_runtime")
+    def ball_mill_current_runtime(self) -> float:
+        """\u7403\u78e8\u5f53\u524d\u8fd0\u884c\u65f6\u95f4\uff0c\u5355\u4f4d\u4e3a\u79d2\u3002"""
+        return round(self._runtime_seconds(getattr(self, "_ball_mill_status", {})), 1)
+
+    @topic_config(period=1.0, name="ball_mill_total_set_time")
+    def ball_mill_total_set_time(self) -> float:
+        """\u7403\u78e8\u53c2\u6570\u8bbe\u5b9a\u7684\u603b\u65f6\u95f4\uff0c\u5355\u4f4d\u4e3a\u79d2\u3002"""
+        return round(float(getattr(self, "_ball_mill_status", {}).get("total_seconds", 0.0) or 0.0), 1)
+
+    @not_action
+    def _muffle_current_runtime(self, furnace_position: int) -> float:
+        status = getattr(self, "_muffle_furnace_status", {})
+        return round(self._runtime_seconds(status.get(furnace_position, {})), 1)
+
+    @not_action
+    def _muffle_total_set_time(self, furnace_position: int) -> float:
+        status = getattr(self, "_muffle_furnace_status", {})
+        return round(float(status.get(furnace_position, {}).get("total_seconds", 0.0) or 0.0), 1)
+
+    @not_action
+    def _muffle_set_temperature(self, furnace_position: int) -> float:
+        status = getattr(self, "_muffle_furnace_status", {}).get(furnace_position, {})
+        return round(self._muffle_setpoint_for_elapsed(furnace_position, self._runtime_seconds(status)), 1)
+
+    @not_action
+    def _muffle_current_temperature(self, furnace_position: int) -> float:
+        values = getattr(self, "_muffle_temperature_cache", [0.0] * 6)
+        index = furnace_position - 1
+        if index < 0 or index >= len(values):
+            return 0.0
+        return round(float(values[index] or 0.0), 1)
+
+    @not_action
+    def muffle_furnace_current_runtime(self) -> list[float]:
+        """6 台马弗炉当前运行时间，单位为秒，索引对应炉号减一。"""
+        return [self._muffle_current_runtime(idx) for idx in range(1, 7)]
+
+    @not_action
+    def muffle_furnace_total_set_time(self) -> list[float]:
+        """6 台马弗炉程序总设定时间，单位为秒，索引对应炉号减一。"""
+        return [self._muffle_total_set_time(idx) for idx in range(1, 7)]
+
+    @not_action
+    def _muffle_setpoint_for_elapsed(self, furnace_position: int, elapsed_seconds: float) -> float:
+        status = getattr(self, "_muffle_furnace_status", {}).get(furnace_position, {})
+        profile = status.get("profile", [])
+        if not profile:
+            return float(status.get("set_temperature", 0.0) or 0.0)
+        accumulated = 0.0
+        last_temperature = float(status.get("set_temperature", 0.0) or 0.0)
+        for segment in profile:
+            duration = max(0.0, float(segment.get("duration_seconds", 0.0) or 0.0))
+            temperature = float(segment.get("temperature", last_temperature) or 0.0)
+            if duration > 0 and elapsed_seconds <= accumulated + duration:
+                return temperature
+            if duration > 0:
+                accumulated += duration
+            last_temperature = temperature
+        return last_temperature
+
+    @not_action
+    def muffle_furnace_set_temperature(self) -> list[float]:
+        """6 台马弗炉当前程序设定温度，单位为摄氏度，索引对应炉号减一。"""
+        return [self._muffle_set_temperature(idx) for idx in range(1, 7)]
+
+    @not_action
+    def muffle_furnace_current_temperature(self) -> list[float]:
+        """6 台马弗炉当前温度，索引对应炉号减一。"""
+        return [self._muffle_current_temperature(idx) for idx in range(1, 7)]
+
+    @topic_config(period=1.0)
+    def muffle_furnace_1_current_runtime(self) -> float:
+        """马弗炉1当前运行时间（秒）"""
+        return self._muffle_current_runtime(1)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_2_current_runtime(self) -> float:
+        """马弗炉2当前运行时间（秒）"""
+        return self._muffle_current_runtime(2)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_3_current_runtime(self) -> float:
+        """马弗炉3当前运行时间（秒）"""
+        return self._muffle_current_runtime(3)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_4_current_runtime(self) -> float:
+        """马弗炉4当前运行时间（秒）"""
+        return self._muffle_current_runtime(4)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_5_current_runtime(self) -> float:
+        """马弗炉5当前运行时间（秒）"""
+        return self._muffle_current_runtime(5)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_6_current_runtime(self) -> float:
+        """马弗炉6当前运行时间（秒）"""
+        return self._muffle_current_runtime(6)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_1_total_set_time(self) -> float:
+        """马弗炉1程序总设定时间（秒）"""
+        return self._muffle_total_set_time(1)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_2_total_set_time(self) -> float:
+        """马弗炉2程序总设定时间（秒）"""
+        return self._muffle_total_set_time(2)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_3_total_set_time(self) -> float:
+        """马弗炉3程序总设定时间（秒）"""
+        return self._muffle_total_set_time(3)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_4_total_set_time(self) -> float:
+        """马弗炉4程序总设定时间（秒）"""
+        return self._muffle_total_set_time(4)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_5_total_set_time(self) -> float:
+        """马弗炉5程序总设定时间（秒）"""
+        return self._muffle_total_set_time(5)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_6_total_set_time(self) -> float:
+        """马弗炉6程序总设定时间（秒）"""
+        return self._muffle_total_set_time(6)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_1_set_temperature(self) -> float:
+        """马弗炉1当前程序设定温度（℃）"""
+        return self._muffle_set_temperature(1)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_2_set_temperature(self) -> float:
+        """马弗炉2当前程序设定温度（℃）"""
+        return self._muffle_set_temperature(2)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_3_set_temperature(self) -> float:
+        """马弗炉3当前程序设定温度（℃）"""
+        return self._muffle_set_temperature(3)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_4_set_temperature(self) -> float:
+        """马弗炉4当前程序设定温度（℃）"""
+        return self._muffle_set_temperature(4)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_5_set_temperature(self) -> float:
+        """马弗炉5当前程序设定温度（℃）"""
+        return self._muffle_set_temperature(5)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_6_set_temperature(self) -> float:
+        """马弗炉6当前程序设定温度（℃）"""
+        return self._muffle_set_temperature(6)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_1_current_temperature(self) -> float:
+        """马弗炉1当前温度（℃）"""
+        return self._muffle_current_temperature(1)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_2_current_temperature(self) -> float:
+        """马弗炉2当前温度（℃）"""
+        return self._muffle_current_temperature(2)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_3_current_temperature(self) -> float:
+        """马弗炉3当前温度（℃）"""
+        return self._muffle_current_temperature(3)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_4_current_temperature(self) -> float:
+        """马弗炉4当前温度（℃）"""
+        return self._muffle_current_temperature(4)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_5_current_temperature(self) -> float:
+        """马弗炉5当前温度（℃）"""
+        return self._muffle_current_temperature(5)
+
+    @topic_config(period=1.0)
+    def muffle_furnace_6_current_temperature(self) -> float:
+        """马弗炉6当前温度（℃）"""
+        return self._muffle_current_temperature(6)
+
+    @not_action
+    def _refresh_ball_mill_total_from_plc(self) -> float:
+        total = 0.0
+        for step in range(1, 7):
+            node_name = f"\u7403\u78e8\u5de5\u827a\u53c2\u6570[1].\u6b65\u9aa4{step}_\u5de5\u4f5c\u65f6\u95f4"
+            try:
+                total += max(0.0, float(self.get_node_value(node_name, use_cache=False, force_read=True)))
+            except Exception:
+                pass
+        total_seconds = total * self._BALL_MILL_TIME_UNIT_SECONDS
+        getattr(self, "_ball_mill_status", {}).update(total_seconds=total_seconds)
+        return total_seconds
+
+    @not_action
+    def _refresh_muffle_profile_from_plc(self, furnace_position: int) -> dict:
+        status = getattr(self, "_muffle_furnace_status", {}).setdefault(
+            furnace_position,
+            {"started_at": None, "elapsed_seconds": 0.0, "total_seconds": 0.0, "set_temperature": 0.0, "profile": []},
+        )
+        profile = []
+        total_minutes = 0.0
+        for segment_idx in range(1, 21):
+            time_node = f"\u9a6c\u5f17\u7089_\u5199[{furnace_position}].\u7b2c{segment_idx}\u6bb5\u7a0b\u5e8f\u65f6\u95f4"
+            temp_node = f"\u9a6c\u5f17\u7089_\u5199[{furnace_position}].\u7b2c{segment_idx}\u6bb5\u7a0b\u5e8f\u6e29\u5ea6"
+            try:
+                duration_minutes = max(0.0, float(self.get_node_value(time_node, use_cache=False, force_read=True))) / 10.0
+            except Exception:
+                duration_minutes = 0.0
+            try:
+                temperature = float(self.get_node_value(temp_node, use_cache=False, force_read=True)) / 10.0
+            except Exception:
+                temperature = 0.0
+            if duration_minutes > 0:
+                profile.append({"duration_seconds": duration_minutes * self._MUFFLE_FURNACE_TIME_UNIT_SECONDS, "temperature": temperature})
+                total_minutes += duration_minutes
+        try:
+            start_temperature = float(
+                self.get_node_value(
+                    f"\u9a6c\u5f17\u7089_\u5199[{furnace_position}].\u8d77\u59cb\u6e29\u5ea6",
+                    use_cache=False,
+                    force_read=True,
+                )
+            ) / 10.0
+        except Exception:
+            start_temperature = float(status.get("set_temperature", 0.0) or 0.0)
+        status["profile"] = profile
+        status["set_temperature"] = start_temperature or (profile[0]["temperature"] if profile else 0.0)
+        status["total_seconds"] = total_minutes * self._MUFFLE_FURNACE_TIME_UNIT_SECONDS
+        return status
+
+    @not_action
+    def _begin_ball_mill_run(self) -> None:
+        status = getattr(self, "_ball_mill_status", None)
+        if status is None:
+            self._ball_mill_status = status = {"started_at": None, "elapsed_seconds": 0.0, "total_seconds": 0.0}
+        if not status.get("total_seconds"):
+            self._refresh_ball_mill_total_from_plc()
+        status["elapsed_seconds"] = 0.0
+        status["started_at"] = time.monotonic()
+
+    @not_action
+    def _end_ball_mill_run(self) -> None:
+        status = getattr(self, "_ball_mill_status", None)
+        if status:
+            self._runtime_seconds(status)
+            status["started_at"] = None
+
+    @not_action
+    def _begin_muffle_furnace_run(self, furnace_position: int) -> None:
+        status = getattr(self, "_muffle_furnace_status", {}).setdefault(
+            furnace_position,
+            {"started_at": None, "elapsed_seconds": 0.0, "total_seconds": 0.0, "set_temperature": 0.0, "profile": []},
+        )
+        if not status.get("profile") and not status.get("total_seconds"):
+            self._refresh_muffle_profile_from_plc(furnace_position)
+        status["elapsed_seconds"] = 0.0
+        status["started_at"] = time.monotonic()
+
+    @not_action
+    def _end_muffle_furnace_run(self, furnace_position: int) -> None:
+        status = getattr(self, "_muffle_furnace_status", {}).get(furnace_position)
+        if status:
+            self._runtime_seconds(status)
+            status["started_at"] = None
+
+    @not_action
+    def _record_muffle_temperature_sample(
+        self,
+        furnace_position: int,
+        started_at: float,
+        samples: list[dict],
+        force: bool = False,
+    ) -> bool:
+        index = furnace_position - 1
+        enable_node = f"\u9a6c\u5f17\u7089\u6e29\u5ea6[{index}]"
+        temp_node = f"\u9a6c\u5f17\u7089\u6e29\u5ea6\u76d1\u63a7[{index}]"
+        try:
+            enabled = bool(self.get_node_value(enable_node, use_cache=False, force_read=True))
+        except Exception:
+            return False
+        if not enabled and not force:
+            return False
+        if not enabled:
+            return False
+        try:
+            temperature = float(self.get_node_value(temp_node, use_cache=False, force_read=True))
+        except Exception:
+            return False
+        elapsed_seconds = max(0.0, time.monotonic() - started_at)
+        self._muffle_temperature_enabled_cache[index] = True
+        self._muffle_temperature_cache[index] = temperature
+        samples.append(
+            {
+                "elapsed_seconds": elapsed_seconds,
+                "temperature": temperature,
+                "set_temperature": self._muffle_setpoint_for_elapsed(furnace_position, elapsed_seconds),
+            }
+        )
+        return True
+
+    @not_action
+    def _muffle_temperature_monitor_loop(
+        self,
+        furnace_position: int,
+        started_at: float,
+        stop_event: threading.Event,
+        samples: list[dict],
+    ) -> None:
+        next_sample_at = None
+        while not stop_event.is_set():
+            now = time.monotonic()
+            if next_sample_at is None or now >= next_sample_at:
+                if self._record_muffle_temperature_sample(furnace_position, started_at, samples):
+                    next_sample_at = now + 60.0
+                else:
+                    next_sample_at = now + 1.0
+            wait_seconds = 1.0 if next_sample_at is None else max(0.05, min(1.0, next_sample_at - time.monotonic()))
+            stop_event.wait(wait_seconds)
+
+    @not_action
+    def _start_muffle_temperature_monitor(self, furnace_position: int, started_at: float) -> dict:
+        stop_event = threading.Event()
+        samples = []
+        thread = threading.Thread(
+            target=self._muffle_temperature_monitor_loop,
+            args=(furnace_position, started_at, stop_event, samples),
+            name=f"XUSEMuffleTemperature{furnace_position}",
+            daemon=True,
+        )
+        thread.start()
+        return {"stop_event": stop_event, "thread": thread, "samples": samples, "started_at": started_at}
+
+    @not_action
+    def _stop_muffle_temperature_monitor(
+        self,
+        furnace_position: int,
+        monitor: Optional[dict],
+        temperature_curve_path: str = "",
+    ) -> Optional[str]:
+        if not monitor:
+            return None
+        monitor["stop_event"].set()
+        monitor["thread"].join(timeout=2.0)
+        self._record_muffle_temperature_sample(
+            furnace_position,
+            monitor["started_at"],
+            monitor["samples"],
+            force=True,
+        )
+        return self._plot_muffle_temperature_curve(
+            furnace_position,
+            monitor["samples"],
+            temperature_curve_path,
+        )
+
+    @not_action
+    def _timestamped_record_path(self, directory: Path, suffix: str, label: str = "") -> Path:
+        """生成以时间戳开头的日志/曲线文件路径，同秒冲突时追加序号。"""
+        import re
+
+        directory.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime(self._RECORD_TIMESTAMP_FORMAT)
+        safe_label = re.sub(r'[\\/:*?"<>|\r\n\t]+', "_", str(label or "").strip())[:80]
+        stem = f"{timestamp}_{safe_label}" if safe_label else timestamp
+        if not suffix.startswith("."):
+            suffix = f".{suffix}"
+        destination = directory / f"{stem}{suffix}"
+        counter = 1
+        while destination.exists():
+            destination = directory / f"{stem}_{counter}{suffix}"
+            counter += 1
+        return destination
+
+    @not_action
+    def _plot_muffle_temperature_curve(
+        self,
+        furnace_position: int,
+        samples: list[dict],
+        output_path: str = "",
+    ) -> Optional[str]:
+        try:
+            import matplotlib
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+
+            raw_path = str(output_path or "").strip().strip('"').strip("'")
+            if raw_path.lower().endswith((".png", ".jpg", ".jpeg", ".svg", ".pdf")):
+                output = Path(raw_path).expanduser()
+                directory = output.parent
+                suffix = output.suffix
+            else:
+                directory = Path(raw_path).expanduser() if raw_path else Path(__file__).resolve().parent / "records"
+                suffix = ".png"
+            destination = self._timestamped_record_path(
+                directory,
+                suffix,
+                f"马弗炉{furnace_position}温度曲线",
+            )
+
+            figure, axis = plt.subplots(figsize=(9, 5))
+            if samples:
+                x_values = [item["elapsed_seconds"] / 60.0 for item in samples]
+                y_values = [item["temperature"] for item in samples]
+                set_values = [item["set_temperature"] for item in samples]
+                axis.plot(x_values, y_values, marker="o", label="实时温度")
+                if any(value is not None for value in set_values):
+                    axis.plot(x_values, set_values, linestyle="--", label="设定温度")
+                axis.set_xlim(left=0)
+                axis.set_ylim(bottom=0)
+                axis.legend()
+            else:
+                axis.text(0.5, 0.5, "温度监控未启用或未读取到有效数据", ha="center", va="center", transform=axis.transAxes)
+            axis.set_title(f"马弗炉{furnace_position}温度曲线")
+            axis.set_xlabel("运行时间（分钟）")
+            axis.set_ylabel("温度（摄氏度）")
+            axis.grid(True, alpha=0.3)
+            figure.tight_layout()
+            figure.savefig(destination)
+            plt.close(figure)
+            return str(destination.resolve())
+        except Exception as exc:
+            logger.warning(f"马弗炉{furnace_position}温度曲线生成失败: {exc}")
+            return None
+
+    @not_action
+    def is_open_can_upper_lid_occupied(self) -> bool:
+        """
+        检查开罐上盖是否占位
+        
+        Returns:
+            bool: 如果开罐上盖占位，返回True，否则返回False
+        """
+        return self.get_node_value("Open_Can_Upper_Lid_Occupied")
+    
+    @not_action
+    def is_open_can_body_occupied(self) -> bool:
+        """
+        检查开罐主体是否占位
+        
+        Returns:
+            bool: 如果开罐主体占位，返回True，否则返回False
+        """
+        return self.get_node_value("Open_Can_Body_Occupied")
+    
+    @not_action
+    def is_add_sample_occupied(self) -> bool:
+        """
+        检查加样是否占位
+        
+        Returns:
+            bool: 如果加样占位，返回True，否则返回False
+        """
+        return self.get_node_value("Add_Sample_Occupied")
+    
+    @not_action
+    def is_add_bead_occupied(self) -> bool:
+        """
+        检查加珠是否占位
+        
+        Returns:
+            bool: 如果加珠占位，返回True，否则返回False
+        """
+        return self.get_node_value("Add_Bead_Occupied")
+    
+    @not_action
+    def is_ball_mill_occupied(self, mill_position: int) -> bool:
+        """
+        检查球磨区是否占位
+        
+        参数:
+            mill_position: 球磨区位置
+        
+        Returns:
+            bool: 如果球磨区占位，返回True，否则返回False
+        """
+        return self.get_node_value(f"Ball_Mill_Occupied_{mill_position}")
+    
+    @not_action
+    def is_sieve_can_occupied(self) -> bool:
+        """
+        检查过筛区球磨罐是否占位
+        
+        Returns:
+            bool: 如果过筛区球磨罐占位，返回True，否则返回False
+        """
+        return self.get_node_value("Sieve_Can_Occupied")
+    
+    @not_action
+    def is_sieve_crucible_occupied(self) -> bool:
+        """
+        检查过筛区小坩埚是否占位
+        
+        Returns:
+            bool: 如果过筛区小坩埚占位，返回True，否则返回False
+        """
+        return self.get_node_value("Sieve_Crucible_Occupied")
+    
+    @not_action
+    def is_sieve_funnel_occupied(self) -> bool:
+        """
+        检查过筛区漏斗是否占位
+        
+        Returns:
+            bool: 如果过筛区漏斗占位，返回True，否则返回False
+        """
+        return self.get_node_value("Sieve_Funnel_Occupied")
+    
+    @not_action
+    def is_scrape_occupied(self) -> bool:
+        """
+        检查刮粉区是否占位
+        
+        Returns:
+            bool: 如果刮粉区占位，返回True，否则返回False
+        """
+        return self.get_node_value("Scrape_Powder_Occupied")
+
+    @not_action
+    def is_can_rack_occupied(self, position: int) -> bool:
+        """
+        检查罐架区（球磨罐仓库）指定位置是否占位（对应 ROBOT_1_occupy[position]）。
+
+        参数:
+            position: 罐架位置，1-32
+
+        Returns:
+            bool: 占位返回 True，否则返回 False
+        """
+        return bool(self.get_node_value(f"Can_Rack_Occupied_{position}"))
+
+    @not_action
+    def is_crucible_rack_occupied(self, code: int) -> bool:
+        """
+        检查坩埚架区指定取放代码位置是否占位（对应 ROBOT_2_occupy[code]）。
+
+        说明：code 为机械臂2取放代码，放漏斗为 21-28、取漏斗为 31-38。
+
+        参数:
+            code: 机械臂2取放代码
+
+        Returns:
+            bool: 占位返回 True，否则返回 False
+        """
+        return self.get_node_value(f"Crucible_Rack_Occupied_{code}")
+    
+    @not_action
+    def is_small_crucible_discharge_occupied(self, position: int) -> bool:
+        """
+        检查小坩埚出料位指定位置是否占位
+        
+        参数:
+            position: 小坩埚出料位编号，1-4
+        
+        Returns:
+            bool: 如果该位置占位，返回True，否则返回False
+        """
+        if position not in [1, 2, 3, 4]:
+            raise ValueError(f"小坩埚出料位编号必须在 1-4 范围内，当前值: {position}")
+        return self.get_node_value(f"Small_Crucible_Discharge_Occupied_{position}")
+    
+    @not_action
+    def get_small_crucible_discharge_current_position(self) -> int:
+        """
+        获取小坩埚出料当前位置
+        
+        Returns:
+            int: 小坩埚出料当前位置
+        """
+        return self.get_node_value("Small_Crucible_Discharge_Current_Position")
+    
+    @not_action
+    def get_large_crucible_feed_current_position(self) -> int:
+        """
+        获取大坩埚入料当前位置
+        
+        Returns:
+            int: 大坩埚入料当前位置
+        """
+        return self.get_node_value("Large_Crucible_Feed_Current_Position")
+    
+    @not_action
+    def is_muffle_furnace_occupied(self, muffle_furnace_position: int) -> bool:
+        """
+        检查马弗炉是否占位
+        
+        参数:
+            muffle_furnace_position: 马弗炉位置
+        
+        Returns:
+            bool: 如果马弗炉占位，返回True，否则返回False
+        """
+        return self.get_node_value(f"Muffle_Furnace_Occupied_{muffle_furnace_position}")
+    
+    @not_action
+    def is_upper_product_rack_occupied(self) -> bool:
+        """
+        检查上成品架是否占位
+        
+        Returns:
+            bool: 如果上成品架占位，返回True，否则返回False
+        """
+        return self.get_node_value("Upper_Product_Rack_Occupied")
+    
+    @not_action
+    def is_lower_product_rack_occupied(self) -> bool:
+        """
+        检查下成品架是否占位
+        
+        Returns:
+            bool: 如果下成品架占位，返回True，否则返回False
+        """
+        return self.get_node_value("Lower_Product_Rack_Occupied")
+    
+    @action(
+        handles=[
+            ActionOutputHandle(
+                key="ball_mill_can_number_output",
+                data_type="xuse_ball_mill_can_number",
+                label="球磨罐号",
+                data_key="can_number",
+                data_source=DataSource.EXECUTOR,
+            ),
+        ],
+    )
+    def pick_can_from_can_rack(self, rack_position: int) -> dict:
+        """
+        从罐架区取球磨罐
+        - 检查机械臂1是否空闲
+        - 设置从罐架位置rack_position处抓取球磨罐
+        - 等待从罐架抓取球磨罐完成
+        - 返回成功
+        
+        参数:
+            rack_position: 罐架区位置
+        
+        Returns:
+            dict: 包含 success 和 message
+        """
+        rack_position = self._validate_ball_mill_can_number(rack_position)
+        logger.info(f"从罐架区取球磨罐，位置：{rack_position}")
+        MIN_RACK_POSITION = 1
+        MAX_RACK_POSITION = RoboticArmPickPlaceCode_1.PICK_CAN_RACK_END - RoboticArmPickPlaceCode_1.PICK_CAN_RACK_START + 1
+        if rack_position < MIN_RACK_POSITION or rack_position > MAX_RACK_POSITION:
+            error_msg = "罐架位置错误"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        self._wait_until_true("Robotic_Arm_Idle_1", description="等待机械臂1空闲")
+
+        if not self._wait_condition(lambda: self.is_can_rack_occupied(rack_position)):
+            error_msg = f"罐架位置{rack_position}无球磨罐，无法抓取"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
+        self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.CAN_RACK_POSITION) # 设置机械臂目标位置为罐架
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", RoboticArmPickPlaceCode_1.PICK_CAN_RACK_START + rack_position - 1) # 设置罐架位置
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", True) # 设置动作触发
+        if self._wait_until_true("Robotic_Arm_Action_Complete_1", description="从罐架抓取球磨罐完成"):
+            self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
+            if self._wait_until_false("Robotic_Arm_Action_Complete_1", description="从罐架抓取球磨罐完成"): # 等待完成状态复位
+                logger.info("从罐架区取球磨罐完成")
+                # 前端物料转移：从「球磨罐仓库」对应位取走载具，暂存到机械臂1（无物料则跳过）
+                self._pick_carrier_from_warehouse_at("球磨罐仓库", self._can_rack_site_key(rack_position), arm_id=1)
+                return {
+                    "success": True,
+                    "can_number": rack_position,
+                    "message": f"从罐架区位置{rack_position}取球磨罐完成",
+                }
+            else:
+                error_msg = "从罐架区取球磨罐失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = "从罐架区取球磨罐失败，机械臂动作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+    @action(
+        handles=[
+            ActionInputHandle(
+                key="ball_mill_can_number_input",
+                data_type="xuse_ball_mill_can_number",
+                label="球磨罐号",
+                data_key="can_number",
+                data_source=DataSource.HANDLE,
+            ),
+            ActionOutputHandle(
+                key="ball_mill_can_number_output",
+                data_type="xuse_ball_mill_can_number",
+                label="球磨罐号",
+                data_key="can_number",
+                data_source=DataSource.EXECUTOR,
+            ),
+        ],
+    )
+    def place_empty_can_to_open_can_position(
+        self, can_number: Optional[int] = None
+    ) -> dict:
+        """
+        将空罐放置到开盖区
+        - 检查机械臂1是否空闲
+        - 检查开罐是否占位
+        - 设置将开盖罐磨罐放置到开盖区
+        - 等待将开盖罐磨罐放置到开盖区完成
+        - 返回成功
+        """
+        can_number = self._validate_ball_mill_can_number(can_number)
+        logger.info(f"将 {can_number} 号空球磨罐放置到开盖区...")
+        self._wait_until_true("Robotic_Arm_Idle_1", description="等待机械臂1空闲")
+
+        if not self._wait_condition(lambda: not (self.is_open_can_upper_lid_occupied() or self.is_open_can_body_occupied())):
+            error_msg = "开罐上盖或主体占位，无法放置"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
+        self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.OPEN_CAN_POSITION) # 设置机械臂目标位置为开盖区
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", RoboticArmPickPlaceCode_1.OPEN_CAN_NO_POWDER_PLACE_EMPTY_CAN) # 设置开盖区放空罐
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", True) # 设置动作触发
+        if self._wait_until_true("Robotic_Arm_Action_Complete_1", description="将球磨罐放置到开盖区完成"):
+            self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
+            if self._wait_until_false("Robotic_Arm_Action_Complete_1", description="将球磨罐放置到开盖区完成"): # 等待完成状态复位
+                logger.info("将球磨罐放置到开盖区完成")
+                # 前端物料转移：将机械臂1暂存载具放入「开盖区」（无暂存则跳过）
+                self._place_carrier_to_warehouse("开盖区", arm_id=1)
+                return {
+                    "success": True,
+                    "can_number": can_number,
+                    "message": "将球磨罐放置到开盖区完成",
+                }
+            else:
+                error_msg = "将球磨罐放置到开盖区失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = "将球磨罐放置到开盖区失败，机械臂动作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+    @action()
+    def open_can_lid(self) -> dict:
+        """
+        打开罐上盖
+        - 检查罐体占位
+        - 检查盖子非占位
+        - 设置打开开罐上盖
+        - 等待请求执行
+        - 等待打开开罐上盖完成
+        - 返回成功
+        """
+        logger.info("打开罐上盖...")
+        if not self._wait_condition(lambda: self.is_open_can_body_occupied()):
+            error_msg = "开罐主体未占位，无法打开"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        if not self._wait_condition(lambda: not (self.is_open_can_upper_lid_occupied())):
+            error_msg = "开罐上盖已占位，无法打开"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        if self._wait_until_true("Open_Can_Request_Process", description="打开上盖请求"):
+            logger.info("接收到打开上盖请求")
+            self.set_node_value("Open_Can_Action_Control_Code", OpenCanActionCode.OPEN_CAN_LID) # 设置打开开罐上盖
+            self.set_node_value("Open_Can_Start_Process", True) # 开始加工
+            if self._wait_until_true("Open_Can_Process_Complete", description="打开上盖完成"):
+                logger.info("打开上盖完成")
+                self.set_node_value("Open_Can_Action_Control_Code", OpenCanActionCode.NO_ACTION) # 复位动作
+                self.set_node_value("Open_Can_Start_Process", False) # 复位加工
+                return {
+                    "success": True,
+                    "message": "打开上盖完成",
+                }
+            else:
+                logger.error("打开上盖失败，动作超时")
+                self.set_node_value("Open_Can_Action_Control_Code", OpenCanActionCode.NO_ACTION) # 复位动作
+                self.set_node_value("Open_Can_Start_Process", False) # 复位加工
+                raise ValueError("打开上盖失败，动作超时")
+        else:
+            error_msg = "打开上盖失败，未收到开盖请求"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        
+    @action(
+        handles=[
+            ActionInputHandle(
+                key="ball_mill_can_number_input",
+                data_type="xuse_ball_mill_can_number",
+                label="球磨罐号",
+                data_key="can_number",
+                data_source=DataSource.HANDLE,
+            ),
+            ActionOutputHandle(
+                key="ball_mill_can_number_output",
+                data_type="xuse_ball_mill_can_number",
+                label="球磨罐号",
+                data_key="can_number",
+                data_source=DataSource.EXECUTOR,
+            ),
+        ],
+    )
+    def pick_empty_can_from_open_can_position(
+        self, can_number: Optional[int] = None
+    ) -> dict:
+        """
+        从开盖区抓取空罐
+        - 检查机械臂1是否空闲
+        - 检查开罐是否占位
+        - 设置从开盖区抓取球磨罐
+        - 等待从开盖区抓取空罐完成
+        - 返回成功
+        """
+        can_number = self._validate_ball_mill_can_number(can_number)
+        logger.info(f"从开盖区抓取 {can_number} 号空罐...")
+        self._wait_until_true("Robotic_Arm_Idle_1", description="等待机械臂1空闲")
+        
+        if not self._wait_condition(lambda: self.is_open_can_body_occupied()):
+            error_msg = "开罐主体未占位，无法抓取"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
+        self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.OPEN_CAN_POSITION) # 设置机械臂目标位置为开盖区
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", RoboticArmPickPlaceCode_1.OPEN_CAN_NO_POWDER_PICK_BASE) # 设置开盖区取底座
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", True) # 设置动作触发
+        if self._wait_until_true("Robotic_Arm_Action_Complete_1", description="从开盖区抓取球磨罐完成"):
+            self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
+            if self._wait_until_false("Robotic_Arm_Action_Complete_1", description="从开盖区抓取球磨罐完成"): # 等待完成状态复位
+                logger.info("从开盖区抓取球磨罐完成")
+                # 前端物料转移：从「开盖区」取走载具，暂存到机械臂1（无物料则跳过）
+                self._pick_carrier_from_warehouse("开盖区", arm_id=1)
+                return {
+                    "success": True,
+                    "can_number": can_number,
+                    "message": "从开盖区抓取球磨罐完成",
+                }
+            else:
+                error_msg = "从开盖区抓取球磨罐失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = "从开盖区抓取球磨罐失败，机械臂动作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+    @action(
+        handles=[
+            ActionInputHandle(
+                key="ball_mill_can_number_input",
+                data_type="xuse_ball_mill_can_number",
+                label="球磨罐号",
+                data_key="can_number",
+                data_source=DataSource.HANDLE,
+            ),
+            ActionOutputHandle(
+                key="ball_mill_can_number_output",
+                data_type="xuse_ball_mill_can_number",
+                label="球磨罐号",
+                data_key="can_number",
+                data_source=DataSource.EXECUTOR,
+            ),
+        ],
+    )
+    def place_can_to_add_powder_position(
+        self, can_number: Optional[int] = None
+    ) -> dict:
+        """
+        将罐体放置到加粉区
+        - 检查机械臂1是否空闲
+        - 检查加样是否占位
+        - 等待放置到加粉区完成
+        - 返回成功
+        """
+        can_number = self._validate_ball_mill_can_number(can_number)
+        logger.info(f"将 {can_number} 号罐体放置到加粉区...")
+        self._wait_until_true("Robotic_Arm_Idle_1", description="等待机械臂1空闲")
+        
+        if not self._wait_condition(lambda: not (self.is_add_sample_occupied())):
+            error_msg = "加样占位，无法放置"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
+        self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.ADD_POWDER_POSITION) # 设置机械臂目标位置为加粉区
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", RoboticArmPickPlaceCode_1.ADD_POWDER_PLACE_BASE) # 设置加粉区放底座
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", True) # 设置动作触发
+        if self._wait_until_true("Robotic_Arm_Action_Complete_1", description="将罐体放置到加粉区完成"):
+            self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
+            if self._wait_until_false("Robotic_Arm_Action_Complete_1", description="将罐体放置到加粉区完成"): # 等待完成状态复位
+                logger.info("将罐体放置到加粉区完成")
+                # 前端物料转移：将机械臂1暂存载具放入「加样区」（无暂存则跳过）
+                self._place_carrier_to_warehouse("加样区", arm_id=1)
+                return {
+                    "success": True,
+                    "can_number": can_number,
+                    "message": "将罐体放置到加粉区完成",
+                }
+            else:
+                error_msg = "将罐体放置到加粉区失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = "将罐体放置到加粉区失败，机械臂动作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+    @action(
+        handles=[
+            ActionInputHandle(
+                key="ball_mill_can_number_input",
+                data_type="xuse_ball_mill_can_number",
+                label="球磨罐号",
+                data_key="can_number",
+                data_source=DataSource.HANDLE,
+            ),
+            ActionOutputHandle(
+                key="ball_mill_can_number_output",
+                data_type="xuse_ball_mill_can_number",
+                label="球磨罐号",
+                data_key="can_number",
+                data_source=DataSource.EXECUTOR,
+            ),
+        ],
+    )
+    def add_powder(
+        self,
+        check_can_occupied: bool = True,
+        actual_powder_log_dir: str = "",
+        can_number: Optional[int] = None,
+    ) -> dict:
+        """
+        加样（加粉）—— 只触发加粉动作，不含参数下发。
+
+        本动作只负责触发一次加粉：
+        - （可选）等待罐体占位
+        - 等待 Add_Sample_Request_Process 上升沿
+        - 触发 Add_Sample_Start_Process
+        - 等待 Add_Sample_Process_Complete 后复位
+
+        所有加样相关参数（单值参数：粉末名称/位置号/重量/震荡最高速度/粉末号；
+        数组参数：1ML/500NL 的开口量/落粉均速/旋转速度/提前停止量）
+        请通过 set_add_powder_params 加载 xlsx 在本动作之前下发。
+
+        Args:
+            check_can_occupied[是否检查罐体占位]: True=加粉前等待并校验罐体占位；False=跳过占位检查。
+            actual_powder_log_dir[实际加粉日志目录]: 保存“实际加粉日志.xlsx”的目录；
+                留空使用 XUSE 模块下的 records 目录。
+            can_number[球磨罐号]: 由上游动作 handle 传入，范围 1~32；用于实际加粉日志。
+        """
+        can_number = self._validate_ball_mill_can_number(can_number)
+        self._check_add_powder_faults()
+        logger.info(
+            f"为 {can_number} 号球磨罐加粉..."
+            f"（check_can_occupied={check_can_occupied}）"
+        )
+
+        if check_can_occupied:
+            if not self._wait_condition(lambda: self.is_add_sample_occupied()):
+                error_msg = "没有罐体，无法加粉"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+            logger.info("有罐体，开始加粉...")
+        else:
+            logger.info("跳过罐体占位检查，直接开始加粉...")
+
+        if self._wait_until_true("Add_Sample_Request_Process", description="加样请求加工"):
+            logger.info("接收到加样请求加工")
+            self.set_node_value("Add_Sample_Start_Process", True)  # 开始加工
+            if self._wait_until_true("Add_Sample_Process_Complete", description="加样加工完成"):
+                logger.info("加样加工完成")
+                completed_at = datetime.now()
+                measurement = None
+                measurement_error = None
+                try:
+                    measurement = self._read_completed_powder_measurement()
+                except Exception as e:
+                    measurement_error = e
+                self.set_node_value("Add_Sample_Start_Process", False)  # 复位加工
+                self._wait_until_false("Add_Sample_Process_Complete", description="加样加工完成复位")
+                if measurement_error is not None:
+                    raise ValueError(
+                        f"加样已完成，但读取实际加粉记录数据失败: {measurement_error}"
+                    ) from measurement_error
+                try:
+                    log_path = self._append_actual_powder_log(
+                        log_dir=actual_powder_log_dir,
+                        timestamp=completed_at,
+                        can_number=can_number,
+                        **measurement,
+                    )
+                except Exception as e:
+                    raise ValueError(f"加样已完成，但写入实际加粉日志失败: {e}") from e
+                return {
+                    "success": True,
+                    "can_number": can_number,
+                    "message": "加样加工完成",
+                    "data": {
+                        "can_number": can_number,
+                        **measurement,
+                        "timestamp": completed_at.isoformat(timespec="seconds"),
+                        "actual_powder_log_file": log_path,
+                    },
+                }
+            else:
+                logger.error("加样加工失败，动作超时")
+                self.set_node_value("Add_Sample_Start_Process", False)  # 复位加工
+                raise ValueError("加样加工失败，动作超时")
+        else:
+            error_msg = "加样失败，未收到加样请求"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+    def _read_completed_powder_measurement(self) -> dict:
+        """在 PLC 加粉完成信号到达时强制读取本次加粉记录数据。"""
+        powder_name = str(
+            self.get_node_value("Powder_Name", use_cache=False, force_read=True) or ""
+        ).strip()
+        if not powder_name:
+            raise ValueError("PLC 粉末名称为空")
+
+        try:
+            target_weight = float(
+                self.get_node_value("Add_Sample_Weight", use_cache=False, force_read=True)
+            )
+            actual_weight = float(
+                self.get_node_value("Powder_Weight", use_cache=False, force_read=True)
+            )
+        except (TypeError, ValueError) as e:
+            raise ValueError("PLC 目标或实际加粉重量不是有效数字") from e
+        if not math.isfinite(target_weight) or not math.isfinite(actual_weight):
+            raise ValueError("PLC 目标或实际加粉重量不是有限数字")
+
+        self._powder_weight_cache = actual_weight
+        return {
+            "powder_name": powder_name,
+            "target_weight": target_weight,
+            "actual_weight": actual_weight,
+        }
+
+    def _append_actual_powder_log(
+        self,
+        *,
+        log_dir: str,
+        timestamp,
+        can_number: int,
+        powder_name: str,
+        target_weight: float,
+        actual_weight: float,
+    ) -> str:
+        """将一次 PLC 加粉完成记录追加到固定名称的 xlsx 日志。"""
+        from openpyxl import Workbook, load_workbook
+        from openpyxl.styles import Alignment, Font, PatternFill
+
+        cleaned_dir = str(log_dir or "").strip().strip('"').strip("'")
+        if cleaned_dir:
+            output_dir = Path(cleaned_dir).expanduser().resolve()
+        else:
+            output_dir = Path(__file__).resolve().parent / "records"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        log_path = output_dir / self._ACTUAL_POWDER_LOG_FILENAME
+        temp_path = output_dir / (
+            f".{log_path.stem}.{os.getpid()}.{threading.get_ident()}.tmp.xlsx"
+        )
+        headers = [
+            "时间戳",
+            "加粉名称",
+            "目标加粉重量",
+            "实际加粉重量",
+            "球磨罐编号",
+        ]
+
+        with self._ACTUAL_POWDER_LOG_LOCK:
+            if log_path.exists():
+                workbook = load_workbook(log_path)
+                sheet = (
+                    workbook["实际加粉日志"]
+                    if "实际加粉日志" in workbook.sheetnames
+                    else workbook.create_sheet("实际加粉日志")
+                )
+            else:
+                workbook = Workbook()
+                sheet = workbook.active
+                sheet.title = "实际加粉日志"
+
+            current_headers = [sheet.cell(row=1, column=i).value for i in range(1, 6)]
+            if all(value is None for value in current_headers):
+                for column_index, header in enumerate(headers, start=1):
+                    sheet.cell(row=1, column=column_index, value=header)
+                for cell in sheet[1]:
+                    cell.fill = PatternFill("solid", fgColor="1A3A63")
+                    cell.font = Font(bold=True, color="FFFFFF")
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+                sheet.freeze_panes = "A2"
+                sheet.sheet_view.showGridLines = False
+                for column, width in zip(
+                    ("A", "B", "C", "D", "E"), (22, 24, 18, 18, 16)
+                ):
+                    sheet.column_dimensions[column].width = width
+            elif current_headers[:4] == headers[:4] and current_headers[4] is None:
+                # 兼容已由上一版本生成的四列表格：历史记录的罐号无法追溯，保持为空。
+                sheet.cell(row=1, column=5, value=headers[4])
+                for cell in sheet[1][:5]:
+                    cell.fill = PatternFill("solid", fgColor="1A3A63")
+                    cell.font = Font(bold=True, color="FFFFFF")
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+                sheet.freeze_panes = "A2"
+                sheet.sheet_view.showGridLines = False
+                for column, width in zip(
+                    ("A", "B", "C", "D", "E"), (22, 24, 18, 18, 16)
+                ):
+                    sheet.column_dimensions[column].width = width
+                for legacy_row in range(2, sheet.max_row + 1):
+                    sheet.cell(row=legacy_row, column=1).number_format = (
+                        "yyyy-mm-dd hh:mm:ss"
+                    )
+                    sheet.cell(row=legacy_row, column=3).number_format = "0.0000"
+                    sheet.cell(row=legacy_row, column=4).number_format = "0.0000"
+            elif current_headers != headers:
+                workbook.close()
+                raise ValueError(
+                    f"{log_path} 的表头不是预期格式: {current_headers}"
+                )
+
+            sheet.append(
+                [
+                    timestamp,
+                    str(powder_name),
+                    float(target_weight),
+                    float(actual_weight),
+                    int(can_number),
+                ]
+            )
+            row_index = sheet.max_row
+            sheet.cell(row=row_index, column=1).number_format = "yyyy-mm-dd hh:mm:ss"
+            sheet.cell(row=row_index, column=3).number_format = "0.0000"
+            sheet.cell(row=row_index, column=4).number_format = "0.0000"
+            sheet.cell(row=row_index, column=5).number_format = "0"
+            sheet.auto_filter.ref = f"A1:E{row_index}"
+
+            try:
+                try:
+                    workbook.save(temp_path)
+                finally:
+                    workbook.close()
+                os.replace(temp_path, log_path)
+            finally:
+                if temp_path.exists():
+                    temp_path.unlink()
+
+        logger.info(f"实际加粉日志已追加: {log_path}")
+        return str(log_path)
+
+    @action(
+        handles=[
+            ActionInputHandle(
+                key="ball_mill_can_number_input",
+                data_type="xuse_ball_mill_can_number",
+                label="球磨罐号",
+                data_key="can_number",
+                data_source=DataSource.HANDLE,
+            ),
+            ActionOutputHandle(
+                key="ball_mill_can_number_output",
+                data_type="xuse_ball_mill_can_number",
+                label="球磨罐号",
+                data_key="can_number",
+                data_source=DataSource.EXECUTOR,
+            ),
+        ],
+    )
+    def add_powder_multiple_times(
+        self,
+        can_number: Optional[int] = None,
+        plan_file: str = "",
+        powder_params_dir: str = "unilabos/devices/workstation/XUSE/powder_params",
+        record_dir: str = "",
+        actual_powder_log_dir: str = "",
+        check_can_occupied: bool = True,
+    ) -> dict:
+        """按球磨罐号读取独立加粉清单，并依次执行多种加粉。
+
+        ``plan_file`` 每个 sheet 对应一个球磨罐，sheet 名为 ``1``~``32``。
+        表头至少包含“加粉名称”和“重量”两列，后续每行代表一次加粉，执行顺序
+        与表格行顺序一致。
+
+        加粉名称会在 ``powder_params_dir`` 内递归匹配旧版加样参数 xlsx。目录可传
+        绝对路径或仓库根目录相对路径；留空时使用仓库内默认参数库。优先匹配文件名
+        （不含扩展名），找不到时匹配参数文件“单值参数” sheet 中的“粉末名称”。
+        每次下发时，仅用清单中的加粉名称和重量覆盖旧版参数文件里的“粉末名称”
+        “加样_重量”，其余工艺参数保持原值。
+
+        所有清单行和配方文件会在首次 PLC 写入前完成校验。任一轮参数下发或
+        加粉失败会立即停止，避免后续加粉继续使用残留参数。
+
+        Args:
+            can_number[球磨罐号]: 由上游动作 handle 传入的罐号，范围 1~32。
+            plan_file[多种加粉清单]: 独立清单 xlsx；绝对路径或仓库根目录相对路径。
+            powder_params_dir[粉末参数目录]: 旧版加样参数 xlsx 所在目录；支持绝对路径或
+                仓库根目录相对路径，留空使用仓库内默认目录。
+            record_dir[档案保存目录]: 每次参数下发档案的保存目录（可选）。
+            actual_powder_log_dir[实际加粉日志目录]: 每次 PLC 加粉完成后追加写入
+                “实际加粉日志.xlsx”的目录；留空使用 XUSE 模块下的 records 目录。
+            check_can_occupied[是否检查罐体占位]: True=每次下发和加粉前检查；False=跳过。
+        """
+        import openpyxl
+
+        can_number = self._validate_ball_mill_can_number(can_number)
+        repo_root = Path(__file__).resolve().parents[4]
+
+        cleaned_plan = str(plan_file or "").strip().strip('"').strip("'")
+        if not cleaned_plan:
+            raise ValueError("未提供多种加粉清单文件")
+        plan_path = Path(cleaned_plan).expanduser()
+        if not plan_path.is_absolute():
+            plan_path = repo_root / plan_path
+        plan_path = plan_path.resolve()
+        if not plan_path.is_file() or plan_path.suffix.casefold() != ".xlsx":
+            raise ValueError(f"多种加粉清单不存在或不是 .xlsx 文件: {plan_path}")
+
+        cleaned_params_dir = str(powder_params_dir or "").strip().strip('"').strip("'")
+        # AST 注册表扫描不会求值类变量，旧注册数据可能把默认值保存为变量名文本。
+        # 接受该文本可让已生成的任务在注册表刷新前也正常使用默认目录。
+        if not cleaned_params_dir or cleaned_params_dir == "_DEFAULT_POWDER_PARAMS_DIR":
+            cleaned_params_dir = self._DEFAULT_POWDER_PARAMS_DIR
+        configured_params_dir = Path(cleaned_params_dir).expanduser()
+        if configured_params_dir.is_absolute():
+            params_root = configured_params_dir.resolve()
+        else:
+            params_root = (repo_root / configured_params_dir).resolve()
+            try:
+                params_root.relative_to(repo_root)
+            except ValueError as e:
+                raise ValueError(
+                    "粉末参数相对目录不能超出仓库根目录；仓库外目录请传绝对路径"
+                ) from e
+        if not params_root.is_dir():
+            raise ValueError(f"粉末参数目录不存在或不是目录: {params_root}")
+
+        try:
+            plan_wb = openpyxl.load_workbook(plan_path, read_only=True, data_only=True)
+        except Exception as e:
+            raise ValueError(f"无法打开多种加粉清单 {plan_path}: {e}") from e
+
+        sheet_aliases = {
+            str(can_number),
+            f"{can_number}号",
+            f"罐{can_number}",
+            f"{can_number}号罐",
+            f"球磨罐{can_number}",
+            f"{can_number}号球磨罐",
+        }
+        matching_sheets = [
+            sheet for sheet in plan_wb.worksheets if str(sheet.title).strip() in sheet_aliases
+        ]
+        if len(matching_sheets) != 1:
+            plan_wb.close()
+            if not matching_sheets:
+                raise ValueError(f"多种加粉清单中没有 {can_number} 号球磨罐对应的 sheet")
+            raise ValueError(f"多种加粉清单中 {can_number} 号球磨罐对应了多个 sheet")
+
+        sheet = matching_sheets[0]
+        rows = list(sheet.iter_rows(values_only=True))
+        plan_wb.close()
+        header_index = next(
+            (idx for idx, row in enumerate(rows) if row and any(value not in (None, "") for value in row)),
+            None,
+        )
+        if header_index is None:
+            raise ValueError(f"{sheet.title} sheet 为空")
+
+        def _normalize_header(value) -> str:
+            return str(value or "").strip().replace(" ", "").replace("_", "")
+
+        headers = [_normalize_header(value) for value in rows[header_index]]
+        powder_header_aliases = {"加粉名称", "粉末名称", "名称"}
+        weight_header_aliases = {"重量", "对应重量", "目标重量", "加粉重量", "加样重量"}
+        powder_columns = [idx for idx, value in enumerate(headers) if value in powder_header_aliases]
+        weight_columns = [idx for idx, value in enumerate(headers) if value in weight_header_aliases]
+        if len(powder_columns) != 1 or len(weight_columns) != 1:
+            raise ValueError(
+                f"{sheet.title} sheet 表头必须各包含一列‘加粉名称’和‘重量’"
+            )
+        powder_column = powder_columns[0]
+        weight_column = weight_columns[0]
+
+        additions = []
+        for row_number, row in enumerate(rows[header_index + 1 :], start=header_index + 2):
+            powder_value = row[powder_column] if powder_column < len(row) else None
+            weight_value = row[weight_column] if weight_column < len(row) else None
+            if powder_value in (None, "") and weight_value in (None, ""):
+                continue
+            powder_name = str(powder_value or "").strip()
+            if not powder_name:
+                raise ValueError(f"{sheet.title} sheet 第 {row_number} 行缺少加粉名称")
+            if weight_value is None or str(weight_value).strip() == "":
+                raise ValueError(f"{sheet.title} sheet 第 {row_number} 行缺少重量")
+            try:
+                weight = float(weight_value)
+            except (TypeError, ValueError) as e:
+                raise ValueError(
+                    f"{sheet.title} sheet 第 {row_number} 行重量不是数字: {weight_value!r}"
+                ) from e
+            if not math.isfinite(weight) or weight <= 0:
+                raise ValueError(
+                    f"{sheet.title} sheet 第 {row_number} 行重量必须是大于 0 的有限数字"
+                )
+            additions.append(
+                {"row": row_number, "powder_name": powder_name, "weight": weight}
+            )
+        if not additions:
+            raise ValueError(f"{sheet.title} sheet 中没有可执行的加粉记录")
+
+        recipe_files = sorted(
+            (
+                path
+                for path in params_root.rglob("*")
+                if path.is_file()
+                and path.suffix.casefold() == ".xlsx"
+                and not path.name.startswith("~$")
+            ),
+            key=lambda path: str(path.relative_to(params_root)).casefold(),
+        )
+        if not recipe_files:
+            raise ValueError(f"粉末参数目录中没有可用的 .xlsx 文件: {params_root}")
+
+        stem_index = {}
+        internal_name_index = {}
+        for recipe_path in recipe_files:
+            stem_index.setdefault(recipe_path.stem.strip().casefold(), []).append(recipe_path)
+            try:
+                recipe_wb = openpyxl.load_workbook(recipe_path, read_only=True, data_only=True)
+                if "单值参数" in recipe_wb.sheetnames:
+                    for row in recipe_wb["单值参数"].iter_rows(values_only=True):
+                        if row and str(row[0] or "").strip() == "粉末名称":
+                            internal_name = str(row[1] or "").strip() if len(row) > 1 else ""
+                            if internal_name:
+                                internal_name_index.setdefault(
+                                    internal_name.casefold(), []
+                                ).append(recipe_path)
+                            break
+                recipe_wb.close()
+            except Exception:
+                # 文件名仍可参与匹配；真正被清单引用时会在下面给出明确的文件错误。
+                continue
+
+        resolved_additions = []
+        for addition in additions:
+            lookup_key = addition["powder_name"].casefold()
+            candidates = stem_index.get(lookup_key, [])
+            match_kind = "文件名"
+            if not candidates:
+                candidates = internal_name_index.get(lookup_key, [])
+                match_kind = "粉末名称"
+            if not candidates:
+                raise ValueError(
+                    f"找不到加粉名称‘{addition['powder_name']}’对应的旧版参数文件 "
+                    f"(清单第 {addition['row']} 行，目录 {params_root})"
+                )
+            if len(candidates) != 1:
+                relative_candidates = [str(path.relative_to(params_root)) for path in candidates]
+                raise ValueError(
+                    f"加粉名称‘{addition['powder_name']}’按{match_kind}匹配到多个参数文件: "
+                    f"{relative_candidates}"
+                )
+            recipe_path = candidates[0]
+            try:
+                recipe_wb = openpyxl.load_workbook(recipe_path, read_only=True, data_only=True)
+            except Exception as e:
+                raise ValueError(f"无法打开粉末参数文件 {recipe_path}: {e}") from e
+            if "单值参数" not in recipe_wb.sheetnames:
+                recipe_wb.close()
+                raise ValueError(f"粉末参数文件缺少‘单值参数’ sheet: {recipe_path}")
+            single_names = {
+                str(row[0] or "").strip()
+                for row in recipe_wb["单值参数"].iter_rows(values_only=True)
+                if row
+            }
+            recipe_wb.close()
+            missing_names = {"粉末名称", "加样_重量"} - single_names
+            if missing_names:
+                raise ValueError(
+                    f"粉末参数文件缺少待覆盖参数 {sorted(missing_names)}: {recipe_path}"
+                )
+            resolved_additions.append({**addition, "param_file": recipe_path})
+
+        total = len(resolved_additions)
+        results = []
+        logger.info(f"开始为 {can_number} 号球磨罐执行多种加粉，共 {total} 种")
+        for index, addition in enumerate(resolved_additions, start=1):
+            powder_name = addition["powder_name"]
+            weight = addition["weight"]
+            param_file = addition["param_file"]
+            logger.info(
+                f"[多种加粉 {index}/{total}] {powder_name}，重量={weight}，参数={param_file.name}"
+            )
+            try:
+                params_result = self.set_add_powder_params(
+                    param_file=str(param_file),
+                    record_dir=record_dir,
+                    check_can_occupied=check_can_occupied,
+                    powder_name_override=powder_name,
+                    weight_override=weight,
+                )
+                written = int(params_result.get("data", {}).get("written", 0))
+                if not params_result.get("success", False) or written <= 0:
+                    raise ValueError("参数文件未写入任何加样参数")
+                powder_result = self.add_powder(
+                    check_can_occupied=check_can_occupied,
+                    actual_powder_log_dir=actual_powder_log_dir,
+                    can_number=can_number,
+                )
+                if not powder_result.get("success", False):
+                    raise ValueError("加粉动作返回失败")
+                results.append(
+                    {
+                        "index": index,
+                        "plan_row": addition["row"],
+                        "powder_name": powder_name,
+                        "weight": weight,
+                        "param_file": str(param_file),
+                        "params": params_result,
+                        "add_powder": powder_result,
+                    }
+                )
+            except Exception as e:
+                error_msg = (
+                    f"{can_number} 号球磨罐多种加粉在第 {index}/{total} 种失败"
+                    f"（{powder_name}，{weight}）: {e}"
+                )
+                logger.error(error_msg)
+                raise ValueError(error_msg) from e
+
+        return {
+            "success": True,
+            "can_number": can_number,
+            "message": f"{can_number} 号球磨罐多种加粉全部完成，共处理 {total} 种粉末",
+            "data": {
+                "can_number": can_number,
+                "plan_file": str(plan_path),
+                "powder_params_dir": str(configured_params_dir),
+                "total": total,
+                "completed": len(results),
+                "results": results,
+            },
+        }
+
+    
+    @action()
+    def pick_can_from_add_powder_position(self) -> dict:
+        """
+        从加粉区取罐体
+        - 检查机械臂1是否空闲
+        - 检查加样是否占位
+        - 等待取罐体完成
+        - 返回成功
+        """
+        logger.info("从加粉区取罐体...")
+        self._wait_until_true("Robotic_Arm_Idle_1", description="等待机械臂1空闲")
+        
+        if not self._wait_condition(lambda: self.is_add_sample_occupied()):
+            error_msg = "加样未占位，无法取罐体"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
+        self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.ADD_POWDER_POSITION) # 设置机械臂目标位置为加粉区
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", RoboticArmPickPlaceCode_1.ADD_POWDER_PICK_BASE) # 设置加粉区取底座
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", True) # 设置动作触发
+        if self._wait_until_true("Robotic_Arm_Action_Complete_1", description="从加粉区取罐体完成"):
+            self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
+            if self._wait_until_false("Robotic_Arm_Action_Complete_1", description="从加粉区取罐体完成"): # 等待完成状态复位
+                logger.info("从加粉区取罐体完成")
+                # 前端物料转移：从「加样区」取走载具，暂存到机械臂1（无物料则跳过）
+                self._pick_carrier_from_warehouse("加样区", arm_id=1)
+                return {
+                    "success": True,
+                    "message": "从加粉区取罐体完成",
+                }
+            else:
+                error_msg = "从加粉区取罐体失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = "从加粉区取罐体失败，机械臂动作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+
+    @action()
+    def place_can_to_add_bead_position(self) -> dict:
+        """
+        将罐体放置到加珠区
+        - 检查机械臂1是否空闲
+        - 检查加珠是否占位
+        - 等待放置到加珠区完成
+        - 返回成功
+        """
+        logger.info("将罐体放置到加珠区...")
+        self._wait_until_true("Robotic_Arm_Idle_1", description="等待机械臂1空闲")
+        
+        if not self._wait_condition(lambda: not (self.is_add_bead_occupied())):
+            error_msg = "加珠未占位，无法放置罐体"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
+        self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.ADD_BEAD_POSITION) # 设置机械臂目标位置为加珠区
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", RoboticArmPickPlaceCode_1.ADD_BEAD_PLACE_BASE) # 设置加珠区放底座
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", True) # 设置动作触发
+        if self._wait_until_true("Robotic_Arm_Action_Complete_1", description="将罐体放置到加珠区成功"):
+            self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
+            if self._wait_until_false("Robotic_Arm_Action_Complete_1", description="将罐体放置到加珠区成功"): # 等待完成状态复位
+                logger.info("将罐体放置到加珠区成功")
+                # 前端物料转移：将机械臂1暂存载具放入「加珠区」（无暂存则跳过）
+                self._place_carrier_to_warehouse("加珠区", arm_id=1)
+                return {
+                    "success": True,
+                    "message": "将罐体放置到加珠区成功",
+                }
+            else:
+                error_msg = "将罐体放置到加珠区失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = "将罐体放置到加珠区失败，机械臂动作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+    
+    @action()
+    def add_bead(self) -> dict:
+        """
+        进行加珠操作
+        - 检查加珠是否占位
+        - 等待加珠完成
+        - 返回成功
+        """
+        logger.info("加珠...")
+        if not self._wait_condition(lambda: self.is_add_bead_occupied()):
+            error_msg = "加珠未占位，无法加珠"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        if self._wait_until_true("Add_Bead_Request_Process", description="加珠请求加工"):
+            logger.info("接收到加珠请求加工")
+            self.set_node_value("Add_Bead_Start_Process", True) # 设置加珠开始
+            if self._wait_until_true("Add_Bead_Process_Complete", description="等待加珠完成"):
+                logger.info("加珠完成")
+                self.set_node_value("Add_Bead_Start_Process", False) # 复位加珠开始
+                return {
+                    "success": True,
+                    "message": "加珠完成",
+                }
+            else:
+                logger.error("加珠失败")
+                self.set_node_value("Add_Bead_Start_Process", False) # 复位加珠开始
+                raise ValueError("加珠失败，完成复位超时")
+        else:
+            error_msg = "加珠失败，未收到加珠请求"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+    
+    @action()
+    def pick_can_from_add_bead_position(self) -> dict:
+        """
+        从加珠区取罐体
+        - 检查机械臂1是否空闲
+        - 检查加珠是否占位
+        - 等待取罐体完成
+        - 返回成功
+        """
+        logger.info("从加珠区取罐体...")
+        self._wait_until_true("Robotic_Arm_Idle_1", description="等待机械臂1空闲")
+        
+        if not self._wait_condition(lambda: self.is_add_bead_occupied()):
+            error_msg = "加珠未占位，无法取罐体"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
+        self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.ADD_BEAD_POSITION) # 设置机械臂目标位置为加珠区
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", RoboticArmPickPlaceCode_1.ADD_BEAD_PICK_BASE) # 设置加珠区取底座
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", True) # 设置动作触发
+        if self._wait_until_true("Robotic_Arm_Action_Complete_1", description="从加珠区取罐体成功"):
+            self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
+            if self._wait_until_false("Robotic_Arm_Action_Complete_1", description="从加珠区取罐体成功"): # 等待完成状态复位
+                logger.info("从加珠区取罐体成功")
+                # 前端物料转移：从「加珠区」取走载具，暂存到机械臂1（无物料则跳过）
+                self._pick_carrier_from_warehouse("加珠区", arm_id=1)
+                return {
+                    "success": True,
+                    "message": "从加珠区取罐体成功",
+                }
+            else:
+                error_msg = "从加珠区取罐体失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = "从加珠区取罐体失败，机械臂动作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+    
+
+    @action()
+    def place_can_with_powder_and_bead_to_open_can_position(self) -> dict:
+        """
+        将带有粉珠的球磨罐放置到开盖区
+        - 检查机械臂1是否空闲
+        - 检查开罐是否占位
+        - 设置将开盖罐磨罐放置到开盖区
+        - 等待将开盖罐磨罐放置到开盖区完成
+        - 返回成功
+        """
+        logger.info("将带有粉珠的球磨罐放置到开盖区...")
+        self._wait_until_true("Robotic_Arm_Idle_1", description="等待机械臂1空闲")
+
+        if not self._wait_condition(lambda: not (self.is_open_can_body_occupied())):
+            error_msg = "开罐主体占位，无法放置"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
+        self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.OPEN_CAN_POSITION) # 设置机械臂目标位置为开盖区
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", RoboticArmPickPlaceCode_1.OPEN_CAN_WITH_POWDER_PLACE_BASE) # 设置开盖区放底座
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", True) # 设置动作触发
+        if self._wait_until_true("Robotic_Arm_Action_Complete_1", description="将球磨罐放置到开盖区完成"):
+            self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
+            if self._wait_until_false("Robotic_Arm_Action_Complete_1", description="将球磨罐放置到开盖区完成"): # 等待完成状态复位
+                logger.info("将球磨罐放置到开盖区完成")
+                # 前端物料转移：将机械臂1暂存载具放入「开盖区」（无暂存则跳过）
+                self._place_carrier_to_warehouse("开盖区", arm_id=1)
+                return {
+                    "success": True,
+                    "message": "将球磨罐放置到开盖区完成",
+                }
+            else:
+                error_msg = "将球磨罐放置到开盖区失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = "将球磨罐放置到开盖区失败，机械臂动作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+    
+    @action()
+    def close_can_lid(self) -> dict:
+        """
+        关闭罐上盖
+        - 检查罐体占位
+        - 检查盖子占位
+        - 设置关闭罐上盖
+        - 等待请求执行
+        - 等待关闭罐上盖完成
+        - 返回成功
+        """
+        logger.info("关闭罐上盖...")
+        if not self._wait_condition(lambda: self.is_open_can_body_occupied()):
+            error_msg = "开罐主体未占位，无法关盖"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        if not self._wait_condition(lambda: self.is_open_can_upper_lid_occupied()):
+            error_msg = "开罐上盖未占位，无法关盖"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        if self._wait_until_true("Open_Can_Request_Process", description="关闭上盖请求"):
+            logger.info("接收到关闭上盖请求")
+            self.set_node_value("Open_Can_Action_Control_Code", OpenCanActionCode.CLOSE_CAN_LID) # 设置关闭罐上盖
+            self.set_node_value("Open_Can_Start_Process", True) # 开始加工
+            if self._wait_until_true("Open_Can_Process_Complete", description="关闭上盖完成"):
+                logger.info("关闭上盖完成")
+                self.set_node_value("Open_Can_Action_Control_Code", OpenCanActionCode.NO_ACTION) # 复位动作
+                self.set_node_value("Open_Can_Start_Process", False) # 复位加工
+                return {
+                    "success": True,
+                    "message": "关闭上盖完成",
+                }
+            else:
+                logger.error("关闭上盖失败")
+                self.set_node_value("Open_Can_Action_Control_Code", OpenCanActionCode.NO_ACTION) # 复位动作
+                self.set_node_value("Open_Can_Start_Process", False) # 复位加工
+                raise ValueError("关闭上盖失败，完成复位超时")
+        else:
+            error_msg = "关闭上盖失败，未收到关盖请求"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+    
+    @action()
+    def pick_can_with_powder_and_bead_from_open_can_position(self) -> dict:
+        """
+        从开盖区抓取带有粉珠的球磨罐
+        - 检查机械臂1是否空闲
+        - 检查开罐是否占位
+        - 设置从开盖区抓取球磨罐
+        - 等待从开盖区抓取空罐完成
+        - 返回成功
+        """
+        logger.info("从开盖区抓取带有粉珠的球磨罐...")
+        self._wait_until_true("Robotic_Arm_Idle_1", description="等待机械臂1空闲")
+        
+        if not self._wait_condition(lambda: self.is_open_can_body_occupied()):
+            error_msg = "开罐主体未占位，无法抓取"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
+        self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.OPEN_CAN_POSITION) # 设置机械臂目标位置为开盖区
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", RoboticArmPickPlaceCode_1.OPEN_CAN_WITH_POWDER_PICK_FULL_CAN) # 设置开盖区取满罐
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", True) # 设置动作触发
+        if self._wait_until_true("Robotic_Arm_Action_Complete_1", description="从开盖区抓取球磨罐完成"):
+            self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
+            if self._wait_until_false("Robotic_Arm_Action_Complete_1", description="从开盖区抓取球磨罐完成"): # 等待完成状态复位
+                logger.info("从开盖区抓取球磨罐完成")
+                # 前端物料转移：从「开盖区」取走载具，暂存到机械臂1（无物料则跳过）
+                self._pick_carrier_from_warehouse("开盖区", arm_id=1)
+                return {
+                    "success": True,
+                    "message": "从开盖区抓取球磨罐完成",
+                }
+            else:
+                error_msg = "从开盖区抓取球磨罐失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = "从开盖区抓取球磨罐失败，机械臂动作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+    
+    @action()
+    def place_can_to_ball_mill(self, mill_position: int) -> dict:
+        """
+        将罐体放置到球磨区
+        - 检查机械臂1是否空闲
+        - 检查球磨区是否占位
+        - 设置将开盖罐磨罐放置到球磨区
+        - 等待放置罐体完成
+        - 返回成功
+        """
+        logger.info(f"将开盖罐磨罐放置到球磨区{mill_position}...")
+        self._wait_until_true("Robotic_Arm_Idle_1", description="等待机械臂1空闲")
+        
+        if mill_position not in [1, 2, 3, 4]:
+            error_msg = f"球磨区位置{mill_position}无效"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        if not self._wait_condition(lambda: not (self.is_ball_mill_occupied(mill_position))):
+            error_msg = f"球磨区{mill_position}占位，无法放置"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        mill_position_code = RoboticArmPickPlaceCode_1.BALL_MILL_PLACE_CAN_1 + (mill_position - 1)
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
+        self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.BALL_MILL_POSITION) # 设置机械臂目标位置为球磨区
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", mill_position_code) # 设置球磨区放罐
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", True) # 设置动作触发
+        if self._wait_until_true("Robotic_Arm_Action_Complete_1", description=f"向球磨区{mill_position}放罐完成"):
+            self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
+            if self._wait_until_false("Robotic_Arm_Action_Complete_1", description=f"向球磨区{mill_position}放罐完成"): # 等待完成状态复位
+                logger.info(f"向球磨区{mill_position}放罐完成")
+                # 前端物料转移：将机械臂1暂存载具放入「球磨区」对应位（无暂存则跳过）
+                self._place_carrier_to_warehouse_at("球磨区", str(mill_position), arm_id=1)
+                return {
+                    "success": True,
+                    "message": f"向球磨区{mill_position}放罐完成",
+                }
+            else:
+                error_msg = f"向球磨区{mill_position}放罐失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = f"向球磨区{mill_position}放罐失败，机械臂动作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+    @action()
+    def ball_mill(self, require_full: bool = True) -> dict:
+        """
+        进行球磨
+        - 检测球磨区位置是否有球磨罐
+        - 启动球磨
+        - 等待球磨完成
+        - 返回成功
+
+        Args:
+            require_full[是否需满4罐]: 是否要求球磨区 4 个位置全部放满才开始加工。
+                True=必须满 4 个；False=只要有球磨罐即可开始（默认 True）。
+        """
+        self._check_ball_mill_fault()
+
+        if require_full:
+            for mill_position in [1, 2, 3, 4]:
+                if not self._wait_condition(lambda mp=mill_position: self.is_ball_mill_occupied(mp)):
+                    error_msg = f"球磨区位置{mill_position}为空，需满 4 个球磨罐才开始加工"
+                    logger.error(error_msg)
+                    raise ValueError(error_msg)
+        else:
+            occupied = [mp for mp in [1, 2, 3, 4]
+                        if self._wait_condition(lambda m=mp: self.is_ball_mill_occupied(m))]
+            if not occupied:
+                error_msg = "球磨区无球磨罐，无法球磨"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+            logger.info(f"球磨区已占位 {occupied}（不要求满 4 个），开始加工")
+
+        if self._wait_until_true("Ball_Mill_Request_Process", description="\u7403\u78e8\u8bf7\u6c42\u52a0\u5de5"):
+            logger.info("\u6536\u5230\u7403\u78e8\u8bf7\u6c42\u52a0\u5de5")
+            self.set_node_value("Ball_Mill_Start_Process", True) # \u8bbe\u7f6e\u7403\u78e8\u5f00\u59cb
+            self._begin_ball_mill_run()
+            try:
+                completed = self._wait_until_true(
+                    "Ball_Mill_Process_Complete",
+                    description="\u7b49\u5f85\u7403\u78e8\u5b8c\u6210",
+                )
+            finally:
+                try:
+                    self.set_node_value("Ball_Mill_Start_Process", False) # \u590d\u4f4d\u7403\u78e8\u5f00\u59cb
+                finally:
+                    self._end_ball_mill_run()
+            if completed:
+                logger.info("\u7403\u78e8\u5b8c\u6210")
+                return {
+                    "success": True,
+                    "message": "\u7403\u78e8\u5b8c\u6210",
+                    "data": {
+                        "current_runtime": self.ball_mill_current_runtime(),
+                        "total_set_time": self.ball_mill_total_set_time(),
+                    },
+                }
+            error_msg = "\u7403\u78e8\u5931\u8d25\uff0c\u64cd\u4f5c\u8d85\u65f6"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        else:
+            error_msg = "\u7403\u78e8\u52a0\u5de5\u5931\u8d25\uff0c\u672a\u6536\u5230\u52a0\u5de5\u8bf7\u6c42"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+    
+    
+    @action()
+    def pick_can_from_ball_mill(self, mill_position: int) -> dict:
+        """
+        从球磨区抓取罐体
+        - 检查机械臂1是否空闲
+        - 检查球磨区是否为空
+        - 设置从球磨区抓取罐体
+        - 等待抓取罐体完成
+        - 返回成功
+        """
+        logger.info(f"从球磨区{mill_position}抓取罐体...")
+        self._wait_until_true("Robotic_Arm_Idle_1", description="等待机械臂1空闲")
+        
+        if mill_position not in [1, 2, 3, 4]:
+            error_msg = f"球磨区位置{mill_position}无效"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        if not self._wait_condition(lambda: self.is_ball_mill_occupied(mill_position)):
+            error_msg = f"球磨区位置{mill_position}为空，无法抓取"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        mill_position_code = RoboticArmPickPlaceCode_1.BALL_MILL_PICK_CAN_1 + (mill_position - 1)
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
+        self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.BALL_MILL_POSITION) # 设置机械臂目标位置为球磨区
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", mill_position_code) # 设置球磨区抓取罐 
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", True) # 设置动作触发
+        if self._wait_until_true("Robotic_Arm_Action_Complete_1", description=f"从球磨区位置{mill_position}抓取罐完成"):
+            self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
+            if self._wait_until_false("Robotic_Arm_Action_Complete_1", description=f"从球磨区位置{mill_position}抓取罐完成"): # 等待完成状态复位
+                logger.info(f"从球磨区位置{mill_position}抓取罐完成")
+                # 前端物料转移：从「球磨区」对应位取走载具，暂存到机械臂1（无物料则跳过）
+                self._pick_carrier_from_warehouse_at("球磨区", str(mill_position), arm_id=1)
+                return {
+                    "success": True,
+                    "message": f"从球磨区位置{mill_position}抓取罐完成",
+                }
+            else:
+                error_msg = f"从球磨区位置{mill_position}抓取罐失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = f"从球磨区位置{mill_position}抓取罐失败，机械臂动作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+    
+    @action()
+    def place_milled_can_to_open_can_position(self, mill_position: int) -> dict:
+        """
+        将研磨后球磨罐放到开盖区
+        - 检查机械臂1是否空闲
+        - 检查开盖区是否为空
+        - 设置将球磨罐体放罐到开盖区
+        - 等待放罐完成
+        - 返回成功
+        """
+        logger.info(f"将研磨后球磨罐{mill_position}放到开盖区...")
+        self._wait_until_true("Robotic_Arm_Idle_1", description="等待机械臂1空闲")
+        
+        if mill_position not in [1, 2, 3, 4]:
+            error_msg = f"研磨后球磨罐编号{mill_position}无效"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        if not self._wait_condition(lambda: not (self.is_open_can_body_occupied())):
+            error_msg = "开罐主体占位，无法放置"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        pick_place_code = RoboticArmPickPlaceCode_1.OPEN_CAN_AFTER_MILL_PLACE_CAN_1 + (mill_position - 1) * 10
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
+        self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.OPEN_CAN_POSITION) # 设置机械臂目标位置为开盖区
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", pick_place_code) # 设置开盖区放罐    
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", True) # 设置动作触发
+        if self._wait_until_true("Robotic_Arm_Action_Complete_1", description=f"将研磨后球磨罐{mill_position}放到开盖区完成"):
+            self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
+            if self._wait_until_false("Robotic_Arm_Action_Complete_1", description=f"将研磨后球磨罐{mill_position}放到开盖区完成"): # 等待完成状态复位
+                logger.info(f"将研磨后球磨罐{mill_position}放到开盖区完成")
+                # 前端物料转移：将机械臂1暂存载具放入「开盖区」（无暂存则跳过）
+                self._place_carrier_to_warehouse("开盖区", arm_id=1)
+                return {
+                    "success": True,
+                    "message": f"将研磨后球磨罐{mill_position}放到开盖区完成",
+                }
+            else:
+                error_msg = f"将研磨后球磨罐{mill_position}放到开盖区失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = f"将研磨后球磨罐{mill_position}放到开盖区失败，机械臂动作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+
+    @action()
+    def pick_milled_can_from_open_can_position(self, mill_position: int) -> dict:
+        """
+        从开盖区抓取研磨后球磨罐
+        - 检查机械臂1是否空闲
+        - 检查开盖区是否为空
+        - 设置将研磨后球磨罐从开盖区位置抓取
+        - 等待抓取罐完成
+        - 返回成功
+        """
+        logger.info(f"将研磨后球磨罐{mill_position}从开盖区位置抓取...")
+        self._wait_until_true("Robotic_Arm_Idle_1", description="等待机械臂1空闲")
+        
+        if mill_position not in [1, 2, 3, 4]:
+            error_msg = f"研磨后球磨罐编号{mill_position}无效"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        if not self._wait_condition(lambda: self.is_open_can_body_occupied()):
+            error_msg = "开罐主体未占位，无法抓取"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        pick_place_code = RoboticArmPickPlaceCode_1.OPEN_CAN_AFTER_MILL_PICK_BASE_1 + (mill_position - 1) * 10
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
+        self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.OPEN_CAN_POSITION) # 设置机械臂目标位置为开盖区
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", pick_place_code) # 设置开盖区取座    
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", True) # 设置动作触发
+        if self._wait_until_true("Robotic_Arm_Action_Complete_1", description=f"将研磨后球磨罐{mill_position}从开盖区位置抓取完成"):
+            self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
+            if self._wait_until_false("Robotic_Arm_Action_Complete_1", description=f"将研磨后球磨罐{mill_position}从开盖区位置抓取完成"): # 等待完成状态复位
+                logger.info(f"将研磨后球磨罐{mill_position}从开盖区位置抓取完成")
+                # 前端物料转移：从「开盖区」取走载具，暂存到机械臂1（无物料则跳过）
+                self._pick_carrier_from_warehouse("开盖区", arm_id=1)
+                return {
+                    "success": True,
+                    "message": f"将研磨后球磨罐{mill_position}从开盖区位置抓取完成",
+                }
+            else:
+                error_msg = f"将研磨后球磨罐{mill_position}从开盖区位置抓取失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = f"将研磨后球磨罐{mill_position}从开盖区位置抓取失败，机械臂动作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+
+    @action()
+    def place_milled_can_to_sieve_position(self, mill_position: int) -> dict:
+        """
+        将研磨后球磨罐放到过筛区
+        - 检查机械臂1是否空闲
+        - 检查过筛区是否为空
+        - 设置将研磨后球磨罐放到过筛区位置
+        - 等待放到过筛区位置完成
+        - 返回成功
+        """
+        logger.info(f"将研磨后球磨罐{mill_position}放到过筛区...")
+        self._wait_until_true("Robotic_Arm_Idle_1", description="等待机械臂1空闲")
+        
+        if mill_position not in [1, 2, 3, 4]:
+            error_msg = f"研磨后球磨罐编号{mill_position}无效"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        if not self._wait_condition(lambda: not (self.is_sieve_can_occupied())):
+            error_msg = "过筛区球磨罐占位，无法放罐"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        pick_place_code = RoboticArmPickPlaceCode_1.SIEVE_PLACE_BASE_1 + (mill_position - 1) * 10
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
+        self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.SIEVE_POSITION) # 设置机械臂目标位置为过筛区
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", pick_place_code) # 设置过筛区放座    
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", True) # 设置动作触发
+        if self._wait_until_true("Robotic_Arm_Action_Complete_1", description=f"将研磨后球磨罐{mill_position}放到过筛区完成"):
+            self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
+            if self._wait_until_false("Robotic_Arm_Action_Complete_1", description=f"将研磨后球磨罐{mill_position}放到过筛区完成"): # 等待完成状态复位
+                logger.info(f"将研磨后球磨罐{mill_position}放到过筛区完成")
+                # 前端物料转移：将机械臂1暂存载具放入「过筛区」球磨罐位(1)（无暂存则跳过）
+                self._place_carrier_to_warehouse_at("过筛区", "1", arm_id=1)
+                return {
+                    "success": True,
+                    "message": f"将研磨后球磨罐{mill_position}放到过筛区完成",
+                }
+            else:
+                error_msg = f"将研磨后球磨罐{mill_position}放到过筛区失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = f"将研磨后球磨罐{mill_position}放到过筛区失败，机械臂动作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+
+    @action()
+    def sieve(self) -> dict:
+        """
+        过筛
+        - 检查过筛占位
+        - 设置过筛动作代码
+        - 等待请求执行
+        - 等待过筛完成
+        - 返回成功
+        """
+        logger.info("过筛...")
+        if not self._wait_condition(lambda: self.is_sieve_can_occupied()):
+            error_msg = "过筛区球磨罐没有占位，无法过筛"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        if self._wait_until_true("Sieve_Request_Process", description="过筛请求"):
+            logger.info("接收到过筛请求")
+            self.set_node_value("Sieve_Action_Control_Code", SieveActionCode.SIEVE) # 设置过筛动作代码
+            self.set_node_value("Sieve_Start_Process", True) # 设置过筛开始
+            if self._wait_until_true("Sieve_Process_Complete", description="过筛完成"):
+                logger.info("过筛完成")
+                self.set_node_value("Sieve_Action_Control_Code", SieveActionCode.NO_ACTION) # 复位动作
+                self.set_node_value("Sieve_Start_Process", False) # 复位过筛开始
+                return {
+                    "success": True,
+                    "message": "过筛完成",
+                }
+            else:
+                logger.error("过筛失败，操作未完成")
+                self.set_node_value("Sieve_Action_Control_Code", SieveActionCode.NO_ACTION) # 复位动作
+                self.set_node_value("Sieve_Start_Process", False) # 复位过筛开始
+                raise ValueError("过筛失败，操作未完成")
+        else:
+            error_msg = "过筛失败，未收到过筛请求"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+
+    @action()
+    def pick_milled_can_from_sieve_position(self, mill_position: int) -> dict:
+        """
+        从过筛区抓取研磨后球磨罐
+        - 检查机械臂1是否空闲
+        - 检查过筛区是否占位
+        - 设置将研磨后球磨罐从过筛区位置抓取
+        - 等待从过筛区位置抓取完成
+        - 返回成功
+        """
+        self._wait_until_true("Robotic_Arm_Idle_1", description="等待机械臂1空闲")
+        
+        if mill_position not in [1, 2, 3, 4]:
+            error_msg = f"研磨后球磨罐编号{mill_position}无效"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        if not self._wait_condition(lambda: self.is_sieve_can_occupied()):
+            error_msg = "过筛区球磨罐没有占位，无法从过筛区抓取球磨罐"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        pick_place_code = RoboticArmPickPlaceCode_1.SIEVE_PICK_BASE_1 + (mill_position - 1) * 10
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
+        self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.SIEVE_POSITION) # 设置机械臂目标位置为过筛区
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", pick_place_code) # 设置过筛区取座       
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", True) # 设置动作触发
+        if self._wait_until_true("Robotic_Arm_Action_Complete_1", description=f"从过筛区抓取研磨后球磨罐{mill_position}完成"):
+            self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
+            if self._wait_until_false("Robotic_Arm_Action_Complete_1", description=f"从过筛区抓取研磨后球磨罐{mill_position}完成"): # 等待完成状态复位
+                logger.info(f"从过筛区抓取研磨后球磨罐{mill_position}完成")
+                # 前端物料转移：从「过筛区」球磨罐位(1)取走载具，暂存到机械臂1（无物料则跳过）
+                self._pick_carrier_from_warehouse_at("过筛区", "1", arm_id=1)
+                return {
+                    "success": True,
+                    "message": f"从过筛区抓取研磨后球磨罐{mill_position}完成",
+                }
+            else:
+                error_msg = f"从过筛区抓取研磨后球磨罐{mill_position}失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = f"从过筛区抓取研磨后球磨罐{mill_position}失败，机械臂动作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+
+    @action()
+    def place_milled_can_to_scrape_position(self, mill_position: int) -> dict:
+        """
+        将研磨后球磨罐放到刮粉区
+        - 检查机械臂1是否空闲
+        - 检查刮粉区是否占位
+        - 设置将研磨后球磨罐放到刮粉区
+        - 等待放到刮粉区完成
+        - 返回成功
+        """
+        logger.info(f"将研磨后球磨罐{mill_position}放到刮粉区...")
+        self._wait_until_true("Robotic_Arm_Idle_1", description="等待机械臂1空闲")
+        
+        if mill_position not in [1, 2, 3, 4]:
+            error_msg = f"研磨后球磨罐编号{mill_position}无效"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        if not self._wait_condition(lambda: not (self.is_scrape_occupied())):
+            error_msg = "刮粉区占位，无法放罐"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        pick_place_code = RoboticArmPickPlaceCode_1.SCRAPE_POWDER_PLACE_BASE_1 + (mill_position - 1) * 10
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
+        self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.SCRAPE_POWDER_POSITION) # 设置机械臂目标位置为刮粉区
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", pick_place_code) # 设置刮粉区放座    
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", True) # 设置动作触发
+        if self._wait_until_true("Robotic_Arm_Action_Complete_1", description=f"将研磨后球磨罐{mill_position}放到刮粉区完成"):
+            self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
+            if self._wait_until_false("Robotic_Arm_Action_Complete_1", description=f"将研磨后球磨罐{mill_position}放到刮粉区完成"): # 等待完成状态复位
+                logger.info(f"将研磨后球磨罐{mill_position}放到刮粉区完成")
+                # 前端物料转移：将机械臂1暂存载具放入「刮粉区」（无暂存则跳过）
+                self._place_carrier_to_warehouse("刮粉区", arm_id=1)
+                return {
+                    "success": True,
+                    "message": f"将研磨后球磨罐{mill_position}放到刮粉区完成",
+                }
+            else:
+                error_msg = f"将研磨后球磨罐{mill_position}放到刮粉失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = f"将研磨后球磨罐{mill_position}放到刮粉区失败，机械臂动作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+    
+    @action()
+    def scrape_powder(self) -> dict:
+        """
+        刮粉
+        - 检查刮粉区占位
+        - 设置刮粉区动作代码
+        - 等待请求执行
+        - 等待刮粉区完成
+        - 返回成功
+        """
+        logger.info("刮粉区...")
+        if not self._wait_condition(lambda: self.is_scrape_occupied()):
+            error_msg = "刮粉区没有占位，无法刮粉"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        if self._wait_until_true("Scrape_Powder_Request_Process", description="刮粉请求"):
+            logger.info("接收到刮粉请求")
+            self.set_node_value("Scrape_Powder_Action_Control_Code", ScrapePowderActionCode.SCRAPE_POWDER) # 设置刮粉区动作代码
+            self.set_node_value("Scrape_Powder_Start_Process", True) # 设置刮粉开始
+            if self._wait_until_true("Scrape_Powder_Process_Complete", description="刮粉完成"):
+                logger.info("刮粉完成")
+                self.set_node_value("Scrape_Powder_Action_Control_Code", ScrapePowderActionCode.NO_ACTION) # 复位动作
+                self.set_node_value("Scrape_Powder_Start_Process", False) # 复位刮粉开始
+                return {
+                    "success": True,
+                    "message": "刮粉完成",
+                }
+            else:
+                logger.error("刮粉失败，操作未完成")
+                self.set_node_value("Scrape_Powder_Action_Control_Code", ScrapePowderActionCode.NO_ACTION) # 复位动作
+                self.set_node_value("Scrape_Powder_Start_Process", False) # 复位刮粉开始
+                raise ValueError("刮粉失败，操作未完成")
+        else:
+            error_msg = "刮粉失败，未收到刮粉请求"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+
+    @action()
+    def pick_milled_can_from_scrape_position(self, mill_position: int) -> dict:
+        """
+        从刮粉区取下研磨后球磨罐
+        - 检查机械臂1是否空闲
+        - 检查刮粉区是否占位
+        - 设置将研磨后球磨罐从刮粉区取下
+        - 等待从刮粉区取下完成
+        - 返回成功
+        """
+        logger.info(f"从刮粉区位置取下研磨后球磨罐{mill_position}...")
+        self._wait_until_true("Robotic_Arm_Idle_1", description="等待机械臂1空闲")
+        
+        if mill_position not in [1, 2, 3, 4]:
+            error_msg = f"研磨后球磨罐编号{mill_position}无效"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        if not self._wait_condition(lambda: self.is_scrape_occupied()):
+            error_msg = "刮粉区没有占位，无法取下"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        pick_place_code = RoboticArmPickPlaceCode_1.SCRAPE_POWDER_PICK_BASE_1 + (mill_position - 1) * 10
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
+        self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.SCRAPE_POWDER_POSITION) # 设置机械臂目标位置为刮粉区
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", pick_place_code) # 设置刮粉区取座
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", True) # 设置动作触发
+        if self._wait_until_true("Robotic_Arm_Action_Complete_1", description=f"将研磨后球磨罐{mill_position}从刮粉区取下完成"):
+            self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
+            if self._wait_until_false("Robotic_Arm_Action_Complete_1", description=f"将研磨后球磨罐{mill_position}从刮粉区取下完成"): # 等待完成状态复位
+                logger.info(f"将研磨后球磨罐{mill_position}从刮粉区取下完成")
+                # 前端物料转移：从「刮粉区」取走载具，暂存到机械臂1（无物料则跳过）
+                self._pick_carrier_from_warehouse("刮粉区", arm_id=1)
+                return {
+                    "success": True,
+                    "message": f"将研磨后球磨罐{mill_position}从刮粉区取下完成",
+                }
+            else:
+                error_msg = f"将研磨后球磨罐{mill_position}从刮粉区取下失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = f"将研磨后球磨罐{mill_position}从刮粉区取下失败，机械臂动作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+    
+    @action()
+    def place_sieved_can_to_open_can_position(self, mill_position: int) -> dict:
+        """
+        将过筛后球磨罐放到开罐区位置
+        - 检查机械臂1是否空闲
+        - 检查过筛区是否占位
+        - 设置将过筛后球磨罐放到开罐区位置
+        - 等待放到开罐区位置完成
+        - 返回成功
+        """
+        logger.info(f"将过筛后球磨罐{mill_position}放到开罐区位置...")
+        self._wait_until_true("Robotic_Arm_Idle_1", description="等待机械臂1空闲")
+        
+        if mill_position not in [1, 2, 3, 4]:
+            error_msg = f"研磨后球磨罐编号{mill_position}无效"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        if not self._wait_condition(lambda: not (self.is_open_can_body_occupied())):
+            error_msg = "开罐区占位，无法放罐"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        pick_place_code = RoboticArmPickPlaceCode_1.OPEN_CAN_AFTER_SIEVE_PLACE_BASE_1 + (mill_position - 1) * 10
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
+        self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.OPEN_CAN_POSITION) # 设置机械臂目标位置为开罐区
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", pick_place_code) # 设置开罐区放座    
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", True) # 设置动作触发
+        if self._wait_until_true("Robotic_Arm_Action_Complete_1", description=f"将过筛后球磨罐{mill_position}放到开罐区完成"):
+            self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
+            if self._wait_until_false("Robotic_Arm_Action_Complete_1", description=f"将过筛后球磨罐{mill_position}放到开罐区完成"): # 等待完成状态复位
+                logger.info(f"将过筛后球磨罐{mill_position}放到开罐区完成")
+                # 前端物料转移：将机械臂1暂存载具放入「开盖区」（无暂存则跳过）
+                self._place_carrier_to_warehouse("开盖区", arm_id=1)
+                return {
+                    "success": True,
+                    "message": f"将过筛后球磨罐{mill_position}放到开罐区完成",
+                }
+            else:
+                error_msg = f"将过筛后球磨罐{mill_position}放到开罐区失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = f"将过筛后球磨罐{mill_position}放到开罐区失败，机械臂动作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+    
+    @action()
+    def pick_sieved_can_from_open_can_position(self, mill_position: int) -> dict:
+        """
+        将过筛后球磨罐从开罐区位置取下
+        - 检查机械臂1是否空闲
+        - 检查开罐区是否占位
+        - 设置将过筛后球磨罐从开罐区位置取下
+        - 等待从开罐区位置取下完成
+        - 返回成功
+        """
+        logger.info(f"将过筛后球磨罐{mill_position}从开罐区位置取下...")
+        self._wait_until_true("Robotic_Arm_Idle_1", description="等待机械臂1空闲")
+        
+        if mill_position not in [1, 2, 3, 4]:
+            error_msg = f"研磨后球磨罐编号{mill_position}无效"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        if not self._wait_condition(lambda: self.is_open_can_body_occupied()):
+            error_msg = "开罐区没有占位，无法取下"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        pick_place_code = RoboticArmPickPlaceCode_1.OPEN_CAN_AFTER_SIEVE_PICK_CAN_1 + (mill_position - 1) * 10
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
+        self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.OPEN_CAN_POSITION) # 设置机械臂目标位置为开罐区
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", pick_place_code) # 设置开罐区取座
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", True) # 设置动作触发
+        if self._wait_until_true("Robotic_Arm_Action_Complete_1", description=f"将过筛后球磨罐{mill_position}从开罐区取下完成"):
+            self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
+            if self._wait_until_false("Robotic_Arm_Action_Complete_1", description=f"将过筛后球磨罐{mill_position}从开罐区取下完成"): # 等待完成状态复位
+                logger.info(f"将过筛后球磨罐{mill_position}从开罐区取下完成")
+                # 前端物料转移：从「开盖区」取走载具，暂存到机械臂1（无物料则跳过）
+                self._pick_carrier_from_warehouse("开盖区", arm_id=1)
+                return {
+                    "success": True,
+                    "message": f"将过筛后球磨罐{mill_position}从开罐区取下完成",
+                }
+            else:
+                error_msg = f"将过筛后球磨罐{mill_position}从开罐区取下失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = f"将过筛后球磨罐{mill_position}从开罐区取下失败，机械臂动作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+    
+    @action()
+    def place_can_to_can_rack(self, rack_position: int) -> dict:
+        """
+        将球磨罐放到罐架区
+        - 检查机械臂1是否空闲
+        - 设置将球磨罐放到罐架位置
+        - 等待将球磨罐放到罐架位置完成
+        - 返回成功
+        
+        参数:
+            rack_position: 罐架区位置
+        
+        Returns:
+            dict: 包含 success 和 message
+        """
+        logger.info(f"放到罐架区放，位置：{rack_position}")
+        MIN_RACK_POSITION = 1
+        MAX_RACK_POSITION = RoboticArmPickPlaceCode_1.PLACE_CAN_RACK_END - RoboticArmPickPlaceCode_1.PLACE_CAN_RACK_START + 1
+        if rack_position < MIN_RACK_POSITION or rack_position > MAX_RACK_POSITION:
+            error_msg = "罐架位置错误"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        self._wait_until_true("Robotic_Arm_Idle_1", description="等待机械臂1空闲")
+
+        if not self._wait_condition(lambda: not (self.is_can_rack_occupied(rack_position))):
+            error_msg = f"罐架位置{rack_position}已占位，无法放置"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        self.set_node_value("Robotic_Arm_Action_Complete_1", False)  # 先复位完成标志，避免读到上一次动作的完成
+        self.set_node_value("Robotic_Arm_Target_Position_Code_1", RoboticArmTargetPosition_1.CAN_RACK_POSITION) # 设置机械臂目标位置为罐架
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_1", RoboticArmPickPlaceCode_1.PLACE_CAN_RACK_START + rack_position - 1) # 设置罐架位置
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Robotic_Arm_Action_Trigger_1", True) # 设置动作触发
+        if self._wait_until_true("Robotic_Arm_Action_Complete_1", description=f"将球磨罐放到罐架位置{rack_position}完成"):
+            self.set_node_value("Robotic_Arm_Action_Trigger_1", False) # 复位动作触发
+            if self._wait_until_false("Robotic_Arm_Action_Complete_1", description=f"将球磨罐放到罐架位置{rack_position}完成"): # 等待完成状态复位
+                logger.info(f"将球磨罐放到罐架位置{rack_position}完成")
+                # 前端物料转移：将机械臂1暂存载具放入「球磨罐仓库」对应位（无暂存则跳过）
+                self._place_carrier_to_warehouse_at("球磨罐仓库", self._can_rack_site_key(rack_position), arm_id=1)
+                return {
+                    "success": True,
+                    "message": f"将球磨罐放到罐架位置{rack_position}完成",
+                }
+            else:
+                error_msg = f"将球磨罐放到罐架位置{rack_position}失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = f"将球磨罐放到罐架位置{rack_position}失败，机械臂动作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+    
+    @action()
+    def pick_small_crucible_from_crucible_rack(self, rack_position: int) -> dict:
+        """
+        从坩锅架区取小坩埚
+        - 检查机械臂2是否空闲
+        - 设置取小坩埚位置
+        - 等待取小坩埚位置完成
+        - 返回成功
+        """
+        logger.info(f"从坩埚架区取小坩埚，位置：{rack_position}")
+        MIN_RACK_POSITION = 1
+        MAX_RACK_POSITION = RoboticArmPickPlaceCode_2.PICK_CRUCIBLE_RACK_END - RoboticArmPickPlaceCode_2.PICK_CRUCIBLE_RACK_START + 1
+        if rack_position < MIN_RACK_POSITION or rack_position > MAX_RACK_POSITION:
+            error_msg = "坩埚位置错误"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        self._wait_until_true("Robotic_Arm_Idle_2", description="等待机械臂2空闲")
+        
+        self.set_node_value("Robotic_Arm_Action_Complete_2", False)  # 先复位完成标志，避免读到上一次动作的完成
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_2", RoboticArmPickPlaceCode_2.PICK_CRUCIBLE_RACK_START + rack_position - 1) # 设置坩埚位置
+        self.set_node_value("Robotic_Arm_Action_Trigger_2", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Robotic_Arm_Action_Trigger_2", True) # 设置动作触发
+        if self._wait_until_true("Robotic_Arm_Action_Complete_2", description=f"取小坩埚位置{rack_position}完成"):
+            self.set_node_value("Robotic_Arm_Action_Trigger_2", False) # 复位动作触发
+            if self._wait_until_false("Robotic_Arm_Action_Complete_2", description=f"取小坩埚位置{rack_position}完成"): # 等待完成状态复位
+                logger.info(f"取小坩埚位置{rack_position}完成")
+                # 前端物料转移：从「小坩埚仓库」对应位取走载具，暂存到机械臂2（无物料则跳过）
+                self._pick_carrier_from_warehouse_at("小坩埚仓库", self._small_crucible_rack_site_key(rack_position), arm_id=2)
+                return {
+                    "success": True,
+                    "message": f"取小坩埚位置{rack_position}完成",
+                }
+            else:
+                error_msg = f"取小坩埚位置{rack_position}失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = f"取小坩埚位置{rack_position}失败，机械臂动作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+    
+    @action()
+    def place_small_crucible_to_sieve_position(self) -> dict:
+        """
+        将小坩埚放到过筛区
+        - 检查机械臂2是否空闲
+        - 检查过筛是否占位
+        - 设置放小坩埚位置
+        - 等待放小坩锅位置完成
+        - 返回成功
+        """
+        logger.info(f"将小坩埚放到过筛区")
+        self._wait_until_true("Robotic_Arm_Idle_2", description="等待机械臂2空闲")
+        
+        if not self._wait_condition(lambda: not (self.is_sieve_crucible_occupied())):
+            error_msg = "过筛区小坩锅已占位"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        self.set_node_value("Robotic_Arm_Action_Complete_2", False)  # 先复位完成标志，避免读到上一次动作的完成
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_2", RoboticArmPickPlaceCode_2.PLACE_SIEVE_CRUCIBLE) # 设置过筛区位置
+        self.set_node_value("Robotic_Arm_Action_Trigger_2", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Robotic_Arm_Action_Trigger_2", True) # 设置动作触发
+        if self._wait_until_true("Robotic_Arm_Action_Complete_2", description=f"放小坩埚到过筛区完成"):
+            self.set_node_value("Robotic_Arm_Action_Trigger_2", False) # 复位动作触发
+            if self._wait_until_false("Robotic_Arm_Action_Complete_2", description=f"放小坩埚到过筛区完成"): # 等待完成状态复位
+                logger.info(f"放小坩锅到过筛区完成")
+                # 前端物料转移：将机械臂2暂存载具放入「过筛区」小坩埚位(3)（无暂存则跳过）
+                self._place_carrier_to_warehouse_at("过筛区", "3", arm_id=2)
+                return {
+                    "success": True,
+                    "message": f"放小坩埚到过筛区完成",
+                }
+            else:
+                error_msg = f"放小坩埚到过筛区失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = f"放小坩埚到过筛区失败，机械臂动作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+
+    @action()
+    def pick_funnel_from_crucible_rack(self, rack_position: int) -> dict:
+        """
+        从漏斗架区取漏斗
+        - 检查机械臂2是否空闲
+        - 设置取漏斗位置
+        - 等待取漏斗完成
+        - 返回成功
+        """
+        logger.info(f"从漏斗架区取漏斗，位置：{rack_position}")
+        MIN_RACK_POSITION = 1
+        MAX_RACK_POSITION = RoboticArmPickPlaceCode_2.PICK_FUNNEL_RACK_END - RoboticArmPickPlaceCode_2.PICK_FUNNEL_RACK_START + 1
+        if rack_position < MIN_RACK_POSITION or rack_position > MAX_RACK_POSITION:
+            error_msg = "漏斗架位置错误"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        self._wait_until_true("Robotic_Arm_Idle_2", description="等待机械臂2空闲")
+
+        funnel_pick_code = RoboticArmPickPlaceCode_2.PICK_FUNNEL_RACK_START + rack_position - 1
+        if not self._wait_condition(lambda: self.is_crucible_rack_occupied(funnel_pick_code)):
+            error_msg = f"漏斗架位置{rack_position}无漏斗，无法抓取"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        self.set_node_value("Robotic_Arm_Action_Complete_2", False)  # 先复位完成标志，避免读到上一次动作的完成
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_2", funnel_pick_code) # 设置漏斗架位置
+        self.set_node_value("Robotic_Arm_Action_Trigger_2", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Robotic_Arm_Action_Trigger_2", True) # 设置动作触发
+        if self._wait_until_true("Robotic_Arm_Action_Complete_2", description=f"取漏斗位置{rack_position}完成"):
+            self.set_node_value("Robotic_Arm_Action_Trigger_2", False) # 复位动作触发
+            if self._wait_until_false("Robotic_Arm_Action_Complete_2", description=f"取漏斗位置{rack_position}完成"): # 等待完成状态复位
+                logger.info(f"取漏斗位置{rack_position}完成")
+                # 前端物料转移：从「漏斗仓库」C-{rack_position} 取走载具，暂存到机械臂2（无物料则跳过）
+                self._pick_carrier_from_warehouse_at("漏斗仓库", f"C-{rack_position}", arm_id=2)
+                return {
+                    "success": True,
+                    "message": f"取漏斗位置{rack_position}完成",
+                }
+            else:
+                error_msg = f"取漏斗位置{rack_position}失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = f"取漏斗位置{rack_position}失败，机械臂动作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+
+    @action()
+    def place_funnel_to_sieve_position(self) -> dict:
+        """
+        将漏斗放到过筛区
+        - 检查机械臂2是否空闲
+        - 检查过筛是否占位
+        - 设置放漏斗位置
+        - 等待放漏斗位置完成
+        - 返回成功
+        """
+        logger.info(f"将漏斗放到过筛区")
+        self._wait_until_true("Robotic_Arm_Idle_2", description="等待机械臂2空闲")
+        
+        if not self._wait_condition(lambda: not (self.is_sieve_funnel_occupied())):
+            error_msg = "过筛区漏斗已占位"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        self.set_node_value("Robotic_Arm_Action_Complete_2", False)  # 先复位完成标志，避免读到上一次动作的完成
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_2", RoboticArmPickPlaceCode_2.PLACE_SIEVE_FUNNEL) # 设置过筛区位置
+        self.set_node_value("Robotic_Arm_Action_Trigger_2", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Robotic_Arm_Action_Trigger_2", True) # 设置动作触发
+        if self._wait_until_true("Robotic_Arm_Action_Complete_2", description=f"放漏斗到过筛区完成"):
+            self.set_node_value("Robotic_Arm_Action_Trigger_2", False) # 复位动作触发
+            if self._wait_until_false("Robotic_Arm_Action_Complete_2", description=f"放漏斗到过筛区完成"): # 等待完成状态复位
+                logger.info(f"放漏斗到过筛区完成")
+                # 前端物料转移：将机械臂2暂存载具放入「过筛区」漏斗位(2)（无暂存则跳过）
+                self._place_carrier_to_warehouse_at("过筛区", "2", arm_id=2)
+                return {
+                    "success": True,
+                    "message": f"放漏斗到过筛区完成",
+                }
+            else:
+                error_msg = f"放漏斗到过筛区失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = f"放漏斗到过筛区失败，机械臂动作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+
+    @action()
+    def pick_small_crucible_from_sieve_position(self) -> dict:
+        """
+        将小坩埚从过筛区取出
+        - 检查机械臂2是否空闲
+        - 检查过筛是否占位
+        - 设置放小坩埚位置
+        - 等待放小坩锅位置完成
+        - 返回成功
+        """
+        logger.info(f"将小坩埚从过筛区取出")
+        self._wait_until_true("Robotic_Arm_Idle_2", description="等待机械臂2空闲")
+        
+        if not self._wait_condition(lambda: self.is_sieve_crucible_occupied()):
+            error_msg = "过筛区小坩埚未占位"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        self.set_node_value("Robotic_Arm_Action_Complete_2", False)  # 先复位完成标志，避免读到上一次动作的完成
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_2", RoboticArmPickPlaceCode_2.PICK_SIEVE_CRUCIBLE) # 设置过筛区位置
+        self.set_node_value("Robotic_Arm_Action_Trigger_2", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Robotic_Arm_Action_Trigger_2", True) # 设置动作触发
+        if self._wait_until_true("Robotic_Arm_Action_Complete_2", description=f"从过筛区取小坩埚完成"):
+            self.set_node_value("Robotic_Arm_Action_Trigger_2", False) # 复位动作触发
+            if self._wait_until_false("Robotic_Arm_Action_Complete_2", description=f"从过筛区取小坩埚完成"): # 等待完成状态复位
+                logger.info(f"从过筛区取小坩埚完成")
+                # 前端物料转移：从「过筛区」小坩埚位(3)取走载具，暂存到机械臂2（无物料则跳过）
+                self._pick_carrier_from_warehouse_at("过筛区", "3", arm_id=2)
+                return {
+                    "success": True,
+                    "message": f"从过筛区取小坩埚完成",
+                }
+            else:
+                error_msg = f"从过筛区取小坩锅失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = f"从过筛区取小坩锅失败，机械臂动作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+
+    @action()
+    def place_small_crucible_to_moving_position(self, moving_position: int)  -> dict:
+        """
+        将小坩锅放到搬运位置
+        - 检查机械臂2是否空闲
+        - 检查移动位置是否在放料位
+        - 设置放小坩埚位置
+        - 等待放小坩埚位置完成
+        - 返回成功
+        """
+        logger.info(f"将小坩埚放到搬运位置 {moving_position}")
+
+        MIN_MOVING_POSITION = 1
+        MAX_MOVING_POSITION = RoboticArmPickPlaceCode_2.PLACE_SMALL_CRUCIBLE_4 - RoboticArmPickPlaceCode_2.PLACE_SMALL_CRUCIBLE_1 + 1
+
+        if not (MIN_MOVING_POSITION <= moving_position <= MAX_MOVING_POSITION):
+            error_msg = f"搬运位置 {moving_position} 超出范围"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        self._wait_until_true("Robotic_Arm_Idle_2", description="等待机械臂2空闲")
+        
+        self._wait_until_value(
+            "Small_Crucible_Discharge_Current_Position",
+            SmallCrucibleDischargePosition.FEEDING,
+            description="小坩埚出料机构到达放料位",
+        )
+
+        self.set_node_value("Robotic_Arm_Action_Complete_2", False)  # 先复位完成标志，避免读到上一次动作的完成
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_2", RoboticArmPickPlaceCode_2.PLACE_SMALL_CRUCIBLE_1 + moving_position - 1) # 设置搬运位置
+        self.set_node_value("Robotic_Arm_Action_Trigger_2", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Robotic_Arm_Action_Trigger_2", True) # 设置动作触发
+        if self._wait_until_true("Robotic_Arm_Action_Complete_2", description=f"将小坩锅放到搬运位置 {moving_position} 完成"):
+            self.set_node_value("Robotic_Arm_Action_Trigger_2", False) # 复位动作触发
+            if self._wait_until_false("Robotic_Arm_Action_Complete_2", description=f"将小坩锅放到搬运位置 {moving_position} 完成"): # 等待完成状态复位
+                logger.info(f"将小坩锅放到搬运位置 {moving_position} 完成")
+                # 前端物料转移：将机械臂2暂存载具放入「小坩埚出料」对应位（无暂存则跳过）
+                self._place_carrier_to_warehouse_at("小坩埚出料", str(moving_position), arm_id=2)
+                return {
+                    "success": True,
+                    "message": f"将小坩锅放到搬运位置 {moving_position} 完成",
+                }
+            else:
+                error_msg = f"将小坩锅放到搬运位置 {moving_position} 失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = f"将小坩锅放到搬运位置 {moving_position} 失败，机械臂动作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+
+    @action()
+    def pick_funnel_from_sieve_position(self) -> dict:
+        """
+        将漏斗从过筛区取出
+        - 检查机械臂2是否空闲
+        - 检查过筛是否占位
+        - 设置放漏斗位置
+        - 等待放漏斗位置完成
+        - 返回成功
+        """
+        logger.info(f"将漏斗从过筛区取出")
+        self._wait_until_true("Robotic_Arm_Idle_2", description="等待机械臂2空闲")
+        
+        if not self._wait_condition(lambda: self.is_sieve_funnel_occupied()):
+            error_msg = "过筛区漏斗未占位"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        self.set_node_value("Robotic_Arm_Action_Complete_2", False)  # 先复位完成标志，避免读到上一次动作的完成
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_2", RoboticArmPickPlaceCode_2.PICK_SIEVE_FUNNEL) # 设置过筛区位置
+        self.set_node_value("Robotic_Arm_Action_Trigger_2", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Robotic_Arm_Action_Trigger_2", True) # 设置动作触发
+        if self._wait_until_true("Robotic_Arm_Action_Complete_2", description=f"从过筛区取漏斗完成"):
+            self.set_node_value("Robotic_Arm_Action_Trigger_2", False) # 复位动作触发
+            if self._wait_until_false("Robotic_Arm_Action_Complete_2", description=f"从过筛区取漏斗完成"): # 等待完成状态复位
+                logger.info(f"从过筛区取漏斗完成")
+                # 前端物料转移：从「过筛区」漏斗位(2)取走载具，暂存到机械臂2（无物料则跳过）
+                self._pick_carrier_from_warehouse_at("过筛区", "2", arm_id=2)
+                return {
+                    "success": True,
+                    "message": f"从过筛区取漏斗完成",
+                }
+            else:
+                error_msg = f"从过筛区取漏斗失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = f"从过筛区取漏斗失败，机械臂动作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+
+    @action()
+    def place_funnel_to_crucible_rack(self, rack_position: int) -> dict:
+        """
+        将漏斗放到漏斗架
+        - 检查机械臂2是否空闲
+        - 设置取漏斗位置
+        - 等待取漏斗完成
+        - 返回成功
+        """
+        logger.info(f"将漏斗放到漏斗架，位置：{rack_position}")
+        MIN_RACK_POSITION = 1
+        MAX_RACK_POSITION = RoboticArmPickPlaceCode_2.PLACE_FUNNEL_RACK_END - RoboticArmPickPlaceCode_2.PLACE_FUNNEL_RACK_START + 1
+        if rack_position < MIN_RACK_POSITION or rack_position > MAX_RACK_POSITION:
+            error_msg = "漏斗架位置错误"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        self._wait_until_true("Robotic_Arm_Idle_2", description="等待机械臂2空闲")
+
+        funnel_place_code = RoboticArmPickPlaceCode_2.PLACE_FUNNEL_RACK_START + rack_position - 1
+        if not self._wait_condition(lambda: not (self.is_crucible_rack_occupied(funnel_place_code))):
+            error_msg = f"漏斗架位置{rack_position}已占位，无法放置"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        self.set_node_value("Robotic_Arm_Action_Complete_2", False)  # 先复位完成标志，避免读到上一次动作的完成
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_2", funnel_place_code) # 设置漏斗架位置
+        self.set_node_value("Robotic_Arm_Action_Trigger_2", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Robotic_Arm_Action_Trigger_2", True) # 设置动作触发
+        if self._wait_until_true("Robotic_Arm_Action_Complete_2", description=f"放漏斗位置{rack_position}完成"):
+            self.set_node_value("Robotic_Arm_Action_Trigger_2", False) # 复位动作触发
+            if self._wait_until_false("Robotic_Arm_Action_Complete_2", description=f"放漏斗位置{rack_position}完成"): # 等待完成状态复位
+                logger.info(f"放漏斗位置{rack_position}完成")
+                # 前端物料转移：将机械臂2暂存载具放入「漏斗仓库」D-{rack_position}（无暂存则跳过）
+                self._place_carrier_to_warehouse_at("漏斗仓库", f"D-{rack_position}", arm_id=2)
+                return {
+                    "success": True,
+                    "message": f"放漏斗位置{rack_position}完成",
+                }
+            else:
+                error_msg = f"放漏斗位置{rack_position}失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = f"放漏斗位置{rack_position}失败，机械臂动作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+
+    @action()
+    def small_crucible_discharge(self) -> dict:
+        """
+        小坩锅出料
+        - 检查 4 个出料占位都为 True
+        - 设置出料操作
+        - 等待出料完成
+        - 返回成功
+        """
+        logger.info("小坩埚出料")
+
+        if not self._wait_condition(lambda: all(self.is_small_crucible_discharge_occupied(i) for i in (1, 2, 3, 4))):
+            unoccupied = [i for i in (1, 2, 3, 4) if not self.is_small_crucible_discharge_occupied(i)]
+            error_msg = f"小坩埚出料占位 {unoccupied} 未占位，无法出料"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        self.set_node_value("Small_Crucible_Discharge_Target_Position_Code", SmallCrucibleDischargePosition.DISCHARGE) # 设置出料位置
+        self.set_node_value("Small_Crucible_Discharge_Action_Trigger", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Small_Crucible_Discharge_Action_Trigger", True) # 设置动作触发
+        if self._wait_until_true("Small_Crucible_Discharge_Action_Complete", description=f"小坩埚出料完成"):
+            self.set_node_value("Small_Crucible_Discharge_Action_Trigger", False) # 复位动作触发
+            if self._wait_until_false("Small_Crucible_Discharge_Action_Complete", description=f"小坩埚出料完成"): # 等待完成状态复位
+                logger.info(f"小坩埚出料完成")
+                return {
+                    "success": True,
+                    "message": f"小坩埚出料完成",
+                }
+            else:
+                error_msg = f"小坩埚出料失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = f"小坩埚出料失败，操作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+    
+    @action()
+    def small_crucible_feed(self) -> dict:
+        """
+        小坩锅上料
+        - 设置上料操作
+        - 等待上料完成
+        - 返回成功
+        """
+        logger.info("小坩埚上料")
+
+        self.set_node_value("Small_Crucible_Discharge_Target_Position_Code", SmallCrucibleDischargePosition.FEEDING) # 设置上料位置
+        self.set_node_value("Small_Crucible_Discharge_Action_Trigger", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Small_Crucible_Discharge_Action_Trigger", True) # 设置动作触发
+        if self._wait_until_true("Small_Crucible_Discharge_Action_Complete", description=f"小坩埚上料完成"):
+            self.set_node_value("Small_Crucible_Discharge_Action_Trigger", False) # 复位动作触发
+            if self._wait_until_false("Small_Crucible_Discharge_Action_Complete", description=f"小坩埚上料完成"): # 等待完成状态复位
+                logger.info(f"小坩埚上料完成，完成复位超时")
+                return {
+                    "success": True,
+                    "message": f"小坩埚出料完成",
+                }
+            else:
+                error_msg = f"小坩埚上料失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = f"小坩埚上料失败，操作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+
+    @action()
+    def large_crucible_discharge(self) -> dict:
+        """
+        大坩锅搬运位出料
+        - 设置出料操作
+        - 等待出料完成
+        - 返回成功
+        """
+        logger.info("大坩埚出料")
+
+        self.set_node_value("Large_Crucible_Feed_Target_Position_Code", LargeCrucibleFeedPosition.FEEDING) # 设置出料位置
+        self.set_node_value("Large_Crucible_Feed_Action_Trigger", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Large_Crucible_Feed_Action_Trigger", True) # 设置动作触发
+        if self._wait_until_true("Large_Crucible_Feed_Action_Complete", description=f"大坩埚出料完成"):
+            self.set_node_value("Large_Crucible_Feed_Action_Trigger", False) # 复位动作触发
+            if self._wait_until_false("Large_Crucible_Feed_Action_Complete", description=f"大坩锅出料完成"): # 等待完成状态复位
+                logger.info(f"大坩锅出料完成")
+                return {
+                    "success": True,
+                    "message": f"大坩埚出料完成",
+                }
+            else:
+                error_msg = f"大坩埚出料失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = f"大坩锅出料失败，操作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+    
+    @action(
+        node_type=NodeType.MANUAL_CONFIRM,
+        placeholder_keys={"assignee_user_ids": "unilabos_manual_confirm"},
+        goal_default={"timeout_seconds": 3600, "assignee_user_ids": []},
+        feedback_interval=300,
+        description="大坩埚入料（人工确认节点：确认通过后执行大坩埚搬运位置上料）",
+    )
+    def large_crucible_feed(
+        self,
+        timeout_seconds: int = 3600,
+        assignee_user_ids: Optional[list] = None,
+        **kwargs,
+    ) -> dict:
+        """
+        大坩锅搬运位置上料（人工确认通过后执行）
+        - 设置上料操作
+        - 等待上料完成
+        - 返回成功
+
+        Args:
+            timeout_seconds[超时时间]: 人工确认超时时间，单位秒。
+            assignee_user_ids[确认人]: 指定处理人工确认任务的用户 ID 列表。
+        """
+        logger.info("大坩埚上料")
+
+        self.set_node_value("Large_Crucible_Feed_Target_Position_Code", LargeCrucibleFeedPosition.PICKING) # 设置取料位置
+        self.set_node_value("Large_Crucible_Feed_Action_Trigger", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Large_Crucible_Feed_Action_Trigger", True) # 设置动作触发
+        if self._wait_until_true("Large_Crucible_Feed_Action_Complete", description=f"大坩锅上料完成"):
+            self.set_node_value("Large_Crucible_Feed_Action_Trigger", False) # 复位动作触发
+            if self._wait_until_false("Large_Crucible_Feed_Action_Complete", description=f"大坩锅上料完成"): # 等待完成状态复位
+                logger.info(f"大坩锅上料完成")
+                return {
+                    "success": True,
+                    "message": f"大坩锅上料完成",
+                }
+            else:
+                error_msg = f"大坩锅上料失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = f"大坩锅上料失败，操作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+
+    @action()
+    def pick_large_crucible_from_moving_position(self) -> dict:
+        """
+        从搬运区取大坩埚
+        - 检查机械臂3是否空闲
+        - 检查大坩埚入料是否在取料区
+        - 设置取大坩埚
+        - 等待取大坩锅完成
+        - 返回成功
+        """
+        logger.info("从搬运区取大坩埚")
+        self._wait_until_true("Robotic_Arm_Idle_3", description="等待机械臂3空闲")
+
+        self._wait_until_value(
+            "Large_Crucible_Feed_Current_Position",
+            LargeCrucibleFeedPosition.PICKING,
+            description="大坩埚入料机构到达取料位",
+        )
+        
+        self.set_node_value("Robotic_Arm_Action_Complete_3", False)  # 先复位完成标志，避免读到上一次动作的完成
+        self.set_node_value("Robotic_Arm_Target_Position_Code_3", RoboticArmTargetPosition_3.LARGE_CRUCIBLE_POSITION) # 设置机械臂目标位置为大坩埚
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_3", RoboticArmPickPlaceCode_3.PICK_FEED_LARGE_CRUCIBLE) # 设置取大坩埚
+        self.set_node_value("Robotic_Arm_Action_Trigger_3", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Robotic_Arm_Action_Trigger_3", True) # 设置动作触发
+        if self._wait_until_true("Robotic_Arm_Action_Complete_3", description=f"取大坩埚完成"):
+            self.set_node_value("Robotic_Arm_Action_Trigger_3", False) # 复位动作触发
+            if self._wait_until_false("Robotic_Arm_Action_Complete_3", description=f"取大坩锅完成"): # 等待完成状态复位
+                logger.info(f"取大坩埚完成")
+                # 前端物料转移：从「大坩埚入料」取走载具，暂存到机械臂3（无物料则跳过）
+                self._pick_carrier_from_warehouse("大坩埚入料", arm_id=3)
+                return {
+                    "success": True,
+                    "message": f"取大坩埚完成",
+                }
+            else:
+                error_msg = f"取大坩埚失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = f"取大坩埚失败，机械臂动作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+
+    @action()
+    def place_large_crucible_to_muffle_furnace(self, muffle_furnace_position: int) -> dict:
+        """
+        把大坩埚放到马弗炉
+        - 检查机械臂3是否空闲
+        - 检查马弗炉是否占位
+        - 设置放大坩埚
+        - 等待放大坩锅完成
+        - 返回成功
+        """
+        logger.info(f"把大坩锅放到马弗炉位置{muffle_furnace_position}")
+
+        MIN_MUFFLE_FURNACE_POSITION = 1
+        MAX_MUFFLE_FURNACE_POSITION = 6
+        if muffle_furnace_position < MIN_MUFFLE_FURNACE_POSITION or muffle_furnace_position > MAX_MUFFLE_FURNACE_POSITION:
+            error_msg = f"马弗炉位置{muffle_furnace_position}不在有效范围内"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        self._wait_until_true("Robotic_Arm_Idle_3", description="等待机械臂3空闲")
+        
+        if not self._wait_condition(lambda: not (self.is_muffle_furnace_occupied(muffle_furnace_position))):
+            error_msg = f"马弗炉位置{muffle_furnace_position}占位，无法放料"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        self.set_node_value("Robotic_Arm_Action_Complete_3", False)  # 先复位完成标志，避免读到上一次动作的完成
+        self.set_node_value("Robotic_Arm_Target_Position_Code_3", RoboticArmTargetPosition_3.MUFFLE_FURNACE_1_POSITION + muffle_furnace_position - 1) # 设置机械臂目标位置为马弗炉
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_3", RoboticArmPickPlaceCode_3.PLACE_MUFFLE_FURNACE_1 + muffle_furnace_position - 1) # 设置放马弗炉
+        self.set_node_value("Robotic_Arm_Action_Trigger_3", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Robotic_Arm_Action_Trigger_3", True) # 设置动作触发
+        if self._wait_until_true("Robotic_Arm_Action_Complete_3", description=f"放马弗炉完成"):
+            self.set_node_value("Robotic_Arm_Action_Trigger_3", False) # 复位动作触发
+            if self._wait_until_false("Robotic_Arm_Action_Complete_3", description=f"放马弗炉完成"): # 等待完成状态复位
+                logger.info(f"放马弗炉完成")
+                # 前端物料转移：将机械臂3暂存载具放入「马弗炉{muffle_furnace_position}」（无暂存则跳过）
+                self._place_carrier_to_warehouse(f"马弗炉{muffle_furnace_position}", arm_id=3)
+                return {
+                    "success": True,
+                    "message": f"放大坩埚到马弗炉{muffle_furnace_position}完成",
+                }
+            else:
+                error_msg = f"放马弗炉失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = f"放马弗炉失败，机械臂动作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+
+    @action(always_free=True)
+    def muffle_furnace_sintering(
+        self,
+        muffle_furnace_position: int,
+        check_can_occupied: bool = True,
+        temperature_curve_path: str = "",
+    ) -> dict:
+        """马弗炉烧结（加热）。
+
+        - 可选择是否检查马弗炉占位
+        - 设置开始烧结
+        - 等待烧结完成
+
+        Args:
+            muffle_furnace_position[马弗炉位置]: 马弗炉编号，范围 1~6。
+            check_can_occupied[是否检查坩埚占位]: True=烧结前检查占位；False=跳过占位检查。
+            temperature_curve_path[温度曲线输出路径]: 可传入 PNG 文件路径或输出目录；实际文件名固定以时间戳开头，留空使用 XUSE/records。
+        """
+        logger.info(f"开始马弗炉{muffle_furnace_position}烧结（check_can_occupied={check_can_occupied}）")
+        MIN_MUFFLE_FURNACE_POSITION = 1
+        MAX_MUFFLE_FURNACE_POSITION = 6
+        if muffle_furnace_position < MIN_MUFFLE_FURNACE_POSITION or muffle_furnace_position > MAX_MUFFLE_FURNACE_POSITION:
+            error_msg = f"马弗炉位置{muffle_furnace_position}不在有效范围内"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        self._check_muffle_furnace_faults(muffle_furnace_position)
+
+        if check_can_occupied:
+            if not self._wait_condition(lambda: self.is_muffle_furnace_occupied(muffle_furnace_position)):
+                error_msg = f"马弗炉位置{muffle_furnace_position}未占位，无法烧结"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            logger.info(f"跳过马弗炉{muffle_furnace_position}占位检查，直接等待烧结请求...")
+        
+        # \u5728\u7b49\u5f85 PLC \u8bf7\u6c42\u671f\u95f4\u5148\u51c6\u5907\u603b\u8bbe\u5b9a\u65f6\u95f4\u548c\u6e29\u5ea6\u66f2\u7ebf\uff0c\u52a8\u4f5c\u771f\u6b63\u5f00\u59cb\u65f6\u518d\u6e05\u96f6\u8fd0\u884c\u65f6\u95f4\u3002
+        furnace_status = getattr(self, "_muffle_furnace_status", {}).get(muffle_furnace_position)
+        if furnace_status is not None and not furnace_status.get("profile") and not furnace_status.get("total_seconds"):
+            self._refresh_muffle_profile_from_plc(muffle_furnace_position)
+
+        if self._wait_until_true(f"Muffle_Furnace_Request_Process_{muffle_furnace_position}", description=f"\u9a6c\u5f17\u7089{muffle_furnace_position}\u5f00\u59cb\u8bf7\u6c42"):
+            start_node = f"Muffle_Furnace_Start_Process_{muffle_furnace_position}"
+            self.set_node_value(start_node, True) # \u8bbe\u7f6e\u5f00\u59cb\u70e7\u7ed3
+            self._begin_muffle_furnace_run(muffle_furnace_position)
+            started_at = getattr(self, "_muffle_furnace_status", {}).get(muffle_furnace_position, {}).get("started_at") or time.monotonic()
+            monitor = None
+            curve_path = None
+            try:
+                monitor = self._start_muffle_temperature_monitor(muffle_furnace_position, started_at)
+                completed = self._wait_until_true(
+                    f"Muffle_Furnace_Process_Complete_{muffle_furnace_position}",
+                    description=f"\u9a6c\u5f17\u7089{muffle_furnace_position}\u70e7\u7ed3\u5b8c\u6210",
+                )
+            finally:
+                try:
+                    self.set_node_value(start_node, False) # \u590d\u4f4d\u52a8\u4f5c\u89e6\u53d1
+                finally:
+                    curve_path = self._stop_muffle_temperature_monitor(
+                        muffle_furnace_position,
+                        monitor,
+                        temperature_curve_path,
+                    )
+                    self._end_muffle_furnace_run(muffle_furnace_position)
+            if completed:
+                logger.info(f"\u9a6c\u5f17\u7089{muffle_furnace_position}\u70e7\u7ed3\u5b8c\u6210")
+                status = getattr(self, "_muffle_furnace_status", {}).get(muffle_furnace_position, {})
+                return {
+                    "success": True,
+                    "message": f"\u9a6c\u5f17\u7089{muffle_furnace_position}\u70e7\u7ed3\u5b8c\u6210",
+                    "data": {
+                        "current_runtime": round(float(status.get("elapsed_seconds", 0.0) or 0.0), 1),
+                        "total_set_time": round(float(status.get("total_seconds", 0.0) or 0.0), 1),
+                        "set_temperature": self.muffle_furnace_set_temperature()[muffle_furnace_position - 1],
+                        "current_temperature": self.muffle_furnace_current_temperature()[muffle_furnace_position - 1],
+                        "temperature_curve_file": curve_path,
+                    },
+                }
+            logger.error(f"\u9a6c\u5f17\u7089{muffle_furnace_position}\u70e7\u7ed3\u5931\u8d25")
+            raise ValueError(f"\u9a6c\u5f17\u7089{muffle_furnace_position}\u70e7\u7ed3\u5931\u8d25\uff0c\u7b49\u5f85\u70e7\u7ed3\u8d85\u65f6")
+        else:
+            error_msg = f"\u9a6c\u5f17\u7089{muffle_furnace_position}\u70e7\u7ed3\u5931\u8d25\uff0c\u672a\u6536\u5230\u8bf7\u6c42"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+
+    @action()
+    def pick_large_crucible_from_muffle_furnace(self, muffle_furnace_position: int) -> dict:
+        """
+        从马弗炉取大坩埚
+        - 检查机械臂3是否空闲
+        - 检查马弗炉是否占位
+        - 设置开始取
+        - 等待取完成
+        - 返回成功
+        """
+        logger.info(f"从马弗炉{muffle_furnace_position}取大坩埚")
+
+        MIN_MUFFLE_FURNACE_POSITION = 1
+        MAX_MUFFLE_FURNACE_POSITION = 6
+        if muffle_furnace_position < MIN_MUFFLE_FURNACE_POSITION or muffle_furnace_position > MAX_MUFFLE_FURNACE_POSITION:
+            error_msg = f"马弗炉位置{muffle_furnace_position}不在有效范围内"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        self._wait_until_true("Robotic_Arm_Idle_3", description="等待机械臂3空闲")
+        
+        if not self._wait_condition(lambda: self.is_muffle_furnace_occupied(muffle_furnace_position)):
+            error_msg = f"马弗炉位置{muffle_furnace_position}未占位，无法取大坩埚"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        self.set_node_value("Robotic_Arm_Action_Complete_3", False)  # 先复位完成标志，避免读到上一次动作的完成
+        self.set_node_value("Robotic_Arm_Target_Position_Code_3", RoboticArmTargetPosition_3.MUFFLE_FURNACE_1_POSITION + muffle_furnace_position - 1) # 设置机械臂目标位置为马弗炉
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_3", RoboticArmPickPlaceCode_3.PICK_MUFFLE_FURNACE_1 + muffle_furnace_position - 1) # 设置放马弗炉
+        self.set_node_value("Robotic_Arm_Action_Trigger_3", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Robotic_Arm_Action_Trigger_3", True) # 设置动作触发
+        if self._wait_until_true("Robotic_Arm_Action_Complete_3", description=f"从马弗炉取大坩埚完成"):
+            self.set_node_value("Robotic_Arm_Action_Trigger_3", False) # 复位动作触发
+            if self._wait_until_false("Robotic_Arm_Action_Complete_3", description=f"从马弗炉取大坩埚完成"): # 等待完成状态复位
+                logger.info(f"从马弗炉取大坩埚完成")
+                # 前端物料转移：从「马弗炉{muffle_furnace_position}」取走载具，暂存到机械臂3（无物料则跳过）
+                self._pick_carrier_from_warehouse(f"马弗炉{muffle_furnace_position}", arm_id=3)
+                return {
+                    "success": True,
+                    "message": f"从马弗炉{muffle_furnace_position}取大坩埚完成",
+                }
+            else:
+                error_msg = f"从马弗炉取大坩埚失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = f"从马弗炉取大坩埚失败，机械臂动作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+
+    @action()
+    def place_large_crucible_to_upper_product_rack(self) -> dict:
+        """
+        放大坩埚到成品出料上位置
+        - 检查机械臂3是否空闲
+        - 检查成品出料上位置是否占位
+        - 设置放成品出料上位置
+        - 等待放成品出料上位置完成
+        - 返回成功
+        """
+        logger.info(f"放大坩埚到成品出料上位置")
+        self._wait_until_true("Robotic_Arm_Idle_3", description="等待机械臂3空闲")
+        
+        if not self._wait_condition(lambda: not (self.is_upper_product_rack_occupied())):
+            error_msg = f"上成品架占位，无法放料"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        self.set_node_value("Robotic_Arm_Action_Complete_3", False)  # 先复位完成标志，避免读到上一次动作的完成
+        self.set_node_value("Robotic_Arm_Target_Position_Code_3", RoboticArmTargetPosition_3.DISCHARGE_POSITION) # 设置机械臂目标位置为成品出料架
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_3", RoboticArmPickPlaceCode_3.PLACE_DISCHARGE_UPPER) # 设置放成品出料上位置
+        self.set_node_value("Robotic_Arm_Action_Trigger_3", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Robotic_Arm_Action_Trigger_3", True) # 设置动作触发
+        if self._wait_until_true("Robotic_Arm_Action_Complete_3", description=f"放成品出料上位置完成"):
+            self.set_node_value("Robotic_Arm_Action_Trigger_3", False) # 复位动作触发
+            if self._wait_until_false("Robotic_Arm_Action_Complete_3", description=f"放成品出料上位置完成"): # 等待完成状态复位
+                logger.info(f"放成品出料上位置完成")
+                # 前端物料转移：将机械臂3暂存载具放入「大坩埚出料」上位(1)（无暂存则跳过）
+                self._place_carrier_to_warehouse_at("大坩埚出料", "1", arm_id=3)
+                return {
+                    "success": True,
+                    "message": f"放成品出料上位置完成",
+                }
+            else:
+                error_msg = f"放成品出料上位置失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = f"放成品出料上位置失败，机械臂动作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+
+    @action()
+    def place_large_crucible_to_lower_product_rack(self) -> dict:
+        """
+        放大坩埚到成品出料下位置
+        - 检查机械臂3是否空闲
+        - 检查成品出料下位置是否占位
+        - 设置放成品出料下位置
+        - 等待放成品出料下位置完成
+        - 返回成功
+        """
+        logger.info(f"放大坩埚到成品出料下位置")
+        self._wait_until_true("Robotic_Arm_Idle_3", description="等待机械臂3空闲")
+        
+        if not self._wait_condition(lambda: not (self.is_lower_product_rack_occupied())):
+            error_msg = f"下成品架占位，无法放料"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        self.set_node_value("Robotic_Arm_Action_Complete_3", False)  # 先复位完成标志，避免读到上一次动作的完成
+        self.set_node_value("Robotic_Arm_Target_Position_Code_3", RoboticArmTargetPosition_3.DISCHARGE_POSITION) # 设置机械臂目标位置为成品出料架
+        self.set_node_value("Robotic_Arm_Target_Pick_Place_Code_3", RoboticArmPickPlaceCode_3.PLACE_DISCHARGE_LOWER) # 设置放成品出料下位置
+        self.set_node_value("Robotic_Arm_Action_Trigger_3", False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value("Robotic_Arm_Action_Trigger_3", True) # 设置动作触发
+        if self._wait_until_true("Robotic_Arm_Action_Complete_3", description=f"放成品出料下位置完成"):
+            self.set_node_value("Robotic_Arm_Action_Trigger_3", False) # 复位动作触发
+            if self._wait_until_false("Robotic_Arm_Action_Complete_3", description=f"放成品出料下位置完成"): # 等待完成状态复位
+                logger.info(f"放成品出料下位置完成")
+                # 前端物料转移：将机械臂3暂存载具放入「大坩埚出料」下位(2)（无暂存则跳过）
+                self._place_carrier_to_warehouse_at("大坩埚出料", "2", arm_id=3)
+                return {
+                    "success": True,
+                    "message": f"放成品出料下位置完成",
+                }
+            else:
+                error_msg = f"放成品出料下位置失败，完成复位超时"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+        else:
+            error_msg = f"放成品出料下位置失败，机械臂动作未完成"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+    
+    @action()
+    def trigger_all_process(self) -> dict:
+        logger.info(f"触发所有过程...")
+        time.sleep(1)
+        logger.info(f"------ 首先进行1-4号位4个罐的加粉加珠球磨流程...")
+        for rack_pos in range(1, 4):
+            # 从罐架区取球磨罐
+            ret = self.pick_can_from_can_rack(rack_pos)
+            if not ret["success"]:
+                return ret
+            
+            # 将空罐放到开盖区
+            ret = self.place_empty_can_to_open_can_position()
+            if not ret["success"]:
+                return ret
+            
+            # 打开罐上盖
+            ret = self.open_can_lid()
+            if not ret["success"]:
+                return ret
+            
+            # 从开盖区抓取空罐
+            ret = self.pick_empty_can_from_open_can_position()
+            if not ret["success"]:
+                return ret
+            
+            # 将罐体放置到加粉区
+            ret = self.place_can_to_add_powder_position()
+            if not ret["success"]:
+                return ret
+            
+            # 加粉
+            ret = self.add_powder(can_number=rack_pos)
+            if not ret["success"]:
+                return ret
+            
+            # 从加粉区取罐体
+            ret = self.pick_can_from_add_powder_position()
+            if not ret["success"]:
+                return ret
+            
+            # 将罐体放置到加珠区
+            ret = self.place_can_to_add_bead_position()
+            if not ret["success"]:
+                return ret
+            
+            # 加珠
+            ret = self.add_bead()
+            if not ret["success"]:
+                return ret
+            
+            # 从加珠区取罐体
+            ret = self.pick_can_from_add_bead_position()
+            if not ret["success"]:
+                return ret
+            
+            # 将带有粉珠的球磨罐放置到开盖区
+            ret = self.place_can_with_powder_and_bead_to_open_can_position()
+            if not ret["success"]:
+                return ret
+            
+            # 关盖
+            ret = self.close_can_lid()
+            if not ret["success"]:
+                return ret
+            
+            # 从开盖区抓取带有粉珠的球磨罐
+            ret = self.pick_can_with_powder_and_bead_from_open_can_position()
+            if not ret["success"]:
+                return ret
+            
+            # 将罐体放置到球磨区
+            ret = self.place_can_to_ball_mill(rack_pos)
+            if not ret["success"]:
+                return ret
+            
+        # 球磨
+        ret = self.ball_mill()
+        if not ret["success"]:
+            return ret
+            
+        logger.info(f"------ 进行4个罐的过筛刮粉流程...")
+        # 小坩埚搬运位上料
+        self.small_crucible_feed()
+        
+        for mill_pos in range(1, 4):
+            # 从球磨区取罐体
+            ret = self.pick_can_from_ball_mill(mill_pos)
+            if not ret["success"]:
+                return ret
+            
+            # 将研磨后球磨罐放到开盖区
+            ret = self.place_milled_can_to_open_can_position(mill_pos)
+            if not ret["success"]:
+                return ret
+            
+            # 打开罐上盖
+            ret = self.open_can_lid()
+            if not ret["success"]:
+                return ret
+            
+            # 从开盖区抓取研磨后球磨罐
+            ret = self.pick_milled_can_from_open_can_position(mill_pos)
+            if not ret["success"]:
+                return ret
+            
+            # 将研磨后球磨罐放到过筛区
+            ret = self.place_milled_can_to_sieve_position(mill_pos)
+            if not ret["success"]:
+                return ret
+            
+            # 从坩锅架区取小坩埚
+            self.pick_small_crucible_from_crucible_rack(mill_pos)
+            if not ret["success"]:
+                return ret
+            
+            # 将小坩埚放到过筛区
+            self.place_small_crucible_to_sieve_position()
+            if not ret["success"]:
+                return ret
+            
+            # 从漏斗架区取漏斗
+            self.pick_funnel_from_crucible_rack(mill_pos)
+            if not ret["success"]:
+                return ret
+            
+            # 将漏斗放到过筛区
+            self.place_funnel_to_sieve_position()
+            if not ret["success"]:
+                return ret
+            
+            # 过筛
+            ret = self.sieve()
+            if not ret["success"]:
+                return ret
+            
+            # 从过筛区抓取研磨后球磨罐
+            self.pick_milled_can_from_sieve_position(mill_pos)
+            if not ret["success"]:
+                return ret
+            
+            # 将研磨后球磨罐放到刮粉区
+            ret = self.place_milled_can_to_scrape_position(mill_pos)
+            if not ret["success"]:
+                return ret
+            
+            # 刮粉
+            ret = self.scrape_powder()
+            if not ret["success"]:
+                return ret
+            
+            # 从刮粉区位置取下研磨后球磨罐
+            ret = self.pick_milled_can_from_scrape_position(mill_pos)
+            if not ret["success"]:
+                return ret
+            
+            # 再次放到过筛区
+            ret = self.place_milled_can_to_sieve_position(mill_pos)
+            if not ret["success"]:
+                return ret
+            
+            # 再次过筛
+            ret = self.sieve()
+            if not ret["success"]:
+                return ret
+            
+            # 从过筛区抓取研磨后球磨罐
+            self.pick_milled_can_from_sieve_position(mill_pos)
+            if not ret["success"]:
+                return ret
+            
+            # 将过筛后球磨罐放到开罐区位置
+            self.place_sieved_can_to_open_can_position(mill_pos)
+            if not ret["success"]:
+                return ret
+            
+            # 关盖
+            ret = self.close_can_lid()
+            if not ret["success"]:
+                return ret
+            
+            # 将过筛后球磨罐从开罐区位置取下
+            ret = self.pick_sieved_can_from_open_can_position(mill_pos)
+            if not ret["success"]:
+                return ret
+            
+            # 将球磨罐放到罐架区
+            ret = self.place_can_to_can_rack(mill_pos)
+            if not ret["success"]:
+                return ret
+            
+            # 将小坩埚从过筛区取出
+            ret = self.pick_small_crucible_from_sieve_position()
+            if not ret["success"]:
+                return ret
+
+            # 将小坩锅放到搬运位置
+            ret = self.place_small_crucible_to_moving_position(mill_pos)
+            if not ret["success"]:
+                return ret
+            
+            # 将漏斗从过筛区取出
+            ret = self.pick_funnel_from_sieve_position()
+            if not ret["success"]:
+                return ret
+            
+            # 将漏斗放到漏斗架
+            ret = self.place_funnel_to_crucible_rack(mill_pos)
+            if not ret["success"]:
+                return ret
+            
+        # 小坩埚搬运位出料
+        self.small_crucible_discharge()
+        
+        # 大坩埚出料
+        self.large_crucible_discharge()
+        
+        # 人工操作，把小坩埚取下，并放置在大坩埚中
+        logger.info("------ 人工操作，把小坩锅取下，并放置在大坩埚中...")
+        time.sleep(30)
+
+        logger.info("------ 进行马弗炉烧结工作...")
+        # 大坩埚上料
+        self.large_crucible_feed()
+
+        muffle_furnace_pos = 1
+
+        # 从搬运区取大坩埚
+        ret = self.pick_large_crucible_from_moving_position()
+        if not ret["success"]:
+            return ret
+        
+        # 把大坩埚放到马弗炉
+        ret = self.place_large_crucible_to_muffle_furnace(muffle_furnace_pos)
+        if not ret["success"]:
+            return ret
+        
+        # 马弗炉烧结
+        ret = self.muffle_furnace_sintering(muffle_furnace_pos)
+        if not ret["success"]:
+            return ret
+        
+        # 从马弗炉取大坩埚
+        ret = self.pick_large_crucible_from_muffle_furnace(muffle_furnace_pos)
+        if not ret["success"]:
+            return ret
+        
+        # 放大坩埚到成品出料上位置
+        ret = self.place_large_crucible_to_upper_product_rack()
+        if not ret["success"]:
+            return ret
+        
+        logger.info("------ 成品已放置在出料位，整体流程结束")
+
+        return {
+            "success": True,
+            "message": f"整体流程运行完成",
+        } 
+
+    @not_action
+    def _dump_parameter_snapshot(
+        self,
+        process_name: str,
+        param_file: str,
+        rows_by_sheet: dict,
+        record_dir: str = "",
+    ) -> str:
+        """将球磨或马弗炉本次参数下发快照保存为以时间戳命名的 xlsx 日志。"""
+        import openpyxl
+        from openpyxl.styles import Alignment, Font, PatternFill
+
+        raw_dir = str(record_dir or "").strip().strip('"').strip("'")
+        directory = Path(raw_dir).expanduser() if raw_dir else Path(__file__).resolve().parent / "records"
+        destination = self._timestamped_record_path(directory, ".xlsx", process_name or "parameter")
+
+        header_fill = PatternFill("solid", fgColor="FF1A3A63")
+        header_font = Font(bold=True, color="FFFFFFFF")
+        header_alignment = Alignment(horizontal="center", vertical="center")
+        with self._PARAMETER_RECORD_LOCK:
+            workbook = openpyxl.Workbook()
+            workbook.remove(workbook.active)
+            metadata = workbook.create_sheet("_meta_")
+            metadata.append(["字段", "值"])
+            metadata.append(["过程", process_name])
+            metadata.append(["生成时间", datetime.now().isoformat(timespec="seconds")])
+            metadata.append(["源文件", str(Path(param_file).expanduser().resolve())])
+            metadata.append(["参数项数", sum(len(rows) for rows in rows_by_sheet.values())])
+            for cell in metadata[1]:
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = header_alignment
+
+            for sheet_name, rows in rows_by_sheet.items():
+                worksheet = workbook.create_sheet(str(sheet_name)[:31] or "参数")
+                worksheet.append(["参数名", "Excel原始值", "PLC下发值", "写入状态"])
+                for cell in worksheet[1]:
+                    cell.fill = header_fill
+                    cell.font = header_font
+                    cell.alignment = header_alignment
+                for row in rows:
+                    worksheet.append([
+                        row.get("name", ""),
+                        row.get("input_value", ""),
+                        row.get("plc_value", ""),
+                        row.get("write_status", ""),
+                    ])
+                worksheet.freeze_panes = "A2"
+                worksheet.column_dimensions["A"].width = 34
+                worksheet.column_dimensions["B"].width = 20
+                worksheet.column_dimensions["C"].width = 18
+                worksheet.column_dimensions["D"].width = 14
+            workbook.save(destination)
+            workbook.close()
+        return str(destination.resolve())
+
+    @action()
+    def set_muffle_furnace_params(self, param_file: str, record_dir: str = "") -> dict:
+        """
+        设置马弗炉烧结参数（6 台分别设置）。
+
+        从 Excel 参数文件读取并下发到各马弗炉写节点 马弗炉_写[N].<参数名>：
+        文本 ``none``（忽略大小写和首尾空格）固定下发 -1210；加热运行控制、自整定功能、
+        程序段跳转、输出功率上限按原值下发；其余非空数值乘以 10 后下发。
+        Excel 含若干 sheet，每个 sheet 对应一台马弗炉（sheet 名中的数字 1~6 即炉号）；
+        每个 sheet 两列：第一列"参数名"，第二列"参数值"，首行为表头；参数值为空的行会被跳过。
+        参数名需与节点字段一致（见 templates/马弗炉参数模板.xlsx）。
+
+        Args:
+            param_file[马弗炉参数文件]: 马弗炉参数 Excel(.xlsx) 文件路径，含 6 个 sheet 分别设置 6 台马弗炉。
+            record_dir[\u53c2\u6570\u65e5\u5fd7\u76ee\u5f55]: \u65e5\u5fd7\u4fdd\u5b58\u76ee\u5f55\uff0c\u7559\u7a7a\u4f7f\u7528 XUSE/records\u3002
+        """
+        import re
+        from decimal import Decimal
+        import openpyxl
+
+        if param_file:
+            param_file = param_file.strip().strip('"').strip("'")  # 去除可能的首尾引号/空白
+        if not param_file or not os.path.isfile(param_file):
+            error_msg = f"马弗炉参数文件不存在: {param_file}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        try:
+            wb = openpyxl.load_workbook(param_file, data_only=True)
+        except Exception as e:
+            error_msg = f"无法打开马弗炉参数文件 {param_file}: {e}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        total_written = 0
+        per_furnace = {}
+        errors = []
+        parameter_rows = {}
+        unscaled_param_names = {
+            "加热运行控制",
+            "自整定功能",
+            "程序段跳转",
+            "输出功率上限",
+        }
+        for sheet in wb.worksheets:
+            m = re.search(r"\d+", sheet.title)
+            if not m:
+                logger.warning(f"跳过无法识别炉号的 sheet: {sheet.title}")
+                continue
+            furnace_idx = int(m.group())
+            if furnace_idx < 1 or furnace_idx > 6:
+                logger.warning(f"跳过无效炉号 {furnace_idx} 的 sheet: {sheet.title}")
+                continue
+
+            written = 0
+            furnace_rows = []
+            profile_segments = {}
+            start_temperature = None
+            for row_idx, row in enumerate(sheet.iter_rows(values_only=True), start=1):
+                if row_idx == 1:
+                    continue
+                if not row or row[0] is None or str(row[0]).strip() == "":
+                    continue
+                param_name = str(row[0]).strip()
+                value = row[1] if len(row) > 1 else None
+                if value is None or str(value).strip() == "":
+                    continue
+                node_name = f"\u9a6c\u5f17\u7089_\u5199[{furnace_idx}].{param_name}"
+                plc_value = ""
+                write_status = "\u5931\u8d25"
+                try:
+                    raw_value = str(value).strip()
+                    if raw_value.casefold() == "none":
+                        plc_value = -1210
+                        conversion = "特殊值 none -> -1210"
+                    elif param_name in unscaled_param_names:
+                        plc_value = int(Decimal(raw_value))
+                        conversion = "控制参数按原值下发"
+                    else:
+                        plc_value = int(Decimal(raw_value) * 10)
+                        conversion = "已乘以 10"
+                    logger.info(
+                        f"[\u9a6c\u5f17\u7089\u53c2\u6570\u4e0b\u53d1] \u5199\u5165 {node_name} = {plc_value} "
+                        f"(Excel \u539f\u59cb\u503c={value!r}, {conversion})"
+                    )
+                    if self.set_node_value(node_name, plc_value):
+                        written += 1
+                        write_status = "\u6210\u529f"
+                    else:
+                        errors.append(f"{node_name} \u5199\u5165\u5931\u8d25")
+                except Exception as e:
+                    errors.append(f"{node_name} \u5199\u5165\u51fa\u9519: {e}")
+                furnace_rows.append({
+                    "name": param_name,
+                    "input_value": value,
+                    "plc_value": plc_value,
+                    "write_status": write_status,
+                })
+
+                # Excel 时间单位为分钟，温度单位为摄氏度；PLC 写入值分别放大 10 倍。
+                try:
+                    if param_name == "\u8d77\u59cb\u6e29\u5ea6":
+                        start_temperature = float(plc_value) / 10.0
+                    else:
+                        match = re.fullmatch(r"第(\d+)段程序时间", param_name)
+                        if match:
+                            profile_segments.setdefault(int(match.group(1)), {})["duration_minutes"] = max(0.0, float(plc_value) / 10.0)
+                        match = re.fullmatch(r"第(\d+)段程序温度", param_name)
+                        if match:
+                            profile_segments.setdefault(int(match.group(1)), {})["temperature"] = float(plc_value) / 10.0
+                except (TypeError, ValueError):
+                    pass
+
+            parameter_rows[f"\u9a6c\u5f17\u7089{furnace_idx}"] = furnace_rows
+            status = getattr(self, "_muffle_furnace_status", {}).get(furnace_idx)
+            if status is not None:
+                profile = []
+                for segment_idx in sorted(profile_segments):
+                    segment = profile_segments[segment_idx]
+                    duration_minutes = float(segment.get("duration_minutes", 0.0) or 0.0)
+                    if duration_minutes > 0:
+                        profile.append({
+                            "duration_seconds": duration_minutes * self._MUFFLE_FURNACE_TIME_UNIT_SECONDS,
+                            "temperature": float(segment.get("temperature", 0.0) or 0.0),
+                        })
+                status["profile"] = profile
+                status["total_seconds"] = sum(item["duration_seconds"] for item in profile)
+                status["set_temperature"] = (
+                    float(start_temperature)
+                    if start_temperature is not None
+                    else (profile[0]["temperature"] if profile else 0.0)
+                )
+
+            per_furnace[furnace_idx] = written
+            total_written += written
+
+            # 写入了参数才触发该炉参数下发，等待下发完成并复位
+            if written > 0:
+                self._send_param_handshake(
+                    f"Muffle_Furnace_Parameter_Send_{furnace_idx}",
+                    f"Muffle_Furnace_Parameter_Send_Complete_{furnace_idx}",
+                    description=f"马弗炉{furnace_idx}参数下发",
+                )
+            logger.info(f"马弗炉{furnace_idx} 参数下发完成，共 {written} 项")
+
+        if total_written == 0:
+            error_msg = f"马弗炉参数下发失败，未写入任何参数（文件: {param_file}）"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        record_path = None
+        try:
+            record_path = self._dump_parameter_snapshot(
+                "\u9a6c\u5f17\u7089\u53c2\u6570",
+                param_file,
+                parameter_rows,
+                record_dir,
+            )
+            logger.info(f"\u9a6c\u5f17\u7089\u53c2\u6570\u65e5\u5fd7\u5df2\u751f\u6210: {record_path}")
+        except Exception as exc:
+            logger.warning(f"\u9a6c\u5f17\u7089\u53c2\u6570\u65e5\u5fd7\u5199\u5165\u5931\u8d25\uff08\u4e0d\u5f71\u54cd\u4e3b\u6d41\u7a0b\uff09: {exc}")
+
+        return {
+            "success": True,
+            "message": f"\u9a6c\u5f17\u7089\u53c2\u6570\u4e0b\u53d1\u5b8c\u6210\uff0c\u5171\u5199\u5165 {total_written} \u9879",
+            "data": {"total_written": total_written, "per_furnace": per_furnace, "record_file": record_path},
+            "error": errors,
+        }
+
+    @action()
+    def set_ball_mill_params(self, param_file: str, record_dir: str = "") -> dict:
+        """
+        设置球磨工艺参数。
+
+        从 Excel 参数文件读取并下发到球磨写节点 球磨工艺参数[1].<参数名>。
+        球磨仅 1 台，读取第一个 sheet，两列：第一列"参数名"，第二列"参数值"，
+        首行为表头；参数值为空的行会被跳过。
+        参数名需与节点字段一致（见 templates/球磨参数模板.xlsx）。
+
+        Args:
+            param_file[球磨参数文件]: 球磨参数 Excel(.xlsx) 文件路径。
+            record_dir[\u53c2\u6570\u65e5\u5fd7\u76ee\u5f55]: \u65e5\u5fd7\u4fdd\u5b58\u76ee\u5f55\uff0c\u7559\u7a7a\u4f7f\u7528 XUSE/records\u3002
+        """
+        import openpyxl
+
+        if param_file:
+            param_file = param_file.strip().strip('"').strip("'")  # 去除可能的首尾引号/空白
+        if not param_file or not os.path.isfile(param_file):
+            error_msg = f"球磨参数文件不存在: {param_file}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        try:
+            wb = openpyxl.load_workbook(param_file, data_only=True)
+        except Exception as e:
+            error_msg = f"无法打开球磨参数文件 {param_file}: {e}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        sheet = wb.worksheets[0]  # 球磨仅 1 台，取第一个 sheet
+        written = 0
+        errors = []
+        import re
+        parameter_rows = []
+        step_times = {}
+        for row_idx, row in enumerate(sheet.iter_rows(values_only=True), start=1):
+            if row_idx == 1:
+                continue
+            if not row or row[0] is None or str(row[0]).strip() == "":
+                continue
+            param_name = str(row[0]).strip()
+            value = row[1] if len(row) > 1 else None
+            if value is None or str(value).strip() == "":
+                continue
+            node_name = f"\u7403\u78e8\u5de5\u827a\u53c2\u6570[1].{param_name}"
+            plc_value = ""
+            write_status = "\u5931\u8d25"
+            try:
+                plc_value = int(float(value))
+                if self.set_node_value(node_name, plc_value):
+                    written += 1
+                    write_status = "\u6210\u529f"
+                else:
+                    errors.append(f"{node_name} \u5199\u5165\u5931\u8d25")
+            except Exception as e:
+                errors.append(f"{node_name} \u5199\u5165\u51fa\u9519: {e}")
+            parameter_rows.append({
+                "name": param_name,
+                "input_value": value,
+                "plc_value": plc_value,
+                "write_status": write_status,
+            })
+            match = re.fullmatch(r"步骤(\d+)_工作时间", param_name)
+            if match:
+                try:
+                    step_times[int(match.group(1))] = max(0.0, float(plc_value))
+                except (TypeError, ValueError):
+                    pass
+
+        status = getattr(self, "_ball_mill_status", None)
+        if status is not None and step_times:
+            status["total_seconds"] = sum(step_times.values()) * self._BALL_MILL_TIME_UNIT_SECONDS
+
+        if written == 0:
+            error_msg = f"球磨参数下发失败，未写入任何参数（文件: {param_file}）"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        # 触发球磨参数下发，等待下发完成并复位
+        self._send_param_handshake(
+            "Ball_Mill_Parameter_Send",
+            "Ball_Mill_Parameter_Send_Complete",
+            description="球磨参数下发",
+        )
+
+        logger.info(f"球磨参数下发完成，共 {written} 项")
+        record_path = None
+        try:
+            record_path = self._dump_parameter_snapshot(
+                "\u7403\u78e8\u53c2\u6570",
+                param_file,
+                {"\u7403\u78e8": parameter_rows},
+                record_dir,
+            )
+            logger.info(f"\u7403\u78e8\u53c2\u6570\u65e5\u5fd7\u5df2\u751f\u6210: {record_path}")
+        except Exception as exc:
+            logger.warning(f"\u7403\u78e8\u53c2\u6570\u65e5\u5fd7\u5199\u5165\u5931\u8d25\uff08\u4e0d\u5f71\u54cd\u4e3b\u6d41\u7a0b\uff09: {exc}")
+
+        return {
+            "success": True,
+            "message": f"\u7403\u78e8\u53c2\u6570\u4e0b\u53d1\u5b8c\u6210\uff0c\u5171\u5199\u5165 {written} \u9879",
+            "data": {
+                "written": written,
+                "record_file": record_path,
+                "total_set_time": round(float(getattr(self, "_ball_mill_status", {}).get("total_seconds", 0.0) or 0.0), 1),
+            },
+            "error": errors,
+        }
+
+    # ============ 加样参数：xlsx 结构定义（供解析 / 模板生成 / 档案生成共用） ============
+    # 单值参数：sheet 名 → 支持的参数列表 [(节点名, 数据类型, caster, 说明)]
+    # 合并"本罐参数" + "工艺单值"到单个"单值参数" sheet，共 6 项。
+    _ADD_POWDER_SINGLE_SHEETS: dict = {
+        "单值参数": [
+            # —— 本罐参数（每次加样通常都会变） ——
+            ("粉末名称",             "STRING", lambda s: str(s).strip(),  "本罐粉末名称"),
+            ("加样_位置号",          "INT16",  lambda s: int(float(s)),   "加样位置号"),
+            ("加样_重量",            "FLOAT",  lambda s: float(s),        "加样目标重量（克）"),
+            # —— 工艺单值参数 ——
+            ("加样_1ML震荡最高速度",  "INT16",  lambda s: int(float(s)),   "1ML 震荡最高速度"),
+            ("加样_500NL震荡最高速度","INT16",  lambda s: int(float(s)),   "500NL 震荡最高速度"),
+            ("加样_粉末号",           "INT16",  lambda s: int(float(s)),   "加样粉末号"),
+        ],
+    }
+    # 数组参数：<基础名>[sheet_idx]（sheet 名为整数索引，默认给出 0~4 五组）
+    _ADD_POWDER_ARRAY_BASES: list = [
+        ("加样_1ML开口量",       "INT16", lambda s: int(float(s))),
+        ("加样_1ML落粉均速",     "FLOAT", lambda s: float(s)),
+        ("加样_1ML旋转速度",     "INT16", lambda s: int(float(s))),
+        ("加样_1ML提前停止量",   "INT32", lambda s: int(float(s))),
+        ("加样_500NL开口量",     "INT16", lambda s: int(float(s))),
+        ("加样_500NL落粉均速",   "FLOAT", lambda s: float(s)),
+        ("加样_500NL旋转速度",   "INT16", lambda s: int(float(s))),
+        ("加样_500NL提前停止量", "INT32", lambda s: int(float(s))),
+    ]
+    _ADD_POWDER_ARRAY_INDICES: list = [0, 1, 2, 3, 4]
+
+    @action()
+    def set_add_powder_params(
+        self,
+        param_file: str = "",
+        record_dir: str = "",
+        check_can_occupied: bool = True,
+        powder_name_override: Optional[str] = None,
+        weight_override: Optional[float] = None,
+    ) -> dict:
+        """
+        设置加样参数（一次性从 xlsx 下发所有参数）。
+
+        本动作把加样所需的**全部**参数（单值参数 + 数组参数）
+        统一从一份 Excel(.xlsx) 文件读取并下发到 PLC。多种加粉流程可通过覆盖参数
+        临时替换粉末名称和目标重量，其余工艺参数仍取自原 xlsx。
+
+        xlsx 结构（sheet 名严格如下）:
+          - "单值参数"    ：3 列 [参数名 | 参数值 | 数据类型]，行支持 6 项：
+                            粉末名称 / 加样_位置号 / 加样_重量
+                            加样_1ML震荡最高速度 / 加样_500NL震荡最高速度 / 加样_粉末号
+          - "0" ~ "4"     ：3 列 [参数名 | 参数值 | 数据类型]，每个 sheet 名 = 数组索引，
+                            对应 8 项加样数组参数（1ML/500NL 各 4 个）：
+                            加样_1ML开口量 / 加样_1ML落粉均速 / 加样_1ML旋转速度 / 加样_1ML提前停止量
+                            加样_500NL开口量 / 加样_500NL落粉均速 / 加样_500NL旋转速度 / 加样_500NL提前停止量
+                            写入节点为 <基础名>[<sheet 索引>]。
+          - "_" 前缀 sheet（如 "_readme_"、"_meta_"）会被忽略；单元格为空的行会跳过；
+            全部为空 → 不做任何写入、不触发握手。
+
+        前置等待（与 add_powder 保持一致）：
+          - xlsx 中存在任一非空参数时，在首次实际写入 OPC 之前，会先：
+            1) （可选）等待罐体占位（is_add_sample_occupied；未占位则抛错）
+            2) 等待 Add_Sample_Request_Process = True（无超时）
+          - 全部参数为空 → 不做前置等待，直接返回。
+
+        参数模板见 `templates/加样参数模板.xlsx`。档案 xlsx（保存在 record_dir 或默认
+        records/ 目录）与输入模板结构同构，可直接作为下次调用的 param_file 回放。
+
+        add_powder 只负责触发加粉动作，不再接收参数；请先调本动作把参数下发完成，再调 add_powder。
+
+        Args:
+            param_file[加样参数文件]: 加样参数 Excel(.xlsx) 文件绝对路径（留空 = 不下发任何参数）。
+            record_dir[档案保存目录]: 本次下发档案 xlsx 的保存目录（可选; 留空 = 本模块下的 records/）。
+            check_can_occupied[是否检查罐体占位]: True=下发前等待并校验罐体占位；False=跳过占位检查。
+            powder_name_override[粉末名称覆盖]: 可选；多种加粉时用清单中的名称覆盖 xlsx 值。
+            weight_override[加样重量覆盖]: 可选；多种加粉时用清单中的重量覆盖 xlsx 值。
+        """
+        import re
+        import openpyxl
+
+        written = 0
+        errors = []
+
+        # 快照收集（用于生成档案 xlsx，也用于回放）
+        xlsx_written = {}      # {sheet_idx: {base_name: coerced_value}}
+        single_written = {}    # {sheet_title: {node_name: coerced_value}}
+        # 解析出的原始入参（写档案时也保留一份，便于人工审阅）
+        parsed_single_raw = {}  # {sheet_title: {node_name: raw_str}}
+
+        # --- 解析 xlsx（若未提供，则视为空参数请求，直接返回） ---
+        if not param_file or not str(param_file).strip():
+            logger.info("未提供 param_file，跳过参数下发")
+            return {
+                "success": True,
+                "message": "未提供 param_file，未做任何写入",
+                "data": {"written": 0, "record_file": None},
+                "error": errors,
+            }
+        param_file = param_file.strip().strip('"').strip("'")
+        if not os.path.isfile(param_file):
+            error_msg = f"加样参数文件不存在: {param_file}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        try:
+            wb = openpyxl.load_workbook(param_file, data_only=True)
+        except Exception as e:
+            error_msg = f"无法打开加样参数文件 {param_file}: {e}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        normalized_powder_name = None
+        if powder_name_override is not None:
+            normalized_powder_name = str(powder_name_override).strip()
+            if not normalized_powder_name:
+                wb.close()
+                raise ValueError("粉末名称覆盖值不能为空")
+
+        normalized_weight = None
+        if weight_override is not None:
+            try:
+                normalized_weight = float(weight_override)
+            except (TypeError, ValueError) as e:
+                wb.close()
+                raise ValueError(f"加样重量覆盖值不是数字: {weight_override!r}") from e
+            if not math.isfinite(normalized_weight) or normalized_weight <= 0:
+                wb.close()
+                raise ValueError("加样重量覆盖值必须是大于 0 的有限数字")
+
+        required_override_names = set()
+        if normalized_powder_name is not None:
+            required_override_names.add("粉末名称")
+        if normalized_weight is not None:
+            required_override_names.add("加样_重量")
+        if required_override_names:
+            if "单值参数" not in wb.sheetnames:
+                wb.close()
+                raise ValueError("加样参数文件缺少‘单值参数’ sheet，无法应用覆盖值")
+            present_names = {
+                str(row[0] or "").strip()
+                for row in wb["单值参数"].iter_rows(values_only=True)
+                if row
+            }
+            missing_names = required_override_names - present_names
+            if missing_names:
+                wb.close()
+                raise ValueError(f"加样参数文件缺少待覆盖参数: {sorted(missing_names)}")
+
+        # 每个 sheet 按名字分派
+        single_sheet_specs = self._ADD_POWDER_SINGLE_SHEETS
+        array_bases = {name: (dtype, caster) for name, dtype, caster in self._ADD_POWDER_ARRAY_BASES}
+
+        # ---- 预扫：xlsx 是否有任何可识别 sheet 的非空目标参数值 ----
+        def _has_any_nonempty_target():
+            if normalized_powder_name is not None or normalized_weight is not None:
+                return True
+            for _sheet in wb.worksheets:
+                _title = str(_sheet.title).strip()
+                if not _title or _title.startswith("_"):
+                    continue
+                # 目标 sheet：单值 sheet 或数字 sheet
+                if _title in single_sheet_specs:
+                    pass
+                else:
+                    try:
+                        int(_title)
+                    except ValueError:
+                        continue
+                for _r_idx, _row in enumerate(_sheet.iter_rows(values_only=True), start=1):
+                    if _r_idx == 1:
+                        continue
+                    if not _row or _row[0] is None or str(_row[0]).strip() == "":
+                        continue
+                    _v = _row[1] if len(_row) > 1 else None
+                    if _v is not None and str(_v).strip() != "":
+                        return True
+            return False
+
+        # ---- 前置等待：与 add_powder 一致（可选占位 + Add_Sample_Request_Process）----
+        # 只在 xlsx 有实际要下发的参数时执行；全空 xlsx 直接跳过等待。
+        if _has_any_nonempty_target():
+            if check_can_occupied:
+                logger.info("加样参数下发前置：等待罐体占位 + 加样请求加工...")
+                if not self._wait_condition(lambda: self.is_add_sample_occupied()):
+                    error_msg = "没有罐体，无法下发加样参数"
+                    logger.error(error_msg)
+                    raise ValueError(error_msg)
+            else:
+                logger.info("加样参数下发前置：跳过罐体占位检查，等待加样请求加工...")
+            self._wait_until_true("Add_Sample_Request_Process", description="加样请求加工")
+            logger.info("已收到加样请求加工，开始下发参数")
+        else:
+            logger.info("xlsx 中未检测到任何非空参数，跳过前置等待与参数下发")
+
+        for sheet in wb.worksheets:
+            title = str(sheet.title).strip()
+            if not title or title.startswith("_"):
+                continue  # _meta_ / _readme_ 等元信息 sheet 跳过
+
+            # ---- 单值参数 sheet ----
+            if title in single_sheet_specs:
+                spec_by_name = {node: (dtype, caster, note) for node, dtype, caster, note in single_sheet_specs[title]}
+                parsed_single_raw[title] = {}
+                for row_idx, row in enumerate(sheet.iter_rows(values_only=True), start=1):
+                    if row_idx == 1:
+                        continue  # 表头
+                    if not row or row[0] is None or str(row[0]).strip() == "":
+                        continue
+                    node_name = str(row[0]).strip()
+                    value = row[1] if len(row) > 1 else None
+                    if node_name == "粉末名称" and normalized_powder_name is not None:
+                        value = normalized_powder_name
+                    elif node_name == "加样_重量" and normalized_weight is not None:
+                        value = normalized_weight
+                    if value is None or str(value).strip() == "":
+                        continue
+                    spec = spec_by_name.get(node_name)
+                    if spec is None:
+                        errors.append(f"未知单值参数名: {node_name} (sheet={title})")
+                        continue
+                    _dtype, caster, _note = spec
+                    raw_s = str(value).strip()
+                    parsed_single_raw[title][node_name] = raw_s
+                    try:
+                        coerced = caster(raw_s)
+                        logger.info(
+                            f"[加样参数下发] 写入 {node_name} = {coerced!r} "
+                            f"(sheet={title} 原始值={value!r})"
+                        )
+                        if self.set_node_value(node_name, coerced):
+                            written += 1
+                            single_written.setdefault(title, {})[node_name] = coerced
+                        else:
+                            errors.append(f"{node_name} 写入失败")
+                    except ValueError:
+                        errors.append(f"{node_name} 无法解析: {value!r}")
+                    except Exception as e:
+                        errors.append(f"{node_name} 写入出错: {e}")
+                continue
+
+            # ---- 数组参数 sheet（sheet 名 = 索引） ----
+            try:
+                sheet_idx = int(title)
+            except ValueError:
+                logger.warning(f"跳过无法识别的 sheet: {title!r}（既不在单值 sheet 集合中，也不是整数索引）")
+                continue
+
+            for row_idx, row in enumerate(sheet.iter_rows(values_only=True), start=1):
+                if row_idx == 1:
+                    continue
+                if not row or row[0] is None or str(row[0]).strip() == "":
+                    continue
+                raw_name = str(row[0]).strip()
+                base_name = re.sub(r"\[\d+\]$", "", raw_name)  # 允许带 [N] 后缀
+                node_name = f"{base_name}[{sheet_idx}]"
+                value = row[1] if len(row) > 1 else None
+                if value is None or str(value).strip() == "":
+                    continue
+                spec = array_bases.get(base_name)
+                if spec is None:
+                    errors.append(f"未知数组参数名: {raw_name} (sheet={title})")
+                    continue
+                _dtype, caster = spec
+                try:
+                    coerced = caster(str(value).strip())
+                    logger.info(
+                        f"[加样参数下发] 写入 {node_name} = {coerced!r} "
+                        f"(xlsx原始值={value!r} type={type(value).__name__})"
+                    )
+                    if self.set_node_value(node_name, coerced):
+                        written += 1
+                        xlsx_written.setdefault(sheet_idx, {})[base_name] = coerced
+                    else:
+                        errors.append(f"{node_name} 写入失败")
+                except Exception as e:
+                    errors.append(f"{node_name} 写入出错: {e}")
+
+        # 有任意参数写入 → 触发参数下发握手；全空 → 直接返回
+        if written == 0:
+            logger.info("加样参数全部为空，未做任何写入")
+            return {
+                "success": True,
+                "message": "加样参数全部为空，未做任何写入",
+                "data": {"written": 0, "record_file": None},
+                "error": errors,
+            }
+
+        handshake_ok = self._send_param_handshake(
+            "Add_Sample_Parameter_Send",
+            "Add_Sample_Parameter_Send_Complete",
+            description="加样参数下发",
+        )
+        logger.info(f"加样参数下发完成，共 {written} 项")
+
+        # 存档：把本次下发的参数快照写入 <record_dir>/<时间>_<粉末名>.xlsx
+        # record_dir 留空则用本模块下的 records/
+        # 粉末名从解析出的 "单值参数" 中取；取不到时回退到 "no_powder"
+        # 兼容旧的 "本罐参数" 命名（迁移期）
+        powder_name_for_filename = ""
+        try:
+            for _title in ("单值参数", "本罐参数"):
+                v = single_written.get(_title, {}).get("粉末名称", "") or \
+                    parsed_single_raw.get(_title, {}).get("粉末名称", "")
+                if v:
+                    powder_name_for_filename = v
+                    break
+        except Exception:
+            pass
+
+        record_path = None
+        try:
+            record_path = self._dump_add_powder_snapshot(
+                param_file=param_file,
+                powder_name_for_filename=str(powder_name_for_filename or ""),
+                parsed_single_raw=parsed_single_raw,
+                xlsx_written=xlsx_written,
+                single_written=single_written,
+                written_count=written,
+                errors=errors,
+                handshake_ok=handshake_ok,
+                record_dir=record_dir,
+            )
+            logger.info(f"加样参数存档已生成: {record_path}")
+        except Exception as e:
+            logger.warning(f"加样参数存档写入失败（不影响主流程）: {e}")
+
+        return {
+            "success": True,
+            "message": f"加样参数下发完成，共写入 {written} 项",
+            "data": {"written": written, "record_file": record_path},
+            "error": errors,
+        }
+
+    def _dump_add_powder_snapshot(
+        self,
+        *,
+        param_file: str,
+        powder_name_for_filename: str,
+        parsed_single_raw: dict,
+        xlsx_written: dict,
+        single_written: dict,
+        written_count: int,
+        errors: list,
+        handshake_ok: bool,
+        record_dir: str = "",
+    ) -> str:
+        """把本次加样参数下发的快照写入 <record_dir>/<时间>_<粉末名>.xlsx，返回文件绝对路径。
+
+        - record_dir 为空 → 默认使用本模块下的 records/ 子目录；
+        - record_dir 会做首尾空白和引号清洗；不存在则自动创建。
+
+        档案 xlsx **结构与输入模板完全一致**（可直接作为下次 param_file 回放）：
+        - "单值参数"、"0"~"4"：每个 sheet 3 列 [参数名, 参数值, 数据类型]
+        - "_meta_"：时间/xlsx 源文件/写入项数/握手状态/错误列表（此 sheet 会被解析时忽略，不影响回放）
+        """
+        import re
+        from datetime import datetime
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from openpyxl.utils import get_column_letter
+
+        now = datetime.now()
+        ts = now.strftime("%Y%m%d_%H%M%S")
+
+        # 文件名安全化：过滤 Windows 不允许的字符 \/:*?"<>|
+        safe_powder = re.sub(r'[\\/:*?"<>|\r\n\t]+', "_", str(powder_name_for_filename or "").strip())
+        if not safe_powder:
+            safe_powder = "no_powder"
+        # 防止过长
+        safe_powder = safe_powder[:80]
+
+        # 保存目录：入参 record_dir 优先；留空则用模块内 records/
+        rd = str(record_dir or "").strip().strip('"').strip("'")
+        if rd:
+            records_dir = os.path.abspath(os.path.expanduser(rd))
+        else:
+            here = os.path.dirname(os.path.abspath(__file__))
+            records_dir = os.path.join(here, "records")
+        os.makedirs(records_dir, exist_ok=True)
+
+        filename = f"{ts}_{safe_powder}.xlsx"
+        dst = os.path.join(records_dir, filename)
+        # 如果重名（同秒多次调用），追加序号
+        counter = 1
+        while os.path.exists(dst):
+            filename = f"{ts}_{safe_powder}_{counter}.xlsx"
+            dst = os.path.join(records_dir, filename)
+            counter += 1
+
+        # 样式
+        header_fill = PatternFill("solid", fgColor="FF1A3A63")
+        header_font = Font(bold=True, color="FFFFFFFF")
+        header_align = Alignment(horizontal="center", vertical="center")
+
+        def _apply_header(ws, ncols):
+            for c in range(1, ncols + 1):
+                cell = ws.cell(row=1, column=c)
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = header_align
+
+        wb = openpyxl.Workbook()
+        wb.remove(wb.active)
+
+        # --- 单值参数 sheet（"单值参数"：6 项） ---
+        # 已写入优先；否则用解析到的原始入参；否则留空
+        for sheet_title, spec in self._ADD_POWDER_SINGLE_SHEETS.items():
+            ws = wb.create_sheet(sheet_title)
+            ws.append(["参数名", "参数值", "数据类型"])
+            _apply_header(ws, 3)
+            written_this = single_written.get(sheet_title, {})
+            raw_this = parsed_single_raw.get(sheet_title, {})
+            for node, dtype, _caster, _note in spec:
+                if node in written_this:
+                    val = written_this[node]
+                elif node in raw_this:
+                    val = raw_this[node]
+                else:
+                    val = ""
+                ws.append([node, val, dtype])
+            for i, w in enumerate([26, 18, 12], start=1):
+                ws.column_dimensions[get_column_letter(i)].width = w
+            ws.freeze_panes = "A2"
+
+        # --- 数组参数 sheet（0~4 及所有出现过的索引） ---
+        indices = sorted(set(list(xlsx_written.keys()) + list(self._ADD_POWDER_ARRAY_INDICES)))
+        for idx in indices:
+            ws = wb.create_sheet(str(idx))
+            ws.append(["参数名", "参数值", "数据类型"])
+            _apply_header(ws, 3)
+            written_this_sheet = xlsx_written.get(idx, {})
+            for name, dtype, _caster in self._ADD_POWDER_ARRAY_BASES:
+                ws.append([name, written_this_sheet.get(name, ""), dtype])
+            for i, w in enumerate([26, 18, 12], start=1):
+                ws.column_dimensions[get_column_letter(i)].width = w
+            ws.freeze_panes = "A2"
+
+        # --- Sheet: _meta_（放最后；解析时被 _ 前缀过滤，不影响回放） ---
+        ws = wb.create_sheet("_meta_")
+        rows = [
+            ("下发时间",       now.strftime("%Y-%m-%d %H:%M:%S")),
+            ("xlsx 源文件",    param_file or "(未提供)"),
+            ("写入项数",       written_count),
+            ("参数下发握手",   "成功" if handshake_ok else "失败"),
+            ("错误数量",       len(errors)),
+        ]
+        ws["A1"] = "字段"
+        ws["B1"] = "值"
+        _apply_header(ws, 2)
+        for i, (k, v) in enumerate(rows, start=2):
+            ws.cell(row=i, column=1, value=k)
+            ws.cell(row=i, column=2, value=v)
+        if errors:
+            ws.cell(row=len(rows) + 3, column=1, value="errors").font = Font(bold=True)
+            for j, err in enumerate(errors, start=len(rows) + 4):
+                ws.cell(row=j, column=1, value=err)
+        ws.column_dimensions["A"].width = 22
+        ws.column_dimensions["B"].width = 60
+
+        wb.save(dst)
+        return dst
+
+    def _send_param_handshake(self, send_node: str, complete_node: str, description: str) -> bool:
+        """参数下发握手：上升沿触发下发 → 等待下发完成 → 复位触发并等待完成复位。
+
+        与其它动作的触发/等待完成/复位写法保持一致。
+        """
+        self.set_node_value(send_node, False)  # 上升沿: 先复位
+        time.sleep(0.5)
+        self.set_node_value(send_node, True)  # 触发参数下发
+        if self._wait_until_true(complete_node, description=f"{description}完成"):
+            self.set_node_value(send_node, False)  # 复位下发触发
+            self._wait_until_false(complete_node, description=f"{description}完成复位")  # 等待完成状态复位
+            return True
+        return False
+
+            
+    def _wait_until_true(
+        self,
+        node_name: str,
+        interval: float = 0.2,
+        description: str = None
+    ) -> bool:
+        """等待布尔节点变为 True（无超时，持续轮询直到满足）"""
+        desc = description or node_name
+        logger.info(f"等待 {desc} 变为 True...")
+
+        while True:
+            if self.get_node_value(node_name, use_cache=True):
+                logger.info(f"✓ {desc} 已变为 True")
+                return True
+            time.sleep(interval)
+
+    def _wait_until_false(
+        self,
+        node_name: str,
+        interval: float = 0.2,
+        description: str = None
+    ) -> bool:
+        """等待布尔节点变为 False（无超时，持续轮询直到满足）"""
+        desc = description or node_name
+        logger.info(f"等待 {desc} 变为 False...")
+
+        while True:
+            if not self.get_node_value(node_name, use_cache=True):
+                logger.info(f"✓ {desc} 已变为 False")
+                return True
+            time.sleep(interval)
+
+    def _wait_until_value(
+        self,
+        node_name: str,
+        expected_value,
+        interval: float = 0.2,
+        description: str = None,
+    ) -> bool:
+        """等待节点达到指定值（无超时，持续轮询直到满足）。"""
+        desc = description or node_name
+        logger.info(f"等待 {desc}，目标值: {expected_value}...")
+
+        while True:
+            current_value = self.get_node_value(node_name, use_cache=True)
+            if current_value == expected_value:
+                logger.info(f"✓ {desc}，当前值: {current_value}")
+                return True
+            time.sleep(interval)
+
+    def _wait_for_nodes(
+        self,
+        conditions: dict,  # {node_name: target_value, ...}
+        interval: float = 0.2
+    ) -> bool:
+        """等待多个节点同时满足条件（无超时，持续轮询直到满足）"""
+        while True:
+            all_met = all(
+                self.get_node_value(name, use_cache=True) == target
+                for name, target in conditions.items()
+            )
+            if all_met:
+                return True
+            time.sleep(interval)
+
+
+if __name__ == '__main__':
+    # 调试用法
+    xuseDevice = XUSEDevice(
+        url="opc.tcp://192.168.1.10:4840",
+        # url="opc.tcp://127.0.0.1:48010",
+        csv_path=os.path.dirname(os.path.abspath(__file__)) + "/xuse_variables.csv"
+    )
+
+    # 启动心跳
+    # xuseDevice.start_heart_beat()
+
+    logger.setLevel(logging.INFO)
+
+    time.sleep(3)
+
+    # 初始化工作站
+    # xuseDevice.init_workstation()
+    
+    # 显示命令行，让用户通过选择序号来完成相应的操作
+    # 如果带有参数，则序号和各参数之间均由空格分隔
+    while True:
+        print("请选择操作：")
+        print("0 初始化")
+        print("0-1 加样单元初始化")
+        print("1-1 从罐架区取球磨罐")
+        print("1-2 将空罐放到开盖区")
+        print("1-3 打开罐上盖")
+        print("1-4 从开盖区抓取空罐")
+        print("1-5 将罐体放置到加粉区")
+        print("1-6 加粉")
+        print("1-7 从加粉区取罐体")
+        print("1-8 将罐体放置到加珠区")
+        print("1-9 加珠")
+        print("1-10 从加珠区取罐体")
+        print("1-11 将带有粉珠的球磨罐放置到开盖区")
+        print("1-12 关盖")
+        print("1-13 从开盖区抓取带有粉珠的球磨罐")
+        print("1-14 将罐体放置到球磨区")
+        print("1-15 球磨")
+        print("1-16 从球磨区抓取罐体")
+        print("1-17 将研磨后球磨罐放到开盖区")
+        print("1-18 从开盖区抓取研磨后球磨罐")
+        print("1-19 将研磨后球磨罐放到过筛区")
+        print("1-20 过筛")
+        print("1-21 从过筛区抓取研磨后球磨罐")
+        print("1-22 将研磨后球磨罐放到刮粉区")
+        print("1-23 刮粉")
+        print("1-24 从刮粉区位置取下研磨后球磨罐")
+        print("1-25 将过筛后球磨罐放到开罐区位置")
+        print("1-26 将过筛后球磨罐从开罐区位置取下")
+        print("1-27 将球磨罐放到罐架区")
+        print("2-1 从坩埚架区取小坩埚")
+        print("2-2 将小坩埚放到过筛区")
+        print("2-3 从漏斗架区取漏斗")
+        print("2-4 将漏斗放到过筛区")
+        print("2-5 将小坩埚从过筛区取出")
+        print("2-6 将小坩埚放到搬运位置")
+        print("2-7 将漏斗从过筛区取出")
+        print("2-8 将漏斗放到漏斗架")
+        print("2-9 小坩埚搬运位出料")
+        print("2-10 小坩埚搬运位上料")
+        print("3-1 大坩埚搬运位出料")
+        print("3-2 大坩埚搬运位置上料")
+        print("3-3 从搬运区取大坩埚")
+        print("3-4 把大坩埚放到马弗炉")
+        print("3-5 马弗炉烧结")
+        print("3-6 从马弗炉取大坩埚")
+        print("3-7 放大坩埚到成品出料上位置")
+        print("3-8 放大坩埚到成品出料下位置")
+        print("98 全部流程")
+        print("99 退出")
+        choice = input("请输入操作序号：")
+        if choice == "0":
+            xuseDevice.trigger_init()
+        elif choice == "0-1":
+            xuseDevice.trigger_add_powder_init()
+        elif choice.startswith("1-1 "):
+            rack_pos = int(choice.split(" ")[1])
+            xuseDevice.pick_can_from_can_rack(rack_pos)
+        elif choice.startswith("1-2 "):
+            xuseDevice.place_empty_can_to_open_can_position()
+        elif choice.startswith("1-3 "):
+            xuseDevice.open_can_lid()
+        elif choice.startswith("1-4 "):
+            xuseDevice.pick_empty_can_from_open_can_position()
+        elif choice.startswith("1-5 "):
+            xuseDevice.place_can_to_add_powder_position()
+        elif choice.startswith("1-6 "):
+            can_number = int(choice.split(" ")[1])
+            xuseDevice.add_powder(can_number=can_number)
+        elif choice.startswith("1-7 "):
+            xuseDevice.pick_can_from_add_powder_position()
+        elif choice.startswith("1-8 "):
+            xuseDevice.place_can_to_add_bead_position()
+        elif choice.startswith("1-9 "):
+            xuseDevice.add_bead()
+        elif choice.startswith("1-10 "):
+            xuseDevice.pick_can_from_add_bead_position()
+        elif choice.startswith("1-11 "):
+            xuseDevice.place_can_with_powder_and_bead_to_open_can_position()
+        elif choice.startswith("1-12 "):
+            xuseDevice.close_can_lid()
+        elif choice.startswith("1-13 "):
+            xuseDevice.pick_can_with_powder_and_bead_from_open_can_position()
+        elif choice.startswith("1-14 "):
+            mill_pos = int(choice.split(" ")[1])
+            xuseDevice.place_can_to_ball_mill(mill_pos)
+        elif choice.startswith("1-15 "):
+            xuseDevice.ball_mill()
+        elif choice.startswith("1-16 "):
+            mill_pos = int(choice.split(" ")[1])
+            xuseDevice.pick_can_from_ball_mill(mill_pos)
+        elif choice.startswith("1-17 "):
+            mill_pos = int(choice.split(" ")[1])
+            xuseDevice.place_milled_can_to_open_can_position(mill_pos)
+        elif choice.startswith("1-18 "):
+            mill_pos = int(choice.split(" ")[1])
+            xuseDevice.pick_milled_can_from_open_can_position(mill_pos)
+        elif choice.startswith("1-19 "):
+            mill_pos = int(choice.split(" ")[1])
+            xuseDevice.place_milled_can_to_sieve_position(mill_pos)
+        elif choice.startswith("1-20 "):
+            xuseDevice.sieve()
+        elif choice.startswith("1-21 "):
+            mill_pos = int(choice.split(" ")[1])
+            xuseDevice.pick_milled_can_from_sieve_position(mill_pos)
+        elif choice.startswith("1-22 "):
+            mill_pos = int(choice.split(" ")[1])
+            xuseDevice.place_milled_can_to_scrape_position(mill_pos)
+        elif choice.startswith("1-23 "):
+            xuseDevice.scrape_powder()
+        elif choice.startswith("1-24 "):
+            mill_pos = int(choice.split(" ")[1])
+            xuseDevice.pick_milled_can_from_scrape_position(mill_pos)
+        elif choice.startswith("1-25 "):
+            mill_pos = int(choice.split(" ")[1])
+            xuseDevice.place_sieved_can_to_open_can_position(mill_pos)
+        elif choice.startswith("1-26 "):
+            mill_pos = int(choice.split(" ")[1])
+            xuseDevice.pick_sieved_can_from_open_can_position(mill_pos)
+        elif choice.startswith("1-27 "):
+            rack_pos = int(choice.split(" ")[1])
+            xuseDevice.place_can_to_can_rack(rack_pos)
+        
+
+        elif choice.startswith("2-1 "):
+            rack_pos = int(choice.split(" ")[1])
+            xuseDevice.pick_small_crucible_from_crucible_rack(rack_pos)
+        elif choice.startswith("2-2 "):
+            xuseDevice.place_small_crucible_to_sieve_position()
+        elif choice.startswith("2-3 "):
+            rack_pos = int(choice.split(" ")[1])
+            xuseDevice.pick_funnel_from_crucible_rack(rack_pos)
+        elif choice.startswith("2-4 "):
+            xuseDevice.place_funnel_to_sieve_position()
+        elif choice.startswith("2-5 "):
+            xuseDevice.pick_small_crucible_from_sieve_position()
+        elif choice.startswith("2-6 "):
+            moving_pos = int(choice.split(" ")[1])
+            xuseDevice.place_small_crucible_to_moving_position(moving_pos)
+        elif choice.startswith("2-7 "):
+            xuseDevice.pick_funnel_from_sieve_position()
+        elif choice.startswith("2-8 "):
+            rack_pos = int(choice.split(" ")[1])
+            xuseDevice.place_funnel_to_crucible_rack(rack_pos)
+        elif choice.startswith("2-9 "):
+            xuseDevice.small_crucible_discharge()
+        elif choice.startswith("2-10 "):
+            xuseDevice.small_crucible_feed()
+
+
+        elif choice.startswith("3-1 "):
+            xuseDevice.large_crucible_discharge()
+        elif choice.startswith("3-2 "):
+            xuseDevice.large_crucible_feed()
+        elif choice.startswith("3-3 "):
+            xuseDevice.pick_large_crucible_from_moving_position()
+        elif choice.startswith("3-4 "):
+            furnace_pos = int(choice.split(" ")[1])
+            xuseDevice.place_large_crucible_to_muffle_furnace(furnace_pos)
+        elif choice.startswith("3-5 "):
+            xuseDevice.muffle_furnace_sintering()
+        elif choice.startswith("3-6 "):
+            furnace_pos = int(choice.split(" ")[1])
+            xuseDevice.pick_large_crucible_from_muffle_furnace(furnace_pos)
+        elif choice.startswith("3-7 "):
+            xuseDevice.place_large_crucible_to_upper_product_rack()
+        elif choice.startswith("3-8 "):
+            xuseDevice.place_large_crucible_to_lower_product_rack()
+
+
+        elif choice.startswith("98 "):
+            xuseDevice.trigger_all_process()
+        elif choice.startswith("99 "):
+            break
+        else:
+            print("无效的操作序号，请重新输入。")
+
+    # 结束心跳
+    # xuseDevice.stop_heart_beat()
+
+    # 断开连接
+    xuseDevice.disconnect()
+
+    print("退出程序。")
