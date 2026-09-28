@@ -21,6 +21,19 @@ REPO_ROOT = Path(__file__).parents[3]
 AI4M_ROOT = REPO_ROOT / "unilabos" / "devices" / "workstation" / "AI4M"
 
 
+@pytest.mark.parametrize(
+    ("unilab_volume", "plc_position"),
+    [(0, 0), (2500, 3000), (5000, 6000)],
+)
+def test_ai4m_syringe_volume_is_scaled_for_plc(
+    unilab_volume: int, plc_position: int
+) -> None:
+    assert (
+        AI4MDevice._convert_syringe_volume_to_plc_position(unilab_volume)
+        == plc_position
+    )
+
+
 def _read_plc_export(path: Path) -> list[dict]:
     with path.open("r", encoding="gb18030", newline="") as file:
         for _ in range(17):

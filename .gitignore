@@ -255,3 +255,13 @@ test_config.py
 
 /.claude
 /.cursor
+
+## Local registry upload/runtime artifacts
+registry_cache.pkl
+req_device_registry_upload.json
+req_resource_registry_upload.json
+req_resource_tree_add.json
+res_device_registry_upload.json
+res_resource_registry_upload.json
+res_resource_tree_add.json
+startup_config.json
