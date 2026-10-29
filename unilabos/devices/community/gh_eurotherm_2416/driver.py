@@ -7,6 +7,7 @@ Original: https://github.com/CederGroupHub/alab_control / alab_control/_base_gco
 - 日志格式: [UNILAB] ClassName.method_name() called
 - 查看日志: logging.getLogger("unilab.driver").setLevel(logging.DEBUG)
 """
+from __future__ import annotations
 from typing import Dict, Any, Optional
 import logging
 import warnings as _warnings
@@ -46,7 +47,6 @@ _vendor_root = _Path(__file__).resolve().parent / "_vendor"
 if _vendor_root.exists() and str(_vendor_root) not in _sys.path:
     _sys.path.insert(0, str(_vendor_root))
 
-from __future__ import annotations
 
 import re
 import time

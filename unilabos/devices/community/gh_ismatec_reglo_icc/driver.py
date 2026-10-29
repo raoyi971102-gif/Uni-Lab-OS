@@ -7,6 +7,7 @@ Original: https://github.com/numat/ismatec / ismatec/driver.py
 - 日志格式: [UNILAB] ClassName.method_name() called
 - 查看日志: logging.getLogger("unilab.driver").setLevel(logging.DEBUG)
 """
+from __future__ import annotations
 from typing import Dict, Any, Optional
 import logging
 import warnings as _warnings
@@ -51,7 +52,6 @@ if _vendor_root.exists() and str(_vendor_root) not in _sys.path:
 Distributed under the GNU General Public License v3
 Copyright (C) 2022 NuMat Technologies
 """
-from __future__ import annotations
 
 import logging
 

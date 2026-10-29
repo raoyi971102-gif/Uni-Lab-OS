@@ -1,0 +1,846 @@
+reviewed_masterflex_ls_07522_20:
+  category:
+  - 蠕动泵
+  class:
+    action_value_mappings:
+      auto-halt:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties: {}
+              type: object
+          title: halt
+          type: object
+        type: UniLabJsonCommandAsync
+      auto-run_continuously:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties:
+                speed:
+                  type: number
+              type: object
+          title: run_continuously
+          type: object
+        type: UniLabJsonCommandAsync
+      auto-run_revolutions:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties:
+                num_revolutions:
+                  type: number
+              type: object
+          title: run_revolutions
+          type: object
+        type: UniLabJsonCommandAsync
+      auto-send_command:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties:
+                command:
+                  type: string
+              type: object
+          title: send_command
+          type: object
+        type: UniLabJsonCommandAsync
+      auto-serialize:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties: {}
+              type: object
+          title: serialize
+          type: object
+        type: UniLabJsonCommand
+      auto-setup:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties: {}
+              type: object
+          title: setup
+          type: object
+        type: UniLabJsonCommandAsync
+      auto-stop:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties: {}
+              type: object
+          title: stop
+          type: object
+        type: UniLabJsonCommandAsync
+    module: unilabos.devices.community.masterflex_backend.driver:MasterflexBackend
+    status_types: {}
+    type: python
+  config_info: []
+  description: 具体型号列于 MasterflexBackend 源码及 PyLabRobot 支持清单；计规范兼容，未新增本项目实机验证。
+  handles: []
+  init_param_schema:
+    config:
+      properties:
+        com_port:
+          default: null
+          type: string
+      type: object
+  version: 1.0.0
+  device_params: {}
+  manufacturer: Masterflex (Cole-Parmer)
+  model:
+    name: L/S 07522-20
+    type: device
+  name: Masterflex L/S 07522-20
+  tags:
+  - 蠕动泵
+  resource_type: device
+  scene:
+    domain: Laboratory
+    scene_name: General
+    step: Experiment
+  compatibility_evidence:
+    source: https://docs.pylabrobot.org/stable/user_guide/machines.html
+    local_source: unilabos/devices/community/masterflex_backend/driver.py:75
+    status: 规范兼容
+    limitation: 07551-20 为上游 tested on；其余为同协议兼容推定；均非本项目新增实机验证。
+reviewed_masterflex_ls_07522_30:
+  category:
+  - 蠕动泵
+  class:
+    action_value_mappings:
+      auto-halt:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties: {}
+              type: object
+          title: halt
+          type: object
+        type: UniLabJsonCommandAsync
+      auto-run_continuously:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties:
+                speed:
+                  type: number
+              type: object
+          title: run_continuously
+          type: object
+        type: UniLabJsonCommandAsync
+      auto-run_revolutions:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties:
+                num_revolutions:
+                  type: number
+              type: object
+          title: run_revolutions
+          type: object
+        type: UniLabJsonCommandAsync
+      auto-send_command:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties:
+                command:
+                  type: string
+              type: object
+          title: send_command
+          type: object
+        type: UniLabJsonCommandAsync
+      auto-serialize:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties: {}
+              type: object
+          title: serialize
+          type: object
+        type: UniLabJsonCommand
+      auto-setup:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties: {}
+              type: object
+          title: setup
+          type: object
+        type: UniLabJsonCommandAsync
+      auto-stop:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties: {}
+              type: object
+          title: stop
+          type: object
+        type: UniLabJsonCommandAsync
+    module: unilabos.devices.community.masterflex_backend.driver:MasterflexBackend
+    status_types: {}
+    type: python
+  config_info: []
+  description: 具体型号列于 MasterflexBackend 源码及 PyLabRobot 支持清单；计规范兼容，未新增本项目实机验证。
+  handles: []
+  init_param_schema:
+    config:
+      properties:
+        com_port:
+          default: null
+          type: string
+      type: object
+  version: 1.0.0
+  device_params: {}
+  manufacturer: Masterflex (Cole-Parmer)
+  model:
+    name: L/S 07522-30
+    type: device
+  name: Masterflex L/S 07522-30
+  tags:
+  - 蠕动泵
+  resource_type: device
+  scene:
+    domain: Laboratory
+    scene_name: General
+    step: Experiment
+  compatibility_evidence:
+    source: https://docs.pylabrobot.org/stable/user_guide/machines.html
+    local_source: unilabos/devices/community/masterflex_backend/driver.py:75
+    status: 规范兼容
+    limitation: 07551-20 为上游 tested on；其余为同协议兼容推定；均非本项目新增实机验证。
+reviewed_masterflex_ls_07551_20:
+  category:
+  - 蠕动泵
+  class:
+    action_value_mappings:
+      auto-halt:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties: {}
+              type: object
+          title: halt
+          type: object
+        type: UniLabJsonCommandAsync
+      auto-run_continuously:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties:
+                speed:
+                  type: number
+              type: object
+          title: run_continuously
+          type: object
+        type: UniLabJsonCommandAsync
+      auto-run_revolutions:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties:
+                num_revolutions:
+                  type: number
+              type: object
+          title: run_revolutions
+          type: object
+        type: UniLabJsonCommandAsync
+      auto-send_command:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties:
+                command:
+                  type: string
+              type: object
+          title: send_command
+          type: object
+        type: UniLabJsonCommandAsync
+      auto-serialize:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties: {}
+              type: object
+          title: serialize
+          type: object
+        type: UniLabJsonCommand
+      auto-setup:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties: {}
+              type: object
+          title: setup
+          type: object
+        type: UniLabJsonCommandAsync
+      auto-stop:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties: {}
+              type: object
+          title: stop
+          type: object
+        type: UniLabJsonCommandAsync
+    module: unilabos.devices.community.masterflex_backend.driver:MasterflexBackend
+    status_types: {}
+    type: python
+  config_info: []
+  description: 具体型号列于 MasterflexBackend 源码及 PyLabRobot 支持清单；计规范兼容，未新增本项目实机验证。
+  handles: []
+  init_param_schema:
+    config:
+      properties:
+        com_port:
+          default: null
+          type: string
+      type: object
+  version: 1.0.0
+  device_params: {}
+  manufacturer: Masterflex (Cole-Parmer)
+  model:
+    name: L/S 07551-20
+    type: device
+  name: Masterflex L/S 07551-20
+  tags:
+  - 蠕动泵
+  resource_type: device
+  scene:
+    domain: Laboratory
+    scene_name: General
+    step: Experiment
+  compatibility_evidence:
+    source: https://docs.pylabrobot.org/stable/user_guide/machines.html
+    local_source: unilabos/devices/community/masterflex_backend/driver.py:75
+    status: 规范兼容
+    limitation: 07551-20 为上游 tested on；其余为同协议兼容推定；均非本项目新增实机验证。
+reviewed_masterflex_ls_07551_30:
+  category:
+  - 蠕动泵
+  class:
+    action_value_mappings:
+      auto-halt:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties: {}
+              type: object
+          title: halt
+          type: object
+        type: UniLabJsonCommandAsync
+      auto-run_continuously:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties:
+                speed:
+                  type: number
+              type: object
+          title: run_continuously
+          type: object
+        type: UniLabJsonCommandAsync
+      auto-run_revolutions:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties:
+                num_revolutions:
+                  type: number
+              type: object
+          title: run_revolutions
+          type: object
+        type: UniLabJsonCommandAsync
+      auto-send_command:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties:
+                command:
+                  type: string
+              type: object
+          title: send_command
+          type: object
+        type: UniLabJsonCommandAsync
+      auto-serialize:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties: {}
+              type: object
+          title: serialize
+          type: object
+        type: UniLabJsonCommand
+      auto-setup:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties: {}
+              type: object
+          title: setup
+          type: object
+        type: UniLabJsonCommandAsync
+      auto-stop:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties: {}
+              type: object
+          title: stop
+          type: object
+        type: UniLabJsonCommandAsync
+    module: unilabos.devices.community.masterflex_backend.driver:MasterflexBackend
+    status_types: {}
+    type: python
+  config_info: []
+  description: 具体型号列于 MasterflexBackend 源码及 PyLabRobot 支持清单；计规范兼容，未新增本项目实机验证。
+  handles: []
+  init_param_schema:
+    config:
+      properties:
+        com_port:
+          default: null
+          type: string
+      type: object
+  version: 1.0.0
+  device_params: {}
+  manufacturer: Masterflex (Cole-Parmer)
+  model:
+    name: L/S 07551-30
+    type: device
+  name: Masterflex L/S 07551-30
+  tags:
+  - 蠕动泵
+  resource_type: device
+  scene:
+    domain: Laboratory
+    scene_name: General
+    step: Experiment
+  compatibility_evidence:
+    source: https://docs.pylabrobot.org/stable/user_guide/machines.html
+    local_source: unilabos/devices/community/masterflex_backend/driver.py:75
+    status: 规范兼容
+    limitation: 07551-20 为上游 tested on；其余为同协议兼容推定；均非本项目新增实机验证。
+reviewed_masterflex_ls_07575_30:
+  category:
+  - 蠕动泵
+  class:
+    action_value_mappings:
+      auto-halt:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties: {}
+              type: object
+          title: halt
+          type: object
+        type: UniLabJsonCommandAsync
+      auto-run_continuously:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties:
+                speed:
+                  type: number
+              type: object
+          title: run_continuously
+          type: object
+        type: UniLabJsonCommandAsync
+      auto-run_revolutions:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties:
+                num_revolutions:
+                  type: number
+              type: object
+          title: run_revolutions
+          type: object
+        type: UniLabJsonCommandAsync
+      auto-send_command:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties:
+                command:
+                  type: string
+              type: object
+          title: send_command
+          type: object
+        type: UniLabJsonCommandAsync
+      auto-serialize:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties: {}
+              type: object
+          title: serialize
+          type: object
+        type: UniLabJsonCommand
+      auto-setup:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties: {}
+              type: object
+          title: setup
+          type: object
+        type: UniLabJsonCommandAsync
+      auto-stop:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties: {}
+              type: object
+          title: stop
+          type: object
+        type: UniLabJsonCommandAsync
+    module: unilabos.devices.community.masterflex_backend.driver:MasterflexBackend
+    status_types: {}
+    type: python
+  config_info: []
+  description: 具体型号列于 MasterflexBackend 源码及 PyLabRobot 支持清单；计规范兼容，未新增本项目实机验证。
+  handles: []
+  init_param_schema:
+    config:
+      properties:
+        com_port:
+          default: null
+          type: string
+      type: object
+  version: 1.0.0
+  device_params: {}
+  manufacturer: Masterflex (Cole-Parmer)
+  model:
+    name: L/S 07575-30
+    type: device
+  name: Masterflex L/S 07575-30
+  tags:
+  - 蠕动泵
+  resource_type: device
+  scene:
+    domain: Laboratory
+    scene_name: General
+    step: Experiment
+  compatibility_evidence:
+    source: https://docs.pylabrobot.org/stable/user_guide/machines.html
+    local_source: unilabos/devices/community/masterflex_backend/driver.py:75
+    status: 规范兼容
+    limitation: 07551-20 为上游 tested on；其余为同协议兼容推定；均非本项目新增实机验证。
+reviewed_masterflex_ls_07575_40:
+  category:
+  - 蠕动泵
+  class:
+    action_value_mappings:
+      auto-halt:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties: {}
+              type: object
+          title: halt
+          type: object
+        type: UniLabJsonCommandAsync
+      auto-run_continuously:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties:
+                speed:
+                  type: number
+              type: object
+          title: run_continuously
+          type: object
+        type: UniLabJsonCommandAsync
+      auto-run_revolutions:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties:
+                num_revolutions:
+                  type: number
+              type: object
+          title: run_revolutions
+          type: object
+        type: UniLabJsonCommandAsync
+      auto-send_command:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties:
+                command:
+                  type: string
+              type: object
+          title: send_command
+          type: object
+        type: UniLabJsonCommandAsync
+      auto-serialize:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties: {}
+              type: object
+          title: serialize
+          type: object
+        type: UniLabJsonCommand
+      auto-setup:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties: {}
+              type: object
+          title: setup
+          type: object
+        type: UniLabJsonCommandAsync
+      auto-stop:
+        feedback: {}
+        goal: {}
+        goal_default: {}
+        handles: {}
+        result: {}
+        schema:
+          properties:
+            goal:
+              properties: {}
+              type: object
+          title: stop
+          type: object
+        type: UniLabJsonCommandAsync
+    module: unilabos.devices.community.masterflex_backend.driver:MasterflexBackend
+    status_types: {}
+    type: python
+  config_info: []
+  description: 具体型号列于 MasterflexBackend 源码及 PyLabRobot 支持清单；计规范兼容，未新增本项目实机验证。
+  handles: []
+  init_param_schema:
+    config:
+      properties:
+        com_port:
+          default: null
+          type: string
+      type: object
+  version: 1.0.0
+  device_params: {}
+  manufacturer: Masterflex (Cole-Parmer)
+  model:
+    name: L/S 07575-40
+    type: device
+  name: Masterflex L/S 07575-40
+  tags:
+  - 蠕动泵
+  resource_type: device
+  scene:
+    domain: Laboratory
+    scene_name: General
+    step: Experiment
+  compatibility_evidence:
+    source: https://docs.pylabrobot.org/stable/user_guide/machines.html
+    local_source: unilabos/devices/community/masterflex_backend/driver.py:75
+    status: 规范兼容
+    limitation: 07551-20 为上游 tested on；其余为同协议兼容推定；均非本项目新增实机验证。

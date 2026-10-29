@@ -7,6 +7,7 @@ Original: https://github.com/iorodeo/potentiostat / software/python/potentiostat
 - 日志格式: [UNILAB] ClassName.method_name() called
 - 查看日志: logging.getLogger("unilab.driver").setLevel(logging.DEBUG)
 """
+from __future__ import print_function
 from typing import Dict, Any, Optional
 import logging
 import warnings as _warnings
@@ -57,7 +58,6 @@ potentiostat
     :copyright: (c) 2017 by IO Rodeo 
     :license: MIT, see LICENSE.txt for more details.
 """
-from __future__ import print_function
 import serial
 import time
 import json

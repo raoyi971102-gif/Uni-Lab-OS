@@ -7,6 +7,7 @@ Original: https://github.com/pct-code/py-hplc / py_hplc/pump_base.py
 - 日志格式: [UNILAB] ClassName.method_name() called
 - 查看日志: logging.getLogger("unilab.driver").setLevel(logging.DEBUG)
 """
+from __future__ import annotations
 from typing import Dict, Any, Optional
 import logging
 import warnings as _warnings
@@ -52,7 +53,6 @@ an interface for communicating with the pumps.
 
 """
 
-from __future__ import annotations
 
 from logging import Logger, getLogger
 from time import sleep

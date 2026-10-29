@@ -812,10 +812,8 @@ thermo_fisher_thermocycler_backend:
       total_step_count: String
     type: python
   config_info: []
-  description: ThermoScientific KingFisher Flex全自动核酸提取仪是由赛默飞世尔科技生命科学产品生产的专业实验设备。Backend
-    for Proflex thermocycler
+  description: ProFlex PCR 热循环仪；与 ThermoFisherThermocyclerBackend 源码一致，不用于 KingFisher。
   handles: []
-  icon: thermo_fisher_thermocycler_backend.webp
   init_param_schema:
     config:
       properties:
@@ -833,19 +831,12 @@ thermo_fisher_thermocycler_backend:
           type: boolean
       type: object
   version: 1.0.0
-  device_params:
-    仪器种类: 磁珠法
-    自动程度: 专用全自动
-    单批次处理样品数: 96或24个样品/批
-    样品体积范围: 50-4000μL
-    单批次样品处理时间: 15-40分钟
-    品牌: 赛默飞世尔科技生命科学产品
-    温度范围: 4-99 ℃
+  device_params: {}
   manufacturer: 赛默飞世尔科技生命科学产品
   model:
-    name: ThermoScientific KingFisher Flex全自动核酸提取仪
+    name: Thermo Fisher ProFlex
     type: device
-  name: ThermoScientific KingFisher Flex全自动核酸提取仪
+  name: Thermo Fisher ProFlex
   tags:
   - 普通PCR仪
   resource_type: device

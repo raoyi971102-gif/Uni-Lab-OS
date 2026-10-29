@@ -7,6 +7,7 @@ Original: https://github.com/cgevans/qslib / python/qslib/cli.py
 - 日志格式: [UNILAB] ClassName.method_name() called
 - 查看日志: logging.getLogger("unilab.driver").setLevel(logging.DEBUG)
 """
+from __future__ import annotations
 from typing import Dict, Any, Optional
 import logging
 import warnings as _warnings
@@ -50,7 +51,6 @@ if _vendor_root.exists() and str(_vendor_root) not in _sys.path:
 #
 # SPDX-License-Identifier: EUPL-1.2
 
-from __future__ import annotations
 
 import time
 from dataclasses import dataclass

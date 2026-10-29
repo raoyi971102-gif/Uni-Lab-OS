@@ -7,6 +7,7 @@ Original: https://github.com/alchem0x2A/py-wdf-reader / renishawWiRE/wdfReader.p
 - 日志格式: [UNILAB] ClassName.method_name() called
 - 查看日志: logging.getLogger("unilab.driver").setLevel(logging.DEBUG)
 """
+from __future__ import print_function
 from typing import Dict, Any, Optional
 import logging
 import warnings as _warnings
@@ -48,7 +49,6 @@ if _vendor_root.exists() and str(_vendor_root) not in _sys.path:
 
 # Renishaw wdf Raman spectroscopy file reader
 # Code inspired by Henderson, Alex DOI:10.5281/zenodo.495477
-from __future__ import print_function
 import struct
 import numpy
 import io

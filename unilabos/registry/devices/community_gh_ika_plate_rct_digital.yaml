@@ -151,21 +151,15 @@ gh_ika_plate_rct_digital:
         goal_default: {}
         handles: {}
     source: https://github.com/cooper-group-uol-robotics/ika_plate_rct_digital
-  name: Magnetrührer Heizrührer Laborrührer Rührer Mischen
-  description: 探索我们世界领先的机器人，为不同行业提供机器人解决方案并站在研究的前沿。与我们一起塑造未来！
+  name: IKA RCT digital
+  description: IKA RCT digital 加热磁力搅拌器；IKADriver 串口控制加热与搅拌。
   manufacturer: IKA
-  icon: V1%20Desktop.jpg
   tags: &id001
   - 加热磁力搅拌器
   category: *id001
-  device_params:
-    参数: FRANKA RESEARCH 3 Franka Research 3 is the reference world-class, force-sensitive
-      robot system tailored for robotics and AI. It empowers researchers with easy-to-use
-      robot features as well as with low-level access to robot’s control and learning
-      capabilities. Discover Buy now
-    品牌: IKA
+  device_params: {}
   model:
-    name: Magnetrührer Heizrührer Laborrührer Rührer Mischen
+    name: IKA RCT digital
     type: device
   scene:
     domain: Chemistry
