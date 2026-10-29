@@ -1,6 +1,8 @@
 recursive-include unilabos/test *
 recursive-include unilabos/utils *
 recursive-include unilabos/registry *.yaml
+recursive-include unilabos/registry/device_images *
+recursive-include unilabos/devices/ivi_family *.json *.md
 recursive-exclude * __pycache__ *.pyc
 prune unilabos/devices/cytomat
 recursive-include unilabos/device_mesh/devices *
