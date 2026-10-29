@@ -1,13 +1,16 @@
 xrd_d7mate:
+  available_sites: []
   category:
   - xrd_d7mate
   class:
     action_value_mappings:
       auto-close:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -25,10 +28,12 @@ xrd_d7mate:
           type: object
         type: UniLabJsonCommand
       auto-connect:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -46,11 +51,13 @@ xrd_d7mate:
           type: object
         type: UniLabJsonCommand
       auto-start_from_string:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
           params: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -74,10 +81,12 @@ xrd_d7mate:
           type: object
         type: UniLabJsonCommand
       get_current_acquire_data:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         result: {}
         schema:
           description: ''
@@ -103,52 +112,46 @@ xrd_d7mate:
           type: object
         type: EmptyIn
       get_sample_down:
+        error_policy: {}
         feedback: {}
         goal:
           int_input: int_input
           sample_station: sample_station
         goal_default:
-          int_input: 0
+          sample_station: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
-        result:
-          return_info: return_info
-          success: success
+        result: {}
         schema:
           description: ''
           properties:
             feedback:
-              additionalProperties: true
               title: IntSingleInput_Feedback
-              type: object
             goal:
-              additionalProperties: false
               properties:
-                int_input:
-                  maximum: 2147483647
-                  minimum: -2147483648
+                sample_station:
+                  description: 下样工位（1, 2, 3）
                   type: integer
+              required:
+              - sample_station
               title: IntSingleInput_Goal
               type: object
             result:
-              additionalProperties: false
-              properties:
-                return_info:
-                  type: string
-                success:
-                  type: boolean
               title: IntSingleInput_Result
               type: object
           required:
           - goal
-          title: IntSingleInput
+          title: get_sample_down参数
           type: object
         type: IntSingleInput
       get_sample_request:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         result: {}
         schema:
           description: ''
@@ -174,10 +177,12 @@ xrd_d7mate:
           type: object
         type: EmptyIn
       get_sample_status:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         result: {}
         schema:
           description: ''
@@ -203,37 +208,34 @@ xrd_d7mate:
           type: object
         type: EmptyIn
       send_sample_down_ready:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
-        result:
-          return_info: return_info
+        result: {}
         schema:
           description: ''
           properties:
             feedback:
-              additionalProperties: true
               title: EmptyIn_Feedback
-              type: object
             goal:
-              additionalProperties: true
+              properties: {}
+              required: []
               title: EmptyIn_Goal
               type: object
             result:
-              additionalProperties: false
-              properties:
-                return_info:
-                  type: string
               title: EmptyIn_Result
               type: object
           required:
           - goal
-          title: EmptyIn
+          title: send_sample_down_ready参数
           type: object
         type: EmptyIn
       send_sample_ready:
+        error_policy: {}
         feedback: {}
         goal:
           end_theta: 80.0
@@ -248,6 +250,7 @@ xrd_d7mate:
           sample_id: null
           start_theta: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -289,68 +292,61 @@ xrd_d7mate:
           type: object
         type: UniLabJsonCommand
       set_power_off:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
-        result:
-          return_info: return_info
+        result: {}
         schema:
           description: ''
           properties:
             feedback:
-              additionalProperties: true
               title: EmptyIn_Feedback
-              type: object
             goal:
-              additionalProperties: true
+              properties: {}
+              required: []
               title: EmptyIn_Goal
               type: object
             result:
-              additionalProperties: false
-              properties:
-                return_info:
-                  type: string
               title: EmptyIn_Result
               type: object
           required:
           - goal
-          title: EmptyIn
+          title: set_power_off参数
           type: object
         type: EmptyIn
       set_power_on:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
-        result:
-          return_info: return_info
+        result: {}
         schema:
           description: ''
           properties:
             feedback:
-              additionalProperties: true
               title: EmptyIn_Feedback
-              type: object
             goal:
-              additionalProperties: true
+              properties: {}
+              required: []
               title: EmptyIn_Goal
               type: object
             result:
-              additionalProperties: false
-              properties:
-                return_info:
-                  type: string
               title: EmptyIn_Result
               type: object
           required:
           - goal
-          title: EmptyIn
+          title: set_power_on参数
           type: object
         type: EmptyIn
       set_voltage_current:
+        error_policy: {}
         feedback: {}
         goal:
           current: 30.0
@@ -359,6 +355,7 @@ xrd_d7mate:
           current: null
           voltage: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -388,6 +385,7 @@ xrd_d7mate:
           type: object
         type: UniLabJsonCommand
       start:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
@@ -399,6 +397,7 @@ xrd_d7mate:
           string: ''
           wait_minutes: 3.0
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -447,12 +446,14 @@ xrd_d7mate:
           type: object
         type: UniLabJsonCommand
       start_auto_mode:
+        error_policy: {}
         feedback: {}
         goal:
           status: true
         goal_default:
           status: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -478,15 +479,21 @@ xrd_d7mate:
           type: object
         type: UniLabJsonCommand
     module: unilabos.devices.xrd_d7mate.xrd_d7mate:XRDClient
+    status_policies: {}
     status_types:
-      current_acquire_data: dict
-      sample_request: dict
-      sample_status: dict
+      current_acquire_data: str
+      sample_request: str
+      sample_status: str
+    supported_backends:
+    - hostlink
+    - ros2
     type: python
   config_info: []
   description: XRD D7-Mate X射线衍射分析设备，通过TCP通信实现远程控制与状态监控，支持自动模式控制、上样流程、数据获取、下样流程和高压电源控制等功能。
+  display_name: D7-Mate X 射线衍射仪
   handles: []
   icon: ''
+  init_param_enforce: {}
   init_param_schema:
     config:
       properties:
@@ -507,11 +514,11 @@ xrd_d7mate:
     data:
       properties:
         current_acquire_data:
-          type: object
+          type: string
         sample_request:
-          type: object
+          type: string
         sample_status:
-          type: object
+          type: string
       required:
       - current_acquire_data
       - sample_request

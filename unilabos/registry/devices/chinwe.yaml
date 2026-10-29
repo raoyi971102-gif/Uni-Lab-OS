@@ -1,14 +1,17 @@
 separator.chinwe:
+  available_sites: []
   category:
   - separator
   - chinwe
   class:
     action_value_mappings:
       auto-connect:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -27,10 +30,12 @@ separator.chinwe:
           type: object
         type: UniLabJsonCommand
       auto-disconnect:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -48,11 +53,13 @@ separator.chinwe:
           type: object
         type: UniLabJsonCommand
       auto-execute_command_from_outer:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
           command_dict: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -74,6 +81,7 @@ separator.chinwe:
           type: object
         type: UniLabJsonCommand
       motor_rotate_quarter:
+        error_policy: {}
         feedback: {}
         goal:
           direction: 顺时针
@@ -84,6 +92,7 @@ separator.chinwe:
           motor_id: null
           speed: 60
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -113,6 +122,7 @@ separator.chinwe:
           type: object
         type: UniLabJsonCommand
       motor_run_continuous:
+        error_policy: {}
         feedback: {}
         goal:
           direction: 顺时针
@@ -123,6 +133,7 @@ separator.chinwe:
           motor_id: null
           speed: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -152,12 +163,14 @@ separator.chinwe:
           type: object
         type: UniLabJsonCommand
       motor_stop:
+        error_policy: {}
         feedback: {}
         goal:
           motor_id: 4
         goal_default:
           motor_id: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -180,6 +193,7 @@ separator.chinwe:
           type: object
         type: UniLabJsonCommand
       pump_aspirate:
+        error_policy: {}
         feedback: {}
         goal:
           pump_id: 1
@@ -190,6 +204,7 @@ separator.chinwe:
           valve_port: null
           volume: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -219,6 +234,7 @@ separator.chinwe:
           type: object
         type: UniLabJsonCommand
       pump_dispense:
+        error_policy: {}
         feedback: {}
         goal:
           pump_id: 1
@@ -229,6 +245,7 @@ separator.chinwe:
           valve_port: null
           volume: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -258,6 +275,7 @@ separator.chinwe:
           type: object
         type: UniLabJsonCommand
       pump_initialize:
+        error_policy: {}
         feedback: {}
         goal:
           drain_port: 0
@@ -270,6 +288,7 @@ separator.chinwe:
           pump_id: null
           speed: 10
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -304,6 +323,7 @@ separator.chinwe:
           type: object
         type: UniLabJsonCommand
       pump_valve:
+        error_policy: {}
         feedback: {}
         goal:
           port: 1
@@ -312,6 +332,7 @@ separator.chinwe:
           port: null
           pump_id: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -337,6 +358,7 @@ separator.chinwe:
           type: object
         type: UniLabJsonCommand
       wait_sensor_level:
+        error_policy: {}
         feedback: {}
         goal:
           target_state: 有液
@@ -345,6 +367,7 @@ separator.chinwe:
           target_state: 有液
           timeout: 30
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -371,12 +394,14 @@ separator.chinwe:
           type: object
         type: UniLabJsonCommand
       wait_time:
+        error_policy: {}
         feedback: {}
         goal:
           duration: 10
         goal_default:
           duration: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -399,15 +424,21 @@ separator.chinwe:
           type: object
         type: UniLabJsonCommand
     module: unilabos.devices.separator.chinwe:ChinweDevice
+    status_policies: {}
     status_types:
       is_connected: bool
       sensor_level: bool
       sensor_rssi: int
+    supported_backends:
+    - hostlink
+    - ros2
     type: python
   config_info: []
   description: ChinWe 简易工作站控制器 (3泵, 2电机, 1传感器)
+  display_name: ChinWe 简易工作站控制器
   handles: []
   icon: ''
+  init_param_enforce: {}
   init_param_schema:
     config:
       properties:

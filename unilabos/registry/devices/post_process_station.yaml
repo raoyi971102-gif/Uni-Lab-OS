@@ -1,14 +1,17 @@
 post_process_station:
+  available_sites: []
   category:
   - post_process_station
   class:
     action_value_mappings:
       auto-load_config:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
           config_path: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -29,10 +32,12 @@ post_process_station:
           type: object
         type: UniLabJsonCommand
       auto-print_cache_stats:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -50,12 +55,14 @@ post_process_station:
           type: object
         type: UniLabJsonCommand
       auto-set_node_value:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
           name: null
           value: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -79,93 +86,67 @@ post_process_station:
           type: object
         type: UniLabJsonCommand
       disconnect:
-        feedback:
-          status: status
+        error_policy: {}
+        feedback: {}
         goal:
           command: command
-        goal_default:
-          command: ''
+        goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
-        result:
-          return_info: return_info
-          success: success
+        result: {}
         schema:
           description: ''
           properties:
             feedback:
-              additionalProperties: false
-              properties:
-                status:
-                  type: string
               title: SendCmd_Feedback
-              type: object
             goal:
-              additionalProperties: false
-              properties:
-                command:
-                  type: string
+              properties: {}
+              required: []
               title: SendCmd_Goal
               type: object
             result:
-              additionalProperties: false
-              properties:
-                return_info:
-                  type: string
-                success:
-                  type: boolean
               title: SendCmd_Result
-              type: object
           required:
           - goal
-          title: SendCmd
+          title: disconnect参数
           type: object
         type: SendCmd
       read_node:
-        feedback:
-          status: status
+        error_policy: {}
+        feedback: {}
         goal:
           command: command
           node_name: node_name
         goal_default:
-          command: ''
+          node_name: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
-        result:
-          return_info: return_info
-          success: success
+        result: {}
         schema:
           description: ''
           properties:
             feedback:
-              additionalProperties: false
-              properties:
-                status:
-                  type: string
               title: SendCmd_Feedback
-              type: object
             goal:
-              additionalProperties: false
               properties:
-                command:
+                node_name:
                   type: string
+              required:
+              - node_name
               title: SendCmd_Goal
               type: object
             result:
-              additionalProperties: false
-              properties:
-                return_info:
-                  type: string
-                success:
-                  type: boolean
               title: SendCmd_Result
-              type: object
+              type: string
           required:
           - goal
-          title: SendCmd
+          title: read_node参数
           type: object
         type: SendCmd
       trigger_cleaning_action:
+        error_policy: {}
         feedback: {}
         goal:
           acetone_inner_wall_cleaning_count: acetone_inner_wall_cleaning_count
@@ -250,6 +231,7 @@ post_process_station:
           water_stirrer_cleaning_wait_time: 0
           water_stirrer_cleaning_waste_time: 0
         handles: {}
+        materials_need_lock: []
         result:
           return_info: return_info
         schema:
@@ -437,6 +419,7 @@ post_process_station:
           type: object
         type: PostProcessTriggerClean
       trigger_grab_action:
+        error_policy: {}
         feedback: {}
         goal:
           raw_tank_number: raw_tank_number
@@ -445,6 +428,7 @@ post_process_station:
           raw_tank_number: 0
           reaction_tank_number: 0
         handles: {}
+        materials_need_lock: []
         result:
           return_info: return_info
         schema:
@@ -480,6 +464,7 @@ post_process_station:
           type: object
         type: PostProcessGrab
       trigger_post_processing:
+        error_policy: {}
         feedback: {}
         goal:
           atomization_fast_speed: atomization_fast_speed
@@ -512,6 +497,7 @@ post_process_station:
           second_wash_water_amount: 0.0
           wash_slow_speed: 0.0
         handles: {}
+        materials_need_lock: []
         result:
           return_info: return_info
         schema:
@@ -595,6 +581,7 @@ post_process_station:
           type: object
         type: PostProcessTriggerPostPro
       write_node:
+        error_policy: {}
         feedback:
           result: result
         goal:
@@ -602,6 +589,7 @@ post_process_station:
         goal_default:
           command: ''
         handles: {}
+        materials_need_lock: []
         result:
           success: success
         schema:
@@ -636,13 +624,19 @@ post_process_station:
           type: object
         type: SendCmd
     module: unilabos.devices.workstation.post_process.post_process:OpcUaClient
+    status_policies: {}
     status_types:
-      cache_stats: Dict[str, Any]
+      cache_stats: str
+    supported_backends:
+    - hostlink
+    - ros2
     type: python
   config_info: []
   description: 后处理站
+  display_name: 后处理工作站
   handles: []
   icon: post_process_station.webp
+  init_param_enforce: {}
   init_param_schema:
     config:
       properties:
@@ -673,7 +667,7 @@ post_process_station:
     data:
       properties:
         cache_stats:
-          type: object
+          type: string
       required:
       - cache_stats
       type: object

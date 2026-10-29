@@ -1,16 +1,17 @@
 import asyncio
 import logging
 import time as time_module
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, TYPE_CHECKING
 
-from unilabos.compile.utils.vessel_parser import get_vessel
-from unilabos.ros.nodes.base_device_node import BaseROS2DeviceNode
+from unilabos.experiments.compile.utils.vessel_parser import get_vessel
+if TYPE_CHECKING:
+    from unilabos.backend.runtime.node import DeviceNode
 
 
 class VirtualFilter:
     """Virtual filter device - 完全按照 Filter.action 规范 🌊"""
 
-    _ros_node: BaseROS2DeviceNode
+    _ros_node: "DeviceNode"
 
     def __init__(self, device_id: Optional[str] = None, config: Optional[Dict[str, Any]] = None, **kwargs):
         if device_id is None and "id" in kwargs:
@@ -35,7 +36,7 @@ class VirtualFilter:
             if key not in skip_keys and not hasattr(self, key):
                 setattr(self, key, value)
 
-    def post_init(self, ros_node: BaseROS2DeviceNode):
+    def post_init(self, ros_node: "DeviceNode"):
         self._ros_node = ros_node
 
     async def initialize(self) -> bool:
@@ -79,7 +80,7 @@ class VirtualFilter:
         vessel_id, _ = get_vessel(vessel)
         filtrate_vessel_id, _ = get_vessel(filtrate_vessel) if filtrate_vessel else (f"{vessel_id}_filtrate", {})
 
-        # 🔧 新增：温度自动调整
+        # 将温度限制到虚拟设备支持的最低值。
         original_temp = temp
         if temp == 0.0:
             temp = 25.0  # 0度自动设置为室温

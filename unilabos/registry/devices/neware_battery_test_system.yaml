@@ -1,4 +1,5 @@
 neware_battery_test_system:
+  available_sites: []
   category:
   - neware_battery_test_system
   - neware
@@ -6,10 +7,12 @@ neware_battery_test_system:
   class:
     action_value_mappings:
       auto-print_status_summary:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -27,10 +30,12 @@ neware_battery_test_system:
           type: object
         type: UniLabJsonCommand
       auto-test_connection:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -49,10 +54,12 @@ neware_battery_test_system:
           type: object
         type: UniLabJsonCommand
       debug_resource_names:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -71,12 +78,14 @@ neware_battery_test_system:
           type: object
         type: UniLabJsonCommand
       export_status_json:
+        error_policy: {}
         feedback: {}
         goal:
           filepath: filepath
         goal_default:
           filepath: bts_status.json
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -99,10 +108,12 @@ neware_battery_test_system:
           type: object
         type: UniLabJsonCommand
       get_device_summary:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         result:
           return_info: return_info
           success: success
@@ -131,12 +142,14 @@ neware_battery_test_system:
           type: object
         type: UniLabJsonCommand
       get_plate_status:
+        error_policy: {}
         feedback: {}
         goal:
           plate_num: plate_num
         goal_default:
           plate_num: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -158,10 +171,12 @@ neware_battery_test_system:
           type: object
         type: UniLabJsonCommand
       print_status_summary_action:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -180,46 +195,41 @@ neware_battery_test_system:
           type: object
         type: UniLabJsonCommand
       query_plate_action:
+        error_policy: {}
         feedback: {}
         goal:
           plate_id: plate_id
           string: string
         goal_default:
-          string: ''
+          plate_id: P1
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
-        result:
-          return_info: return_info
-          success: success
+        result: {}
         schema:
           description: ''
           properties:
             feedback:
-              additionalProperties: true
               title: StrSingleInput_Feedback
-              type: object
             goal:
-              additionalProperties: false
               properties:
-                string:
+                plate_id:
+                  default: P1
+                  description: 盘号标识，如"P1"或"P2"
                   type: string
+              required: []
               title: StrSingleInput_Goal
               type: object
             result:
-              additionalProperties: false
-              properties:
-                return_info:
-                  type: string
-                success:
-                  type: boolean
               title: StrSingleInput_Result
               type: object
           required:
           - goal
-          title: StrSingleInput
+          title: query_plate_action参数
           type: object
         type: StrSingleInput
       submit_from_csv:
+        error_policy: {}
         feedback: {}
         goal:
           csv_path: string
@@ -228,6 +238,7 @@ neware_battery_test_system:
           csv_path: null
           output_dir: .
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -254,10 +265,12 @@ neware_battery_test_system:
           type: object
         type: UniLabJsonCommand
       test_connection_action:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -276,6 +289,7 @@ neware_battery_test_system:
           type: object
         type: UniLabJsonCommand
       upload_backup_to_oss:
+        error_policy: {}
         feedback: {}
         goal:
           backup_dir: backup_dir
@@ -293,6 +307,7 @@ neware_battery_test_system:
             handler_key: uploaded_files
             io_type: sink
             label: Uploaded Files (with standard flow info)
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -321,17 +336,23 @@ neware_battery_test_system:
           type: object
         type: UniLabJsonCommand
     module: unilabos.devices.neware_battery_test_system.neware_battery_test_system:NewareBatteryTestSystem
+    status_policies: {}
     status_types:
-      channel_status: Dict[int, Dict]
-      connection_info: Dict[str, str]
-      device_summary: dict
+      channel_status: str
+      connection_info: str
+      device_summary: str
       status: str
       total_channels: int
+    supported_backends:
+    - hostlink
+    - ros2
     type: python
   config_info: []
   description: 新威电池测试系统驱动，提供720个通道的电池测试状态监控、物料管理和CSV批量提交功能。支持TCP通信实现远程控制，包含完整的物料管理系统（2盘电池状态映射），以及从CSV文件批量提交测试任务的能力。
+  display_name: 新威电池测试系统
   handles: []
   icon: ''
+  init_param_enforce: {}
   init_param_schema:
     config:
       properties:
@@ -373,15 +394,11 @@ neware_battery_test_system:
     data:
       properties:
         channel_status:
-          additionalProperties:
-            type: object
-          type: object
+          type: string
         connection_info:
-          additionalProperties:
-            type: string
-          type: object
+          type: string
         device_summary:
-          type: object
+          type: string
         status:
           type: string
         total_channels:

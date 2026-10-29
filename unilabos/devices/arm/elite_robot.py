@@ -1,24 +1,23 @@
 import socket
 import re
 import time
-from rclpy.node import Node
-from sensor_msgs.msg import JointState
+from typing import Any
 
 
 class EliteRobot:
     def __init__(self,device_id, host, **kwargs):
         self.host = host
-        self.node = Node(f"{device_id}")
-        self.joint_state_msg = JointState()
-        self.joint_state_msg.name = [f"{device_id}_shoulder_pan_joint",
-                                     f"{device_id}_shoulder_lift_joint", 
-                                     f"{device_id}_elbow_joint", 
-                                     f"{device_id}_wrist_1_joint", 
-                                     f"{device_id}_wrist_2_joint", 
-                                     f"{device_id}_wrist_3_joint"]
+        self.node = None
+        self.joint_names = [f"{device_id}_shoulder_pan_joint",
+                            f"{device_id}_shoulder_lift_joint",
+                            f"{device_id}_elbow_joint",
+                            f"{device_id}_wrist_1_joint",
+                            f"{device_id}_wrist_2_joint",
+                            f"{device_id}_wrist_3_joint"]
+        self.joint_state_msg: Any = None
         
         self.job_id = 0
-        self.joint_state_pub = self.node.create_publisher(JointState, "/joint_states", 10)
+        self.joint_state_pub = None
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         # 实现一个简单的Modbus TCP/IP协议客户端，端口为502
         self.modbus_port = 502
@@ -34,6 +33,21 @@ class EliteRobot:
             print(f"已成功连接到 {self.host}:{40011}")
         except Exception as e:
             print(f"连接到 {self.host}:{40011} 失败: {e}")
+
+    def post_init(self, node):
+        """接入通用设备节点；ROS2 下额外提供 RViz 的 JointState。"""
+
+        self.node = node
+        if getattr(node, "backend_name", None) == "ros2":
+            from sensor_msgs.msg import JointState
+
+            self.joint_state_msg = JointState()
+            self.joint_state_msg.name = self.joint_names
+            self.joint_state_pub = node.create_publisher(
+                JointState,
+                "/joint_states",
+                10,
+            )
 
     def modbus_close(self):
         self.modbus_sock.close()
@@ -175,11 +189,17 @@ class EliteRobot:
         return None
 
     def get_actual_joint_positions(self):
-        response = self.send_command(f"req 1 get_actual_joint_positions()\n")
+        response = self.send_command("req 1 get_actual_joint_positions()\n")
         joint_positions = self.parse_success_response(response)
         if joint_positions:
-            self.joint_state_msg.position = joint_positions
-            self.joint_state_pub.publish(self.joint_state_msg)
+            if self.joint_state_pub is not None:
+                self.joint_state_msg.position = joint_positions
+                self.joint_state_pub.publish(self.joint_state_msg)
+            elif self.node is not None:
+                self.node.publish_topic(
+                    "/joint_states",
+                    {"name": self.joint_names, "position": joint_positions},
+                )
             return joint_positions
         return None
 
@@ -187,8 +207,11 @@ class EliteRobot:
 
 if __name__ == "__main__":
     import rclpy
+    from rclpy.node import Node
+
     rclpy.init()
     client = EliteRobot('aa',"192.168.1.200")
+    client.post_init(Node("aa"))
     print(client.parse_success_response(client.send_command("req 1 get_actual_joint_positions()\n")))
     client.modbus_write_single_register(1, 256, 4)
     print(client.modbus_read_holding_registers(1, 257, 1))

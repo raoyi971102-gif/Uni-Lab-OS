@@ -21,7 +21,7 @@ from unilabos.registry.decorators import device, topic_config
     id="mock_gripper",
     category=["gripper"],
     description="Mock Gripper",
-    displayname="模拟夹爪",
+    display_name="模拟夹爪",
 )
 class MockGripper:
     def __init__(self):
@@ -181,7 +181,7 @@ my_device:
   schema: {} # 自动生成
 ```
 
-> 💡 **提示：** 详细的注册表编写指南和高级配置，请参考 {doc}`03_add_device_registry`。
+> 💡 **提示：** 详细的注册表编写指南和高级配置，请参考 {doc}`add_registry`。
 
 ---
 
@@ -197,7 +197,7 @@ from unilabos.registry.decorators import device, topic_config
     id="my_device",
     category=["general"],
     description="My Device",
-    displayname="我的设备",
+    display_name="我的设备",
 )
 class MyDevice:
     """设备类文档字符串
@@ -290,7 +290,7 @@ def get_sensor_data(self) -> Dict[str, float]:
 - 添加到注册表的 `status_types`
 - 定期发布到 ROS2 topic
 
-> **⚠️ 重要：** 仅有 `@property` 装饰器而没有 `@topic_config` 的属性**不会**被广播。这是一个 Breaking Change。
+> **⚠️ 重要：** 仅有 `@property` 装饰器而没有 `@topic_config` 的属性**不会**被广播。
 
 ### 动作方法
 
@@ -318,8 +318,8 @@ async def async_operation(self, duration: float) -> Dict[str, Any]:
     Args:
         duration: 持续时间(秒)
     """
-    # 使用 self.sleep 而不是 asyncio.sleep（ROS2 异步机制）
-    await self.sleep(duration)
+    # node 由 post_init 注入；该写法兼容 ROS2 与 HostLink backend
+    await self._node.sleep(duration)
     return {"success": True}
 ```
 
@@ -327,8 +327,45 @@ async def async_operation(self, duration: float) -> Dict[str, Any]:
 
 - 普通方法或 async 方法
 - 返回 Dict 类型的结果
-- 自动注册为 ROS2 Action
+- 自动注册为设备 Action；ROS backend 使用 ROS2，HostLink 使用 TCP RPC
 - 支持参数和返回值
+
+### 超时：`timeout` 与 `execution_timeout`
+
+`@action` 提供两道彼此独立的超时闸门，都由执行面在动作真正下发后启动看门狗，并在到期时进入
+错误决策链（`/api/v1/error-decisions`）：
+
+```python
+from unilabos.registry.decorators import action
+
+@action(
+    description="升温到目标温度",
+    timeout=600,                              # 硬超时：600 s 后取消动作，attempt 以 TimeoutException 进决策
+    execution_timeout="duration * 1.5 + 30",  # 业务软超时：按入参求值；到期只提醒，动作继续执行
+)
+async def heat_to(self, temperature: float = 25.0, duration: float = 60.0) -> Dict[str, Any]:
+    """升温并保温。
+
+    Args:
+        temperature[目标温度]: 单位摄氏度。
+        duration[保温时长]: 单位秒。
+    """
+    ...
+```
+
+| 参数 | 取值 | 到期行为 |
+|---|---|---|
+| `timeout` | 正数秒 | 执行面对动作发起协作式取消（HostLink 本地运行时同时用 `asyncio.wait_for` 真正取消协程动作；同步方法的线程无法被杀死，只是结果被丢弃）；attempt 以 `exception_type=TimeoutException`（`category=timeout`）进入决策链，选项与普通失败相同 |
+| `execution_timeout` | 正数秒，或只引用**本动作入参**的四则运算表达式（`+ - * /`、括号、一元负号、数字字面量，如 `"duration * 1.5 + 30"`） | 动作**不被取消**；执行面以 `exception_type=ExecutionTimeoutException`（`severity=warning`，报告带 `action_still_running=true`）打开一条决策，选项前置 `wait`（继续等待并按同样秒数重新计时）；选 `abort` / `retry` / `operator_intervention` 时才取消动作。动作在等待期间真实完成则真实结果优先，决策自动收回 |
+
+表达式在声明期只校验语法与参数名（引用了非入参名会在 `@action` 或 `--check_mode` 时报错），
+注册表保存归一化后的字符串（如 `duration * 1.5 + 30`）；派发前由调度器用**最终**
+`action_args`（叠加注册表 `goal_default`，也就是函数签名默认值）求值，参数缺失或不是数字时
+只记录告警、放弃这一道看门狗，不阻断下发。工作流节点还可以用 `execution_policy.timeout_seconds` /
+`execution_policy.execution_timeout_seconds`（正整数，0 = 未声明）覆盖注册表声明。
+
+> `error_policy.options` 按异常类名匹配：需要给超时定制选项时，用 `"TimeoutException"` /
+> `"ExecutionTimeoutException"` 作为键。两个超时可以同时声明，软超时应小于硬超时，否则永远不会先触发。
 
 ### 返回值设计指南
 
@@ -802,83 +839,81 @@ async def long_operation(self, duration: float) -> Dict[str, Any]:
     """长时间运行的操作"""
     self._status = "running"
 
-    # 使用 ROS2 提供的 sleep 方法（而不是 asyncio.sleep）
-    await self.sleep(duration)
+    # 使用通用 DeviceNode，驱动无需判断当前 backend
+    await self._node.sleep(duration)
 
-    # 可以在过程中发送feedback
-    # 需要配合ROS2 Action的feedback机制
+    # ActionContext 可在 ROS 和 HostLink 中发送 feedback、接收取消
 
     self._status = "idle"
     return {"success": True, "duration": duration}
 ```
 
-> **⚠️ 重要提示：ROS2 异步机制 vs Python asyncio**
+> **异步驱动的兼容写法**
 >
-> Uni-Lab 的设备驱动虽然使用 `async def` 语法，但**底层是 ROS2 的异步机制，而不是 Python 的 asyncio**。
+> 驱动通过 `post_init(node)` 保存通用 `DeviceNode`，不要继承或导入
+> `BaseROS2DeviceNode`。`node.sleep()`、`node.create_task()`、Topic 和设备 Action
+> API 会由当前 backend 实现。
 >
-> **不能使用的 asyncio 功能：**
->
-> - ❌ `asyncio.sleep()` - 会导致 ROS2 事件循环阻塞
-> - ❌ `asyncio.create_task()` - 任务不会被 ROS2 正确调度
-> - ❌ `asyncio.gather()` - 无法与 ROS2 集成
-> - ❌ 其他 asyncio 标准库函数
->
-> **应该使用的方法（继承自 BaseROS2DeviceNode）：**
->
-> - ✅ `await self.sleep(seconds)` - ROS2 兼容的睡眠
-> - ✅ `await self.create_task(func, **kwargs)` - ROS2 兼容的任务创建
-> - ✅ ROS2 的 Action/Service 回调机制
+> - HostLink backend 使用标准 Python `asyncio` 事件循环，可使用
+>   `asyncio.gather()`、`asyncio.wait_for()` 等原生能力。
+> - ROS backend 由 rclpy executor 调度。需要同时支持两类 backend 的驱动，优先使用
+>   `DeviceNode` 提供的 `sleep()` 和 `create_task()`。
+> - 同步动作调用使用 `node.call_device_action(...)`；异步动作中使用
+>   `await node.call_device_action_async(...)`，不要用同步调用阻塞当前事件循环。
 >
 > **示例：**
 >
 > ```python
 > async def complex_operation(self, duration: float) -> Dict[str, Any]:
->     """正确使用 ROS2 异步方法"""
+>     """同一份驱动可在 ROS2 和 HostLink backend 中运行。"""
 >     self._status = "processing"
 >
->     # ✅ 正确：使用 self.sleep
->     await self.sleep(duration)
+>     await self._node.sleep(duration)
 >
->     # ✅ 正确：创建并发任务
->     task = await self.create_task(self._background_work)
->
->     # ❌ 错误：不要使用 asyncio
->     # await asyncio.sleep(duration)  # 这会导致问题！
->     # task = asyncio.create_task(...)  # 这也不行！
+>     result = await self._node.call_device_action_async(
+>         "heater-2",
+>         "set_temperature",
+>         {"temperature": 60.0},
+>     )
 >
 >     self._status = "idle"
->     return {"success": True}
+>     return {"success": True, "peer_result": result}
 >
 > async def _background_work(self):
 >     """后台任务"""
->     await self.sleep(1.0)
->     self.lab_logger().info("Background work completed")
+>     await self._node.sleep(1.0)
+>     self._node.lab_logger().info("Background work completed")
 > ```
 >
-> **为什么不能混用？**
+> **后端差异：**
 >
-> ROS2 使用 `rclpy` 的事件循环来管理所有异步操作。如果使用 `asyncio` 的函数，这些操作会在不同的事件循环中运行，导致：
->
-> - ROS2 回调无法正确执行
-> - 任务可能永远不会完成
-> - 程序可能死锁或崩溃
->
-> **参考实现：**
->
-> `BaseROS2DeviceNode` 提供的方法定义（`base_device_node.py:563-572`）：
->
-> ```python
-> async def sleep(self, rel_time: float, callback_group=None):
->     """ROS2 兼容的异步睡眠"""
->     if callback_group is None:
->         callback_group = self.callback_group
->     await ROS2DeviceNode.async_wait_for(self, rel_time, callback_group)
->
-> @classmethod
-> async def create_task(cls, func, trace_error=True, **kwargs) -> Task:
->     """ROS2 兼容的任务创建"""
->     return ROS2DeviceNode.run_async_func(func, trace_error, **kwargs)
-> ```
+> HostLink 为每个设备维护标准 Python 事件循环；ROS backend 使用 rclpy
+> executor。只在 HostLink 中运行的驱动可以直接使用 Python `asyncio`；需要在
+> 两类 backend 中运行时，通过 `DeviceNode` 调度即可，不需要在驱动中写 backend 判断。
+
+### `post_init` 的可选入参：位点与持有的物料
+
+声明了 `available_sites` 或在图中挂了物料的设备，装配时会按物料权威取回它的位点和
+持有的物料。驱动不必再从 `node.resource_tracker` 或物料权威反查——在 `post_init`
+里**按名声明**需要的参数即可，框架按签名注入（只写 `post_init(self, node)` 的驱动不受
+影响；`**kwargs` 不会被隐式注入）：
+
+```python
+def post_init(self, node, sites=None, resources=None, site_resources=None):
+    self._node = node
+    self._site_uuid = {label: site.uuid for label, site in sites.items()}   # 位点 uuid / pose / 占用
+    self.deck = resources["PRCXI_Deck"]                                     # 直接挂在设备上的台面
+    plate = site_resources["slot_1"]                                        # 该位点上的板，空位为 None
+```
+
+| 参数 | 类型 | 内容 |
+|---|---|---|
+| `sites` | `dict[label, ResourceSite]` | 设备自身的位点：`uuid`、`index`、`pose`、`occupied_material_uuid` |
+| `resources` | `dict[name, PLR Resource]` | 设备持有的物料实例：位点上的占用物、直接挂在设备上的台面（与 tracker 里同一份实例） |
+| `site_resources` | `dict[label, PLR Resource \| None]` | 位点 → 占用物的对应 |
+
+三者都以权威为准（不是图文件的初值）。运行期上下料仍经 `resource_tree_add/remove`
+回调与 `materials.*` 门面同步，见 `examples/materials_operations_guide.md`。
 
 ## 错误处理
 
@@ -943,7 +978,7 @@ from unilabos.registry.decorators import device
     id="my_heating_device",
     category=["heating"],
     description="My Heating Device",
-    displayname="加热设备",
+    display_name="加热设备",
     icon="heater.webp",
 )
 class MyDevice:
@@ -953,7 +988,7 @@ class MyDevice:
 - `id`：设备唯一标识符，用于注册表匹配；只能包含英文大小写字母、数字、下划线，不能包含中文、空格、短横线、点号或其他符号
 - `category`：分类列表，前端用于分组显示
 - `description`：设备描述
-- `displayname`：设备显示名称，用于 UI 展示中文名或更友好的名称；不要把显示名写进 `id`
+- `display_name`：设备显示名称，用于 UI 展示中文名或更友好的名称；不要把显示名写进 `id`
 - `icon`：图标文件名（可选）
 
 ### 2. 使用 `@topic_config` 声明需要广播的状态
@@ -1103,14 +1138,13 @@ return {
 
 进阶主题：
 
-- {doc}`03_add_device_registry` - 了解如何配置注册表
-- {doc}`04_add_device_testing` - 学习如何测试设备
+- {doc}`add_registry` - 了解如何配置注册表
 - {doc}`add_old_device` - 没有 SDK 时如何开发设备驱动
 
 ## 参考
 
 - [Python 类型注解](https://docs.python.org/3/library/typing.html)
-- [ROS2 rclpy 异步编程](https://docs.ros.org/en/humble/Tutorials/Intermediate/Writing-an-Action-Server-Client/Py.html) - Uni-Lab 使用 ROS2 的异步机制
+- [ROS2 rclpy 异步编程](https://docs.ros.org/en/jazzy/Tutorials/Intermediate/Writing-an-Action-Server-Client/Py.html) - Uni-Lab 使用 ROS2 的异步机制
 - [串口通信](https://pyserial.readthedocs.io/)
 
 > **注意：** 虽然设备驱动使用 `async def` 语法，但请**不要参考** Python 标准的 [asyncio 文档](https://docs.python.org/3/library/asyncio.html)。Uni-Lab 使用的是 ROS2 的异步机制，两者不兼容。请使用 `self.sleep()` 和 `self.create_task()` 等 BaseROS2DeviceNode 提供的方法。

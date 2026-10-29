@@ -1,10 +1,12 @@
 reaction_station.bioyond:
+  available_sites: []
   category:
   - work_station
   - reaction_station_bioyond
   class:
     action_value_mappings:
       add_time_constraint:
+        error_policy: {}
         feedback: {}
         goal:
           duration: duration
@@ -19,6 +21,7 @@ reaction_station.bioyond:
           start_point: 0
           start_step_key: ''
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -56,10 +59,12 @@ reaction_station.bioyond:
           type: object
         type: UniLabJsonCommand
       auto-clear_workflows:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -77,11 +82,13 @@ reaction_station.bioyond:
           type: object
         type: UniLabJsonCommand
       auto-create_order:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
           json_str: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -104,11 +111,13 @@ reaction_station.bioyond:
           type: object
         type: UniLabJsonCommand
       auto-hard_delete_merged_workflows:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
           workflow_ids: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -133,11 +142,13 @@ reaction_station.bioyond:
           type: object
         type: UniLabJsonCommand
       auto-merge_workflow_with_parameters:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
           json_str: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -160,11 +171,13 @@ reaction_station.bioyond:
           type: object
         type: UniLabJsonCommand
       auto-process_temperature_cutoff_report:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
           report_request: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -186,11 +199,13 @@ reaction_station.bioyond:
           type: object
         type: UniLabJsonCommand
       auto-process_web_workflows:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
           web_workflow_json: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -217,12 +232,14 @@ reaction_station.bioyond:
           type: object
         type: UniLabJsonCommand
       auto-set_reactor_temperature:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
           reactor_id: null
           temperature: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -249,11 +266,13 @@ reaction_station.bioyond:
           type: object
         type: UniLabJsonCommand
       auto-skip_titration_steps:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
           preintake_id: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -276,10 +295,12 @@ reaction_station.bioyond:
           type: object
         type: UniLabJsonCommand
       auto-sync_workflow_sequence_from_bioyond:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -298,6 +319,7 @@ reaction_station.bioyond:
           type: object
         type: UniLabJsonCommand
       auto-wait_for_multiple_orders_and_get_reports:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
@@ -305,6 +327,7 @@ reaction_station.bioyond:
           check_interval: 10
           timeout: 7200
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -331,11 +354,13 @@ reaction_station.bioyond:
           type: object
         type: UniLabJsonCommand
       auto-workflow_sequence:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
           value: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -359,11 +384,13 @@ reaction_station.bioyond:
           type: object
         type: UniLabJsonCommand
       auto-workflow_step_query:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
           workflow_id: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -386,10 +413,12 @@ reaction_station.bioyond:
           type: object
         type: UniLabJsonCommand
       clean_all_server_workflows:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -408,6 +437,7 @@ reaction_station.bioyond:
           type: object
         type: UniLabJsonCommand
       drip_back:
+        error_policy: {}
         feedback: {}
         goal:
           assign_material_name: assign_material_name
@@ -424,6 +454,7 @@ reaction_station.bioyond:
           torque_variation: 2
           volume: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -465,6 +496,7 @@ reaction_station.bioyond:
           type: object
         type: UniLabJsonCommand
       extract_actuals_from_batch_reports:
+        error_policy: {}
         feedback: {}
         goal:
           batch_reports_result: batch_reports_result
@@ -485,6 +517,7 @@ reaction_station.bioyond:
             handler_key: ACTUALS_EXTRACTED
             io_type: sink
             label: Extracted Actuals
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -508,6 +541,7 @@ reaction_station.bioyond:
           type: object
         type: UniLabJsonCommand
       liquid_feeding_beaker:
+        error_policy: {}
         feedback: {}
         goal:
           assign_material_name: assign_material_name
@@ -524,6 +558,7 @@ reaction_station.bioyond:
           torque_variation: 1
           volume: '350'
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -565,6 +600,7 @@ reaction_station.bioyond:
           type: object
         type: UniLabJsonCommand
       liquid_feeding_solvents:
+        error_policy: {}
         feedback: {}
         goal:
           assign_material_name: assign_material_name
@@ -590,6 +626,7 @@ reaction_station.bioyond:
             handler_key: solvents
             io_type: source
             label: Solvents Data From Calculation Node
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -635,6 +672,7 @@ reaction_station.bioyond:
           type: object
         type: UniLabJsonCommand
       liquid_feeding_titration:
+        error_policy: {}
         feedback: {}
         goal:
           assign_material_name: assign_material_name
@@ -670,6 +708,7 @@ reaction_station.bioyond:
             handler_key: feeding_order
             io_type: source
             label: Feeding Order Data From Calculation Node
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -719,6 +758,7 @@ reaction_station.bioyond:
           type: object
         type: UniLabJsonCommand
       liquid_feeding_vials_non_titration:
+        error_policy: {}
         feedback: {}
         goal:
           assign_material_name: assign_material_name
@@ -735,6 +775,7 @@ reaction_station.bioyond:
           torque_variation: 1
           volume_formula: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -776,6 +817,7 @@ reaction_station.bioyond:
           type: object
         type: UniLabJsonCommand
       process_and_execute_workflow:
+        error_policy: {}
         feedback: {}
         goal:
           task_name: task_name
@@ -784,6 +826,7 @@ reaction_station.bioyond:
           task_name: null
           workflow_name: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -810,6 +853,7 @@ reaction_station.bioyond:
           type: object
         type: UniLabJsonCommand
       reactor_taken_in:
+        error_policy: {}
         feedback: {}
         goal:
           assign_material_name: assign_material_name
@@ -820,6 +864,7 @@ reaction_station.bioyond:
           cutoff: '900000'
           temperature: -10.0
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -849,10 +894,12 @@ reaction_station.bioyond:
           type: object
         type: UniLabJsonCommand
       reactor_taken_out:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -870,10 +917,12 @@ reaction_station.bioyond:
           type: object
         type: UniLabJsonCommand
       scheduler_start:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -893,6 +942,7 @@ reaction_station.bioyond:
           type: object
         type: UniLabJsonCommand
       solid_feeding_vials:
+        error_policy: {}
         feedback: {}
         goal:
           assign_material_name: assign_material_name
@@ -907,6 +957,7 @@ reaction_station.bioyond:
           time: '0'
           torque_variation: 1
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -944,13 +995,19 @@ reaction_station.bioyond:
         type: UniLabJsonCommand
     module: unilabos.devices.workstation.bioyond_studio.reaction_station.reaction_station:BioyondReactionStation
     protocol_type: []
+    status_policies: {}
     status_types:
       workflow_sequence: str
+    supported_backends:
+    - hostlink
+    - ros2
     type: python
   config_info: []
   description: Bioyond反应站
+  display_name: BIOYOND 反应工作站
   handles: []
   icon: reaction_station.webp
+  init_param_enforce: {}
   init_param_schema:
     config:
       properties:
@@ -974,17 +1031,20 @@ reaction_station.bioyond:
       type: object
   version: 1.0.0
 reaction_station.reactor:
+  available_sites: []
   category:
   - reactor
   - reaction_station_bioyond
   class:
     action_value_mappings:
       auto-update_metrics:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
           payload: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -1005,12 +1065,18 @@ reaction_station.reactor:
           type: object
         type: UniLabJsonCommand
     module: unilabos.devices.workstation.bioyond_studio.reaction_station.reaction_station:BioyondReactor
+    status_policies: {}
     status_types: {}
+    supported_backends:
+    - hostlink
+    - ros2
     type: python
   config_info: []
   description: 反应站子设备-反应器
+  display_name: BIOYOND 反应站反应器
   handles: []
   icon: reaction_station.webp
+  init_param_enforce: {}
   init_param_schema:
     config:
       properties:

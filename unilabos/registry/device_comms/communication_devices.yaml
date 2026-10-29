@@ -1,15 +1,18 @@
 serial:
+  available_sites: []
   category:
   - communication_devices
   class:
     action_value_mappings:
       auto-handle_serial_request:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
           request: null
           response: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -33,10 +36,12 @@ serial:
           type: object
         type: UniLabJsonCommand
       auto-read_data:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -54,11 +59,13 @@ serial:
           type: object
         type: UniLabJsonCommand
       auto-send_command:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
           command: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -78,14 +85,19 @@ serial:
           title: send_command参数
           type: object
         type: UniLabJsonCommand
-    module: unilabos.ros.nodes.presets.serial_node:ROS2SerialNode
+    module: unilabos.backend.ros2.presets.serial_node:ROS2SerialNode
+    status_policies: {}
     status_types: {}
+    supported_backends:
+    - ros2
     type: ros2
   config_info: []
   description: Serial communication interface, used when sharing same serial port
     for multiple devices
+  display_name: 串口通讯
   handles: []
   icon: ''
+  init_param_enforce: {}
   init_param_schema:
     config:
       properties:

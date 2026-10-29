@@ -1,14 +1,17 @@
 bioyond_cell:
+  available_sites: []
   category:
   - bioyond_cell
   class:
     action_value_mappings:
       auto-auto_batch_outbound_from_xlsx:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
           xlsx_path: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -30,6 +33,7 @@ bioyond_cell:
           type: object
         type: UniLabJsonCommand
       auto-auto_feeding4to3:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
@@ -140,6 +144,7 @@ bioyond_cell:
           WH4_x5_y2_z1_10_quantity: 0.0
           xlsx_path: D:\UniLab\Uni-Lab-OS\unilabos\devices\workstation\bioyond_studio\bioyond_cell\material_template.xlsx
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -475,6 +480,7 @@ bioyond_cell:
           type: object
         type: UniLabJsonCommand
       auto-create_and_inbound_materials:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
@@ -482,6 +488,7 @@ bioyond_cell:
           type_id: 3a190ca0-b2f6-9aeb-8067-547e72c11469
           warehouse_name: 粉末加样头堆栈
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -513,6 +520,7 @@ bioyond_cell:
           type: object
         type: UniLabJsonCommand
       auto-create_material:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
@@ -521,6 +529,7 @@ bioyond_cell:
           type_id: null
           warehouse_name: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -554,11 +563,13 @@ bioyond_cell:
           type: object
         type: UniLabJsonCommand
       auto-create_materials:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
           mappings: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -584,6 +595,7 @@ bioyond_cell:
           type: object
         type: UniLabJsonCommand
       auto-create_orders:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
@@ -596,6 +608,7 @@ bioyond_cell:
             handler_key: bottle_count
             io_type: sink
             label: 配液瓶数
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -617,6 +630,7 @@ bioyond_cell:
           type: object
         type: UniLabJsonCommand
       auto-create_orders_v2:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
@@ -629,6 +643,7 @@ bioyond_cell:
             handler_key: bottle_count
             io_type: sink
             label: 配液瓶数
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -650,6 +665,7 @@ bioyond_cell:
           type: object
         type: UniLabJsonCommand
       auto-create_sample:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
@@ -659,6 +675,7 @@ bioyond_cell:
           name: null
           warehouse_name: 手动堆栈
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -697,6 +714,7 @@ bioyond_cell:
           type: object
         type: UniLabJsonCommand
       auto-order_list_v2:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
@@ -709,6 +727,7 @@ bioyond_cell:
           status: ''
           timeType: ''
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -751,12 +770,14 @@ bioyond_cell:
           type: object
         type: UniLabJsonCommand
       auto-process_order_finish_report:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
           report_request: null
           used_materials: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -779,11 +800,13 @@ bioyond_cell:
           type: object
         type: UniLabJsonCommand
       auto-process_sample_finish_report:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
           report_request: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -804,11 +827,13 @@ bioyond_cell:
           type: object
         type: UniLabJsonCommand
       auto-process_step_finish_report:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
           report_request: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -829,11 +854,13 @@ bioyond_cell:
           type: object
         type: UniLabJsonCommand
       auto-report_material_change:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
           material_obj: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -855,6 +882,7 @@ bioyond_cell:
           type: object
         type: UniLabJsonCommand
       auto-resource_tree_transfer:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
@@ -862,6 +890,7 @@ bioyond_cell:
           parent_resource: null
           plr_resource: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -888,10 +917,12 @@ bioyond_cell:
           type: object
         type: UniLabJsonCommand
       auto-scheduler_continue:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -910,10 +941,12 @@ bioyond_cell:
           type: object
         type: UniLabJsonCommand
       auto-scheduler_reset:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -932,10 +965,12 @@ bioyond_cell:
           type: object
         type: UniLabJsonCommand
       auto-scheduler_start:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -954,6 +989,7 @@ bioyond_cell:
           type: object
         type: UniLabJsonCommand
       auto-scheduler_start_and_auto_feeding:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
@@ -1064,6 +1100,7 @@ bioyond_cell:
           WH4_x5_y2_z1_10_quantity: 0.0
           xlsx_path: D:\UniLab\Uni-Lab-OS\unilabos\devices\workstation\bioyond_studio\bioyond_cell\material_template.xlsx
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -1400,6 +1437,7 @@ bioyond_cell:
           type: object
         type: UniLabJsonCommand
       auto-scheduler_start_and_auto_feeding_v2:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
@@ -1510,6 +1548,7 @@ bioyond_cell:
           WH4_x5_y2_z1_10_quantity: 0.0
           xlsx_path: D:\UniLab\Uni-Lab-OS\unilabos\devices\workstation\bioyond_studio\bioyond_cell\material_template.xlsx
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -1846,10 +1885,12 @@ bioyond_cell:
           type: object
         type: UniLabJsonCommand
       auto-scheduler_stop:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -1868,11 +1909,13 @@ bioyond_cell:
           type: object
         type: UniLabJsonCommand
       auto-storage_batch_inbound:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
           items: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -1898,12 +1941,14 @@ bioyond_cell:
           type: object
         type: UniLabJsonCommand
       auto-storage_inbound:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
           location_id: null
           material_id: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -1928,10 +1973,12 @@ bioyond_cell:
           type: object
         type: UniLabJsonCommand
       auto-transfer_1_to_2:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -1950,6 +1997,7 @@ bioyond_cell:
           type: object
         type: UniLabJsonCommand
       auto-transfer_3_to_2:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
@@ -1958,6 +2006,7 @@ bioyond_cell:
           source_y: 1
           source_z: 1
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -1992,6 +2041,7 @@ bioyond_cell:
           type: object
         type: UniLabJsonCommand
       auto-transfer_3_to_2_to_1:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
@@ -2000,6 +2050,7 @@ bioyond_cell:
           source_y: 1
           source_z: 1
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -2030,12 +2081,14 @@ bioyond_cell:
           type: object
         type: UniLabJsonCommand
       auto-update_push_ip:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
           ip: null
           port: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -2058,12 +2111,14 @@ bioyond_cell:
           type: object
         type: UniLabJsonCommand
       auto-wait_for_order_finish:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
           order_code: null
           timeout: 36000
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -2090,6 +2145,7 @@ bioyond_cell:
           type: object
         type: UniLabJsonCommand
       auto-wait_for_order_finish_polling:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
@@ -2097,6 +2153,7 @@ bioyond_cell:
           poll_interval: 0.5
           timeout: 36000
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -2127,6 +2184,7 @@ bioyond_cell:
           type: object
         type: UniLabJsonCommand
       auto-wait_for_transfer_task:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
@@ -2134,6 +2192,7 @@ bioyond_cell:
           interval: 5
           timeout: 3000
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -2160,13 +2219,19 @@ bioyond_cell:
           type: object
         type: UniLabJsonCommand
     module: unilabos.devices.workstation.bioyond_studio.bioyond_cell.bioyond_cell_workstation:BioyondCellWorkstation
+    status_policies: {}
     status_types:
-      device_id: ''
+      device_id: str
+    supported_backends:
+    - hostlink
+    - ros2
     type: python
   config_info: []
   description: ''
+  display_name: BIOYOND 细胞工作站
   handles: []
   icon: benyao2.webp
+  init_param_enforce: {}
   init_param_schema:
     config:
       properties:

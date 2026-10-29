@@ -1,9 +1,11 @@
 workstation:
+  available_sites: []
   category:
   - work_station
   class:
     action_value_mappings:
       AGVTransferProtocol:
+        error_policy: {}
         feedback: {}
         goal:
           from_repo: from_repo
@@ -54,6 +56,7 @@ workstation:
             type: ''
           to_repo_position: ''
         handles: {}
+        materials_need_lock: []
         result: {}
         schema:
           description: ''
@@ -271,6 +274,7 @@ workstation:
           type: object
         type: AGVTransfer
       AddProtocol:
+        error_policy: {}
         feedback: {}
         goal:
           amount: amount
@@ -341,6 +345,7 @@ workstation:
             data_type: resource
             handler_key: VesselOut
             label: Vessel
+        materials_need_lock: []
         placeholder_keys:
           vessel: unilabos_resources
         result: {}
@@ -501,6 +506,7 @@ workstation:
           type: object
         type: Add
       AdjustPHProtocol:
+        error_policy: {}
         feedback: {}
         goal:
           ph_value: ph_value
@@ -552,6 +558,7 @@ workstation:
             data_type: resource
             handler_key: VesselOut
             label: Vessel
+        materials_need_lock: []
         placeholder_keys:
           vessel: unilabos_resources
         result: {}
@@ -688,6 +695,7 @@ workstation:
           type: object
         type: AdjustPH
       CentrifugeProtocol:
+        error_policy: {}
         feedback: {}
         goal:
           speed: speed
@@ -731,6 +739,7 @@ workstation:
             data_type: resource
             handler_key: VesselOut
             label: Vessel
+        materials_need_lock: []
         placeholder_keys:
           vessel: unilabos_resources
         result: {}
@@ -881,6 +890,7 @@ workstation:
           type: object
         type: Centrifuge
       CleanProtocol:
+        error_policy: {}
         feedback: {}
         goal:
           repeats: repeats
@@ -931,6 +941,7 @@ workstation:
             data_type: resource
             handler_key: VesselOut
             label: Vessel
+        materials_need_lock: []
         placeholder_keys:
           vessel: unilabos_resources
         result: {}
@@ -1103,6 +1114,7 @@ workstation:
           type: object
         type: Clean
       CleanVesselProtocol:
+        error_policy: {}
         feedback: {}
         goal:
           repeats: repeats
@@ -1153,6 +1165,7 @@ workstation:
             data_type: resource
             handler_key: VesselOut
             label: Vessel
+        materials_need_lock: []
         placeholder_keys:
           vessel: unilabos_resources
         result: {}
@@ -1297,6 +1310,7 @@ workstation:
           type: object
         type: CleanVessel
       DissolveProtocol:
+        error_policy: {}
         feedback: {}
         goal:
           amount: amount
@@ -1364,6 +1378,7 @@ workstation:
             data_type: resource
             handler_key: VesselOut
             label: Vessel
+        materials_need_lock: []
         placeholder_keys:
           vessel: unilabos_resources
         result: {}
@@ -1516,6 +1531,7 @@ workstation:
           type: object
         type: Dissolve
       DryProtocol:
+        error_policy: {}
         feedback: {}
         goal:
           compound: compound
@@ -1555,6 +1571,7 @@ workstation:
             data_type: resource
             handler_key: VesselOut
             label: Vessel
+        materials_need_lock: []
         placeholder_keys:
           vessel: unilabos_resources
         result: {}
@@ -1687,6 +1704,7 @@ workstation:
           type: object
         type: Dry
       EvacuateAndRefillProtocol:
+        error_policy: {}
         feedback: {}
         goal:
           gas: gas
@@ -1726,6 +1744,7 @@ workstation:
             data_type: resource
             handler_key: VesselOut
             label: Vessel
+        materials_need_lock: []
         placeholder_keys:
           vessel: unilabos_resources
         result: {}
@@ -1886,6 +1905,7 @@ workstation:
           type: object
         type: EvacuateAndRefill
       EvaporateProtocol:
+        error_policy: {}
         feedback: {}
         goal:
           pressure: pressure
@@ -1938,6 +1958,7 @@ workstation:
             data_type: resource
             handler_key: VesselOut
             label: Evaporation Vessel
+        materials_need_lock: []
         placeholder_keys:
           vessel: unilabos_nodes
         result: {}
@@ -2112,6 +2133,7 @@ workstation:
           type: object
         type: Evaporate
       FilterProtocol:
+        error_policy: {}
         feedback: {}
         goal:
           continue_heatchill: continue_heatchill
@@ -2190,6 +2212,7 @@ workstation:
             data_type: resource
             handler_key: FiltrateOut
             label: Filtrate Vessel
+        materials_need_lock: []
         placeholder_keys:
           filtrate_vessel: unilabos_resources
           vessel: unilabos_nodes
@@ -2436,6 +2459,7 @@ workstation:
           type: object
         type: Filter
       FilterThroughProtocol:
+        error_policy: {}
         feedback: {}
         goal:
           eluting_repeats: eluting_repeats
@@ -2538,6 +2562,7 @@ workstation:
             data_type: resource
             handler_key: ToVesselOut
             label: To Vessel
+        materials_need_lock: []
         placeholder_keys:
           from_vessel: unilabos_resources
           to_vessel: unilabos_resources
@@ -2865,6 +2890,7 @@ workstation:
           type: object
         type: FilterThrough
       HeatChillProtocol:
+        error_policy: {}
         feedback: {}
         goal:
           pressure: pressure
@@ -2920,6 +2946,7 @@ workstation:
             data_type: resource
             handler_key: VesselOut
             label: Vessel
+        materials_need_lock: []
         placeholder_keys:
           vessel: unilabos_resources
         result: {}
@@ -3068,6 +3095,7 @@ workstation:
           type: object
         type: HeatChill
       HeatChillStartProtocol:
+        error_policy: {}
         feedback: {}
         goal:
           purpose: purpose
@@ -3109,6 +3137,7 @@ workstation:
             data_type: resource
             handler_key: VesselOut
             label: Vessel
+        materials_need_lock: []
         placeholder_keys:
           vessel: unilabos_resources
         result: {}
@@ -3239,6 +3268,7 @@ workstation:
           type: object
         type: HeatChillStart
       HeatChillStopProtocol:
+        error_policy: {}
         feedback: {}
         goal:
           vessel: vessel
@@ -3276,6 +3306,7 @@ workstation:
             data_type: resource
             handler_key: VesselOut
             label: Vessel
+        materials_need_lock: []
         placeholder_keys:
           vessel: unilabos_resources
         result: {}
@@ -3400,6 +3431,7 @@ workstation:
           type: object
         type: HeatChillStop
       HydrogenateProtocol:
+        error_policy: {}
         feedback: {}
         goal:
           temp: temp
@@ -3441,6 +3473,7 @@ workstation:
             data_type: resource
             handler_key: VesselOut
             label: Vessel
+        materials_need_lock: []
         placeholder_keys:
           vessel: unilabos_resources
         result: {}
@@ -3575,6 +3608,7 @@ workstation:
           type: object
         type: Hydrogenate
       PumpTransferProtocol:
+        error_policy: {}
         feedback: {}
         goal:
           amount: amount
@@ -3674,6 +3708,7 @@ workstation:
             data_type: resource
             handler_key: ToVesselOut
             label: To Vessel
+        materials_need_lock: []
         placeholder_keys:
           from_vessel: unilabos_nodes
           to_vessel: unilabos_nodes
@@ -3962,6 +3997,7 @@ workstation:
           type: object
         type: PumpTransfer
       RecrystallizeProtocol:
+        error_policy: {}
         feedback: {}
         goal:
           ratio: ratio
@@ -4017,6 +4053,7 @@ workstation:
             data_type: resource
             handler_key: VesselOut
             label: Vessel
+        materials_need_lock: []
         placeholder_keys:
           vessel: unilabos_resources
         result: {}
@@ -4155,6 +4192,7 @@ workstation:
           type: object
         type: Recrystallize
       ResetHandlingProtocol:
+        error_policy: {}
         feedback: {}
         goal:
           solvent: solvent
@@ -4188,6 +4226,7 @@ workstation:
             handler_key: solvent
             label: Solvent
           output: []
+        materials_need_lock: []
         result: {}
         schema:
           description: ''
@@ -4318,6 +4357,7 @@ workstation:
           type: object
         type: ResetHandling
       RunColumnProtocol:
+        error_policy: {}
         feedback: {}
         goal:
           column: column
@@ -4394,6 +4434,7 @@ workstation:
             data_type: resource
             handler_key: ToVesselOut
             label: To Vessel
+        materials_need_lock: []
         placeholder_keys:
           column: unilabos_devices
           from_vessel: unilabos_resources
@@ -4631,6 +4672,7 @@ workstation:
           type: object
         type: RunColumn
       SeparateProtocol:
+        error_policy: {}
         feedback: {}
         goal:
           from_vessel: from_vessel
@@ -4825,6 +4867,7 @@ workstation:
             data_type: resource
             handler_key: ToVesselOut
             label: To Vessel
+        materials_need_lock: []
         placeholder_keys:
           from_vessel: unilabos_resources
           to_vessel: unilabos_resources
@@ -5532,6 +5575,7 @@ workstation:
           type: object
         type: Separate
       StartStirProtocol:
+        error_policy: {}
         feedback: {}
         goal:
           purpose: purpose
@@ -5573,6 +5617,7 @@ workstation:
             data_type: resource
             handler_key: VesselOut
             label: Vessel
+        materials_need_lock: []
         placeholder_keys:
           vessel: unilabos_resources
         result: {}
@@ -5713,6 +5758,7 @@ workstation:
           type: object
         type: StartStir
       StirProtocol:
+        error_policy: {}
         feedback: {}
         goal:
           event: event
@@ -5762,6 +5808,7 @@ workstation:
             data_type: resource
             handler_key: VesselOut
             label: Vessel
+        materials_need_lock: []
         placeholder_keys:
           vessel: unilabos_resources
         result: {}
@@ -5904,6 +5951,7 @@ workstation:
           type: object
         type: Stir
       StopStirProtocol:
+        error_policy: {}
         feedback: {}
         goal:
           vessel: vessel
@@ -5941,6 +5989,7 @@ workstation:
             data_type: resource
             handler_key: VesselOut
             label: Vessel
+        materials_need_lock: []
         placeholder_keys:
           vessel: unilabos_resources
         result: {}
@@ -6071,6 +6120,7 @@ workstation:
           type: object
         type: StopStir
       TransferProtocol:
+        error_policy: {}
         feedback: {}
         goal:
           amount: amount
@@ -6122,6 +6172,7 @@ workstation:
             data_type: resource
             handler_key: ToVesselOut
             label: To Vessel
+        materials_need_lock: []
         placeholder_keys:
           from_vessel: unilabos_nodes
           to_vessel: unilabos_nodes
@@ -6194,6 +6245,7 @@ workstation:
           type: object
         type: Transfer
       WashSolidProtocol:
+        error_policy: {}
         feedback: {}
         goal:
           filtrate_vessel: filtrate_vessel
@@ -6285,6 +6337,7 @@ workstation:
             data_type: resource
             handler_key: filtrate_vessel_out
             label: Filtrate Vessel
+        materials_need_lock: []
         placeholder_keys:
           filtrate_vessel: unilabos_resources
           vessel: unilabos_resources
@@ -6535,12 +6588,18 @@ workstation:
           type: object
         type: WashSolid
     module: unilabos.devices.workstation.workstation_base:ProtocolNode
+    status_policies: {}
     status_types: {}
+    supported_backends:
+    - hostlink
+    - ros2
     type: python
   config_info: []
   description: Workstation
+  display_name: 通用工作站
   handles: []
   icon: ''
+  init_param_enforce: {}
   init_param_schema:
     config:
       properties:

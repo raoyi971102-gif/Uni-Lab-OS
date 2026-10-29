@@ -1,11 +1,12 @@
 import asyncio
 import time
 from enum import Enum
-from typing import Union, Optional
+from typing import Union, Optional, TYPE_CHECKING
 import logging
 
 from unilabos.registry.decorators import topic_config
-from unilabos.ros.nodes.base_device_node import BaseROS2DeviceNode
+if TYPE_CHECKING:
+    from unilabos.backend.runtime.node import DeviceNode
 
 
 class VirtualPumpMode(Enum):
@@ -17,7 +18,7 @@ class VirtualPumpMode(Enum):
 class VirtualTransferPump:
     """虚拟转移泵类 - 模拟泵的基本功能，无需实际硬件 🚰"""
 
-    _ros_node: BaseROS2DeviceNode
+    _ros_node: "DeviceNode"
 
     def __init__(self, device_id: str = None, config: dict = None, **kwargs):
         """
@@ -47,7 +48,7 @@ class VirtualTransferPump:
         self._max_velocity = 5.0  # float
         self._current_volume = 0.0  # float
 
-        # 🚀 新增：快速模式设置 - 大幅缩短执行时间
+        # 快速模式使用固定的短时长模拟移动和喷射。
         self._fast_mode = True  # 是否启用快速模式
         self._fast_move_time = 1.0  # 快速移动时间（秒）
         self._fast_dispense_time = 1.0  # 快速喷射时间（秒）
@@ -60,7 +61,7 @@ class VirtualTransferPump:
         )
         print(f"📊 最大容量: {self.max_volume}mL | 端口: {self.port}")
 
-    def post_init(self, ros_node: BaseROS2DeviceNode):
+    def post_init(self, ros_node: "DeviceNode"):
         self._ros_node = ros_node
 
     async def initialize(self) -> bool:
@@ -128,7 +129,7 @@ class VirtualTransferPump:
         # 📊 计算理论时间（用于日志显示）
         theoretical_duration = abs(volume) / velocity
 
-        # 🚀 如果启用快速模式，使用固定的快速时间
+        # 快速模式使用固定模拟时长。
         if self._fast_mode:
             # 根据操作类型选择快速时间
             if abs(volume) > 0.1:  # 大于0.1mL的操作
@@ -180,7 +181,7 @@ class VirtualTransferPump:
             # ⚡ 计算实际执行时间（快速模式）
             actual_duration = self._calculate_duration(volume_to_move, velocity)
 
-            # 🎯 确定操作类型和emoji
+            # 根据目标位置确定吸液或排液状态。
             if target_position > self._position:
                 operation_type = "吸液"
                 operation_emoji = "📥"
@@ -201,7 +202,7 @@ class VirtualTransferPump:
             if self._fast_mode:
                 self.logger.info(f"  ⚡ 快速模式: 实际用时 {actual_duration:.2f}s")
 
-            # 🚀 模拟移动过程
+            # 模拟移动过程。
             if volume_to_move > 0.01:  # 只有当移动距离足够大时才显示进度
                 start_position = self._position
                 steps = 5 if actual_duration > 0.5 else 2  # 根据实际时间调整步数

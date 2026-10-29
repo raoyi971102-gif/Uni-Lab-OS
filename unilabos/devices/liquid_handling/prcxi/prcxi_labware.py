@@ -1,8 +1,7 @@
-from typing import Optional
-from pylabrobot.resources import Tube, Coordinate
+from pylabrobot.resources import Tube
 from pylabrobot.resources.well import Well, WellBottomType, CrossSectionType
-from pylabrobot.resources.tip import Tip, TipCreator
-from pylabrobot.resources.tip_rack import TipRack, TipSpot
+from pylabrobot.resources.tip import Tip
+from pylabrobot.resources.tip_rack import TipSpot
 from pylabrobot.resources.utils import create_ordered_items_2d
 from pylabrobot.resources.height_volume_functions import (
   compute_height_from_volume_rectangle,
@@ -126,7 +125,7 @@ def PRCXI_BioRad_384_wellplate(name: str) -> PRCXI9300Plate:
         size_z=10.40,
         model="BioRad_384_wellplate_50uL_Vb",
         category="plate",
-        # 2. 注入 Unilab 必须的 UUID 信息
+        # 2. 注入 Uni-Lab-OS 必须的 UUID 信息
         material_info={
             "uuid": "853dcfb6226f476e8b23c250217dc7da",
             "Code": "q3",
@@ -471,7 +470,7 @@ def PRCXI_trash(name: str = "trash") -> PRCXI9300Trash:
     对应 JSON Code: q1 (废弃槽)
     """
     return PRCXI9300Trash(
-        name="trash",
+        name=name,
         size_x=126.59,
         size_y=84.87, 
         size_z=89.5,  # 修改
@@ -521,15 +520,6 @@ def PRCXI_EP_Adapter(name: str) -> PRCXI9300TubeRack:
     对应 JSON Code: 1 (ep适配器)
     这是一个 4x6 的 EP 管架，适配 1.5mL/2.0mL 离心管
     """
-    ep_tube_prototype = Tube(
-        name="EP_Tube_1.5mL",
-        size_x=10.6,
-        size_y=10.6,
-        size_z=40.0,  # 管子本身的高度，通常比架子孔略高或持平
-        max_volume=1500,
-        model="EP_Tube_1.5mL"
-    )
-
     # 计算 PRCXI9300TubeRack 中孔的起始位置 dx, dy
     dy_calc = 85.8 - 10.5 - (3 * 18) - 10.6 
     dx_calc = 3.54
@@ -797,8 +787,10 @@ def PRCXI_Adapter(name: str) -> PRCXI9300PlateAdapter:
             }
     )
 def PRCXI_48_DeepWell(name: str) -> PRCXI9300Plate:
-    """ Code: 22 (48孔深孔板) """
-    print("Warning: Code '22' (48孔深孔板) dimensions are null in JSON.")
+    """ Code: 22 (48孔深孔板)
+
+    厂商 JSON 中该型号尺寸为 null，下面的 size/间距为按标准 SBS 48 孔板手工填写的值。
+    """
     return PRCXI9300Plate(
         name=name, 
         size_x=127, 

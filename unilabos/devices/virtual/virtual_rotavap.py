@@ -1,9 +1,10 @@
 import asyncio
 import logging
 import time as time_module
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, TYPE_CHECKING
 
-from unilabos.ros.nodes.base_device_node import BaseROS2DeviceNode
+if TYPE_CHECKING:
+    from unilabos.backend.runtime.node import DeviceNode
 
 
 def debug_print(message):
@@ -14,7 +15,7 @@ def debug_print(message):
 class VirtualRotavap:
     """Virtual rotary evaporator device - 简化版，只保留核心功能 🌪️"""
 
-    _ros_node: BaseROS2DeviceNode
+    _ros_node: "DeviceNode"
 
     def __init__(self, device_id: Optional[str] = None, config: Optional[Dict[str, Any]] = None, **kwargs):
         # 处理可能的不同调用方式
@@ -44,7 +45,7 @@ class VirtualRotavap:
         print(f"🌪️ === 虚拟旋转蒸发仪 {self.device_id} 已创建 === ✨")
         print(f"🔥 温度范围: 10°C ~ {self._max_temp}°C | 🌀 转速范围: 10 ~ {self._max_rotation_speed} RPM")
 
-    def post_init(self, ros_node: BaseROS2DeviceNode):
+    def post_init(self, ros_node: "DeviceNode"):
         self._ros_node = ros_node
 
     async def initialize(self) -> bool:
@@ -103,7 +104,7 @@ class VirtualRotavap:
     ) -> bool:
         """Execute evaporate action - 简化版 🌪️"""
 
-        # 🔧 新增：确保time参数是数值类型
+        # 规范化时间，并在无效输入时采用默认值。
         if isinstance(time, str):
             try:
                 time = float(time)
@@ -117,7 +118,7 @@ class VirtualRotavap:
         # 确保time是float类型; 并加速
         time = float(time) / 10.0
 
-        # 🔧 简化处理：如果vessel就是设备自己，直接操作
+        # vessel 指向设备自身时直接执行本机模拟。
         if vessel == self.device_id:
             debug_print(f"🎯 在设备 {self.device_id} 上直接执行蒸发操作")
             actual_vessel = self.device_id
@@ -193,7 +194,7 @@ class VirtualRotavap:
             )
             return False
 
-        # 开始蒸发 - 🔧 现在time已经确保是float类型
+        # 使用规范化后的时长开始蒸发。
         self.logger.info(f"🚀 启动蒸发程序! 预计用时 {time/60:.1f}分钟 ⏱️")
 
         self.data.update(
@@ -231,7 +232,7 @@ class VirtualRotavap:
                 else:
                     evaporated_vol = progress * 0.8  # 默认蒸发量
 
-                # 🔧 更新状态 - 确保包含所有必需字段
+                # 更新完整运行状态。
                 status_msg = f"🌪️ 蒸发中: {actual_vessel} | 🌡️ {temp}°C | 💨 {pressure} bar | 🌀 {stir_speed} RPM | 📊 {progress:.1f}% | ⏰ 剩余: {remaining:.0f}s"
 
                 self.data.update(

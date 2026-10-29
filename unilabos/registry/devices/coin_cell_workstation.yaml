@@ -1,14 +1,17 @@
 coincellassemblyworkstation_device:
+  available_sites: []
   category:
   - coin_cell_workstation
   class:
     action_value_mappings:
       auto-change_hole_sheet_to_2:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
           hole: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -29,10 +32,12 @@ coincellassemblyworkstation_device:
           type: object
         type: UniLabJsonCommandAsync
       auto-fill_plate:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -50,10 +55,12 @@ coincellassemblyworkstation_device:
           type: object
         type: UniLabJsonCommandAsync
       auto-fun_wuliao_test:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -72,6 +79,7 @@ coincellassemblyworkstation_device:
           type: object
         type: UniLabJsonCommand
       auto-func_allpack_cmd:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
@@ -82,6 +90,7 @@ coincellassemblyworkstation_device:
           elec_vol: 50
           file_path: /Users/sml/work
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -118,6 +127,7 @@ coincellassemblyworkstation_device:
           type: object
         type: UniLabJsonCommand
       auto-func_allpack_cmd_simp:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
@@ -140,6 +150,7 @@ coincellassemblyworkstation_device:
           lvbodian: true
           qiangtou_juzhendianwei: 0
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -230,10 +241,12 @@ coincellassemblyworkstation_device:
           type: object
         type: UniLabJsonCommand
       auto-func_get_csv_export_status:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -251,10 +264,12 @@ coincellassemblyworkstation_device:
           type: object
         type: UniLabJsonCommand
       auto-func_pack_device_auto:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -272,10 +287,12 @@ coincellassemblyworkstation_device:
           type: object
         type: UniLabJsonCommand
       auto-func_pack_device_init:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -293,11 +310,13 @@ coincellassemblyworkstation_device:
           type: object
         type: UniLabJsonCommand
       auto-func_pack_device_init_auto_start_combined:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
           material_search_enable: false
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -326,10 +345,12 @@ coincellassemblyworkstation_device:
           type: object
         type: UniLabJsonCommand
       auto-func_pack_device_start:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -347,10 +368,12 @@ coincellassemblyworkstation_device:
           type: object
         type: UniLabJsonCommand
       auto-func_pack_device_stop:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -369,11 +392,13 @@ coincellassemblyworkstation_device:
           type: object
         type: UniLabJsonCommand
       auto-func_pack_get_msg_cmd:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
           file_path: D:\coin_cell_data
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -395,6 +420,7 @@ coincellassemblyworkstation_device:
           type: object
         type: UniLabJsonCommand
       auto-func_pack_send_bottle_num:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
@@ -408,6 +434,7 @@ coincellassemblyworkstation_device:
             io_type: source
             label: 配液瓶数
             required: true
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -428,10 +455,12 @@ coincellassemblyworkstation_device:
           type: object
         type: UniLabJsonCommand
       auto-func_pack_send_finished_cmd:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -450,6 +479,7 @@ coincellassemblyworkstation_device:
           type: object
         type: UniLabJsonCommand
       auto-func_pack_send_msg_cmd:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
@@ -458,6 +488,7 @@ coincellassemblyworkstation_device:
           elec_use_num: null
           elec_vol: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -488,11 +519,13 @@ coincellassemblyworkstation_device:
           type: object
         type: UniLabJsonCommand
       auto-func_read_data_and_output:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
           file_path: /Users/sml/work
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -513,6 +546,7 @@ coincellassemblyworkstation_device:
           type: object
         type: UniLabJsonCommand
       auto-func_sendbottle_allpack_multi:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
@@ -543,6 +577,7 @@ coincellassemblyworkstation_device:
             io_type: source
             label: 配液瓶数
             required: true
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -633,10 +668,12 @@ coincellassemblyworkstation_device:
           type: object
         type: UniLabJsonCommand
       auto-func_stop_read_data:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -654,11 +691,13 @@ coincellassemblyworkstation_device:
           type: object
         type: UniLabJsonCommand
       auto-modify_deck_name:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
           resource_name: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -679,6 +718,7 @@ coincellassemblyworkstation_device:
           type: object
         type: UniLabJsonCommand
       auto-qiming_coin_cell_code:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
@@ -691,6 +731,7 @@ coincellassemblyworkstation_device:
           gemopanshu: 0
           lvbodian: true
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -733,6 +774,7 @@ coincellassemblyworkstation_device:
           type: object
         type: UniLabJsonCommand
     module: unilabos.devices.workstation.coin_cell_assembly.coin_cell_assembly:CoinCellAssemblyWorkstation
+    status_policies: {}
     status_types:
       data_assembly_coin_cell_num: int
       data_assembly_pressure: int
@@ -753,11 +795,16 @@ coincellassemblyworkstation_device:
       request_send_msg_status: bool
       sys_mode: str
       sys_status: str
+    supported_backends:
+    - hostlink
+    - ros2
     type: python
   config_info: []
   description: ''
+  display_name: 扣式电池组装工作站
   handles: []
   icon: koudian.webp
+  init_param_enforce: {}
   init_param_schema:
     config:
       properties:

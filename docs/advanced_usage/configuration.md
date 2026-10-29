@@ -28,6 +28,8 @@ Uni-Lab 使用 Python 格式的配置文件（`.py`），默认为 `unilabos_dat
 class BasicConfig:
     ak = ""  # 实验室网页给您提供的ak代码
     sk = ""  # 实验室网页给您提供的sk代码
+    port = 8002  # 管理端 HTTP/Web API 与主微前端端口
+    disable_browser = False  # 只禁止自动打开浏览器
 
 
 # WebSocket配置，一般无需调整
@@ -54,12 +56,12 @@ class BasicConfig:
     config_path = ""  # 配置文件路径（自动设置）
     is_host_mode = True  # 是否为主站模式
     slave_no_host = False  # 从站模式下是否跳过等待主机服务
-    upload_registry = False  # 是否上传注册表
     machine_name = "undefined"  # 机器名称（自动获取）
     vis_2d_enable = False  # 是否启用2D可视化
     enable_resource_load = True  # 是否启用资源加载
-    communication_protocol = "websocket"  # 通信协议
     log_level = "DEBUG"  # 日志级别：TRACE, DEBUG, INFO, WARNING, ERROR, CRITICAL
+    port = 8002  # 管理端 HTTP/Web API 与主微前端端口
+    disable_browser = False  # 只禁止自动打开浏览器，不停止管理端服务
 
 # WebSocket配置
 class WSConfig:
@@ -70,6 +72,19 @@ class WSConfig:
 # HTTP配置
 class HTTPConfig:
     remote_addr = "https://leap-lab.bohrium.com/api/v1"  # 远程服务器地址
+
+# Host/Slave 组网控制通道；hostlink backend 也承载设备动作、JSON Topic、状态和物料树同步
+class HostLinkConfig:
+    enable = True
+    host = ""  # Slave 的 HostNode IP；推荐用 --host-node-ip 覆盖
+    port = 7302
+    bind = "0.0.0.0"
+    advertise_ip = ""  # Host 多网卡时显式填写 Slave 可达 IP
+    ros_domain_id = ""  # Host 下发的 ROS_DOMAIN_ID
+    ros_discovery_range = ""
+    ros_static_peers = ""
+    ros_discovery_server = ""  # 空=微后端托管；外部 host:port；off=禁用
+    ros_discovery_port = 0  # 0=复用 HostLink 数字端口（TCP/UDP）
 
 # ROS配置
 class ROSConfig:
@@ -107,10 +122,11 @@ class ROSConfig:
 | `ak` / `sk`       | `--ak` / `--sk`     | **安全考虑**：避免敏感信息泄露       |
 | `working_dir`     | `--working_dir`     | **灵活性**：不同环境可能使用不同目录 |
 | `is_host_mode`    | `--is_slave`        | **运行模式**：由启动场景决定，不固定 |
+| HostNode 地址     | `--host-node-ip`    | **组网目标**：Slave 按部署指定 Host IP |
+| ROS2 domain       | `--ros-domain-id`   | **网络隔离**：由 Host 统一发布给 Slave |
 | `slave_no_host`   | `--slave_no_host`   | **运行模式**：从站特殊配置，按需使用 |
-| `upload_registry` | `--upload_registry` | **临时操作**：仅首次启动或更新时需要 |
 | `vis_2d_enable`   | `--2d_vis`          | **调试功能**：按需临时启用           |
-| `remote_addr`     | `--addr`            | **环境切换**：测试/生产环境快速切换  |
+| `remote_addr`     | `--address`         | **环境切换**：测试/生产环境快速切换  |
 
 **推荐用法示例：**
 
@@ -119,13 +135,13 @@ class ROSConfig:
 unilab --ak your_ak --sk your_sk -g graph.json
 
 # 测试环境
-unilab --addr test --ak your_ak --sk your_sk -g graph.json
+unilab --address test --ak your_ak --sk your_sk -g graph.json
 
 # 从站模式
 unilab --is_slave --ak your_ak --sk your_sk
 
-# 首次启动上传注册表
-unilab --ak your_ak --sk your_sk -g graph.json --upload_registry
+# 使用本地组态图启动
+unilab --ak your_ak --sk your_sk -g graph.json
 ```
 
 ### 适合在配置文件中配置的参数
@@ -170,21 +186,40 @@ Uni-Lab 允许通过命令行参数覆盖配置文件中的设置，提供更灵
 | `BasicConfig` | `working_dir`     | `--working_dir`     | 工作目录路径                     |
 | `BasicConfig` | `is_host_mode`    | `--is_slave`        | 主站模式（参数为从站模式，取反） |
 | `BasicConfig` | `slave_no_host`   | `--slave_no_host`   | 从站模式下跳过等待主机服务       |
-| `BasicConfig` | `upload_registry` | `--upload_registry` | 启动时上传注册表信息             |
 | `BasicConfig` | `vis_2d_enable`   | `--2d_vis`          | 启用 2D 可视化                   |
-| `HTTPConfig`  | `remote_addr`     | `--addr`            | 远程服务地址                     |
+| `HTTPConfig`  | `remote_addr`     | `--address`         | 统一服务地址（`--addr` 为别名）  |
+| `HostLinkConfig` | `host`         | `--host-node-ip`    | Slave 连接的 HostNode IP/端口    |
+| `HostLinkConfig` | `port`         | `--hostlink-port`   | HostLink TCP 端口，默认 7302      |
+| `HostLinkConfig` | `bind`         | `--hostlink-bind`   | Host 监听地址                     |
+| `HostLinkConfig` | `advertise_ip` | `--hostlink-advertise-ip` | Host 多网卡发布地址          |
+| `HostLinkConfig` | `enable`       | `--disable-hostlink` | 禁用 HostLink                    |
+| `HostLinkConfig` | `heartbeat_interval` | `--hostlink-heartbeat-interval` | Slave 心跳周期        |
+| `HostLinkConfig` | `heartbeat_timeout` | `--hostlink-heartbeat-timeout` | Host 离线判定时间       |
+| `HostLinkConfig` | `connect_timeout` | `--hostlink-connect-timeout` | TCP 连接/握手超时          |
+| `HostLinkConfig` | `request_timeout` | `--hostlink-request-timeout` | 控制请求/设备 RPC 超时      |
+| `HostLinkConfig` | `ros_domain_id`| `--ros-domain-id`   | Host 发布或 Slave 本地兜底 domain |
+| `HostLinkConfig` | `ros_discovery_range` | `--ros-discovery-range` | ROS 自动发现范围       |
+| `HostLinkConfig` | `ros_static_peers` | `--ros-static-peers` | 分号分隔的静态对端          |
+| `HostLinkConfig` | `ros_discovery_server` | `--ros-discovery-server` | 空=微后端托管；外部 Fast DDS Server；off=禁用 |
+| `HostLinkConfig` | `ros_discovery_port` | `--ros-discovery-port` | 托管 Fast DDS Server 的 UDP 端口；0=复用 HostLink 数字端口 |
+| `HostLinkConfig` | `ros_assist_apply` | `--no-ros-assist` | ROS2 Slave 不应用 Host 下发的 ROS 环境 |
 
 ### 特殊命令行参数
 
 除了直接覆盖配置项的参数外，还有一些特殊的命令行参数：
 
-| 参数                | 说明                                 |
-| ------------------- | ------------------------------------ |
-| `--config`          | 指定配置文件路径                     |
-| `--port`            | Web 服务端口（不影响配置文件）       |
-| `--disable_browser` | 禁用自动打开浏览器（不影响配置文件） |
-| `--visual`          | 可视化工具选择（不影响配置文件）     |
-| `--skip_env_check`  | 跳过环境检查（不影响配置文件）       |
+| 参数 | 说明 |
+| --- | --- |
+| `--config` | 指定配置文件路径 |
+| `--port-management` / `--port_management` | 管理端 HTTP/Web API 与主微前端端口，默认 `8002`；`--port` 是兼容缩写 |
+| `--hostlink-port` | HostLink TCP 端口，默认 `7302`，与管理端口独立 |
+| `--disable-browser` / `--disable_browser` | 只禁用启动时自动打开浏览器，管理端 HTTP/Web 服务仍会启动 |
+| `--visual` | 可视化工具选择（不影响配置文件） |
+| `--skip_env_check` | 跳过环境检查（不影响配置文件） |
+
+`--port-management` 最终覆盖 `BasicConfig.port`。主前端和 API 客户端都连接该
+端口；即使设置 `--disable-browser`，该端口仍会监听。浏览器参数不影响
+HostLink 的 `7302/TCP`。
 
 ### 命令行覆盖使用示例
 
@@ -193,21 +228,18 @@ Uni-Lab 允许通过命令行参数覆盖配置文件中的设置，提供更灵
 unilab --ak "new_access_key" --sk "new_secret_key" -g graph.json
 
 # 覆盖服务器地址
-unilab --ak ak --sk sk --addr "https://custom.server.com/api/v1" -g graph.json
+unilab --ak ak --sk sk --address "https://custom.server.com/api/v1" -g graph.json
 
 # 启用从站模式并跳过等待主机
 unilab --is_slave --slave_no_host --ak ak --sk sk
 
-# 启用上传注册表和2D可视化
-unilab --upload_registry --2d_vis --ak ak --sk sk -g graph.json
-
 # 组合使用多个覆盖参数
-unilab --ak "key" --sk "secret" --addr "test" --upload_registry --2d_vis -g graph.json
+unilab --ak "key" --sk "secret" --address "test" --2d_vis -g graph.json
 ```
 
 ### 预设环境地址
 
-`--addr` 参数支持以下预设值，会自动转换为对应的完整 URL：
+`--address` 参数支持以下预设值，会自动转换为对应的完整 URL；`--addr` 是兼容别名：
 
 - `test` → `https://leap-lab.test.bohrium.com/api/v1`
 - `uat` → `https://leap-lab.uat.bohrium.com/api/v1`
@@ -228,11 +260,9 @@ unilab --ak "key" --sk "secret" --addr "test" --upload_registry --2d_vis -g grap
 | `config_path`            | str  | `""`          | 配置文件路径，自动设置                     |
 | `is_host_mode`           | bool | `True`        | 是否为主站模式                             |
 | `slave_no_host`          | bool | `False`       | 从站模式下是否跳过等待主机服务             |
-| `upload_registry`        | bool | `False`       | 启动时是否上传注册表信息                   |
 | `machine_name`           | str  | `"undefined"` | 机器名称，自动从 hostname 获取（不可配置） |
 | `vis_2d_enable`          | bool | `False`       | 是否启用 2D 可视化                         |
 | `enable_resource_load`   | bool | `True`        | 是否启用资源加载                           |
-| `communication_protocol` | str  | `"websocket"` | 通信协议，固定为 websocket                 |
 | `log_level`              | str  | `"DEBUG"`     | 日志级别                                   |
 
 #### 日志级别选项
@@ -304,8 +334,8 @@ class ROSConfig:
         "control_msgs.msg",       # 控制消息类型
         "control_msgs.action",    # 控制动作类型
         "nav2_msgs.action",       # 导航动作类型
-        "unilabos_msgs.msg",      # UniLab 自定义消息类型
-        "unilabos_msgs.action",   # UniLab 自定义动作类型
+        "unilabos_msgs.msg",      # Uni-Lab-OS 自定义消息类型
+        "unilabos_msgs.action",   # Uni-Lab-OS 自定义动作类型
     ]
 ```
 
@@ -496,7 +526,7 @@ export UNILABOS_HTTPCONFIG_REMOTE_ADDR=https://leap-lab.test.bohrium.com/api/v1
 **命令行方式（推荐）：**
 
 ```bash
-unilab --addr test --ak your_ak --sk your_sk -g graph.json
+unilab --address test --ak your_ak --sk your_sk -g graph.json
 ```
 
 ### 场景 4：从站模式配置
@@ -558,10 +588,10 @@ configs/
 
 ```bash
 # 本地开发环境
-unilab --config configs/dev_config.py --addr local --ak ak --sk sk -g graph.json
+unilab --config configs/dev_config.py --address local --ak ak --sk sk -g graph.json
 
 # 测试环境
-unilab --config configs/test_config.py --addr test --ak ak --sk sk --upload_registry -g graph.json
+unilab --config configs/test_config.py --address test --ak ak --sk sk -g graph.json
 
 # 生产环境
 unilab --config configs/prod_config.py --ak "$PROD_AK" --sk "$PROD_SK" -g graph.json
@@ -592,7 +622,6 @@ unilab --config configs/prod_config.py --ak "$PROD_AK" --sk "$PROD_SK" -g graph.
 class BasicConfig:
     # 非敏感配置写在文件中
     is_host_mode = True
-    upload_registry = False
     vis_2d_enable = False
     log_level = "INFO"
 
@@ -607,8 +636,7 @@ class WSConfig:
 unilab --config base_config.py \
        --ak "$AK" \
        --sk "$SK" \
-       --addr "test" \
-       --upload_registry \
+       --address "test" \
        --2d_vis \
        -g graph.json
 ```
@@ -723,4 +751,4 @@ unilab --config base_config.py \
 
 - [工作目录详解](working_directory.md)
 - [启动参数详解](../user_guide/launch.md)
-- [快速安装指南](../user_guide/quick_install_guide.md)
+- [安装指南](../user_guide/installation.md)

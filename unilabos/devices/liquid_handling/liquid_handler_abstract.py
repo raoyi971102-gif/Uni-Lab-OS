@@ -25,15 +25,16 @@ from pylabrobot.resources import (
 )
 from typing_extensions import TypedDict
 
+from unilabos.backend.runtime.node import DeviceNode
 from unilabos.devices.liquid_handling.rviz_backend import UniLiquidHandlerRvizBackend
 from unilabos.registry.placeholder_type import ResourceSlot
+from unilabos.resources.objects.resource import (
+    EXTRA_SAMPLE_UUID,
+    ResourceDict,
+)
 from unilabos.resources.resource_tracker import (
     ResourceTreeSet,
-    ResourceDict,
-    EXTRA_SAMPLE_UUID,
-    EXTRA_UNILABOS_SAMPLE_UUID,
 )
-from unilabos.ros.nodes.base_device_node import BaseROS2DeviceNode, ROS2DeviceNode
 
 
 class SimpleReturn(TypedDict):
@@ -608,7 +609,7 @@ class LiquidHandlerAbstract(LiquidHandlerMiddleware):
     """Extended LiquidHandler with additional operations."""
 
     support_touch_tip = True
-    _ros_node: BaseROS2DeviceNode
+    _ros_node: DeviceNode
 
     def __init__(
         self,
@@ -665,7 +666,7 @@ class LiquidHandlerAbstract(LiquidHandlerMiddleware):
         self.group_info = dict()
         super().__init__(backend_type, deck, simulator, channel_num)
 
-    def post_init(self, ros_node: BaseROS2DeviceNode):
+    def post_init(self, ros_node: DeviceNode):
         self._ros_node = ros_node
 
     @classmethod
@@ -678,7 +679,7 @@ class LiquidHandlerAbstract(LiquidHandlerMiddleware):
         # 如果 liquid_names 和 volumes 都为空，直接返回 wells
         if not liquid_names and not volumes:
             return SetLiquidReturn(
-                wells=ResourceTreeSet.from_plr_resources(wells, known_newly_created=False).dump(), volumes=res_volumes  # type: ignore
+                wells=ResourceTreeSet.from_plr_resources(wells).dump(), volumes=res_volumes  # type: ignore
             )
 
         for well, liquid_name, volume in zip(wells, liquid_names, volumes):
@@ -686,7 +687,7 @@ class LiquidHandlerAbstract(LiquidHandlerMiddleware):
             res_volumes.append(volume)
 
         return SetLiquidReturn(
-            wells=ResourceTreeSet.from_plr_resources(wells, known_newly_created=False).dump(), volumes=res_volumes  # type: ignore
+            wells=ResourceTreeSet.from_plr_resources(wells).dump(), volumes=res_volumes  # type: ignore
         )
 
     def set_liquid_from_plate(
@@ -708,8 +709,8 @@ class LiquidHandlerAbstract(LiquidHandlerMiddleware):
         # 如果 liquid_names 和 volumes 都为空，直接返回
         if not liquid_names and not volumes:
             return SetLiquidFromPlateReturn(
-                plate=ResourceTreeSet.from_plr_resources([plate], known_newly_created=False).dump(),  # type: ignore
-                wells=ResourceTreeSet.from_plr_resources(wells, known_newly_created=False).dump(),  # type: ignore
+                plate=ResourceTreeSet.from_plr_resources([plate]).dump(),  # type: ignore
+                wells=ResourceTreeSet.from_plr_resources(wells).dump(),  # type: ignore
                 volumes=res_volumes,
             )
 
@@ -717,7 +718,7 @@ class LiquidHandlerAbstract(LiquidHandlerMiddleware):
             well.set_liquids([(liquid_name, volume)])  # type: ignore
             res_volumes.append(volume)
 
-        task = ROS2DeviceNode.run_async_func(self._ros_node.update_resource, True, **{"resources": wells})
+        task = self._ros_node.create_task(self._ros_node.update_resource(wells))
         submit_time = time.time()
         while not task.done():
             if time.time() - submit_time > 10:
@@ -726,8 +727,8 @@ class LiquidHandlerAbstract(LiquidHandlerMiddleware):
             time.sleep(0.01)
 
         return SetLiquidFromPlateReturn(
-            plate=ResourceTreeSet.from_plr_resources([plate], known_newly_created=False).dump(),  # type: ignore
-            wells=ResourceTreeSet.from_plr_resources(wells, known_newly_created=False).dump(),  # type: ignore
+            plate=ResourceTreeSet.from_plr_resources([plate]).dump(),  # type: ignore
+            wells=ResourceTreeSet.from_plr_resources(wells).dump(),  # type: ignore
             volumes=res_volumes,
         )
 
@@ -1271,8 +1272,8 @@ class LiquidHandlerAbstract(LiquidHandlerMiddleware):
             )
 
         return TransferLiquidReturn(
-            sources=ResourceTreeSet.from_plr_resources(list(sources), known_newly_created=False).dump(),  # type: ignore
-            targets=ResourceTreeSet.from_plr_resources(list(targets), known_newly_created=False).dump(),  # type: ignore
+            sources=ResourceTreeSet.from_plr_resources(list(sources)).dump(),  # type: ignore
+            targets=ResourceTreeSet.from_plr_resources(list(targets)).dump(),  # type: ignore
         )
 
     async def _transfer_one_to_one(

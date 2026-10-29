@@ -8,24 +8,35 @@ import time
 import traceback
 import threading
 from datetime import datetime
-from typing import Dict, Any, List, Optional, Union
+from typing import TYPE_CHECKING, Dict, Any, List, Optional, Union
 import json
 from pathlib import Path
 
 from unilabos.devices.workstation.workstation_base import WorkstationBase, ResourceSynchronizer
 from unilabos.devices.workstation.bioyond_studio.bioyond_rpc import BioyondV1RPC
 from unilabos.registry.placeholder_type import ResourceSlot, DeviceSlot
-from unilabos.resources.warehouse import WareHouse
+from unilabos.resources.presets.warehouse import WareHouse
 from unilabos.utils.log import logger
-from unilabos.resources.graphio import resource_bioyond_to_plr, resource_plr_to_bioyond
 
-from unilabos.ros.nodes.base_device_node import ROS2DeviceNode, BaseROS2DeviceNode
-from unilabos.ros.nodes.presets.workstation import ROS2WorkstationNode
-from unilabos.ros.msgs.message_converter import convert_to_ros_msg, Float64, String
 from pylabrobot.resources.resource import Resource as ResourcePLR
 
 
 from unilabos.devices.workstation.workstation_http_service import WorkstationHTTPService
+
+if TYPE_CHECKING:
+    from unilabos.backend.runtime.node import DeviceNode
+
+
+def resource_bioyond_to_plr(*args, **kwargs):
+    from unilabos.resources.graphio import resource_bioyond_to_plr as convert
+
+    return convert(*args, **kwargs)
+
+
+def resource_plr_to_bioyond(*args, **kwargs):
+    from unilabos.resources.graphio import resource_plr_to_bioyond as convert
+
+    return convert(*args, **kwargs)
 
 
 class ConnectionMonitor:
@@ -93,21 +104,7 @@ class ConnectionMonitor:
                 ns = self.workstation._ros_node.namespace
                 topic = f"{ns}/events/device_status"
 
-                # 使用 ROS2DeviceNode 的发布功能
-                # 如果没有预定义的 publisher，需要动态创建
-                # 注意：workstation base node 可能没有自动创建 arbitrary publishers 的机制
-                # 这里我们先尝试用 String json 发布
-
-                # 在 ROS2DeviceNode 中通常需要先 create_publisher
-                # 为了简单起见，我们检查是否已有 publisher，没有则创建
-                if not hasattr(self.workstation, "_device_status_pub"):
-                    self.workstation._device_status_pub = self.workstation._ros_node.create_publisher(
-                        String, topic, 10
-                    )
-
-                self.workstation._device_status_pub.publish(
-                    convert_to_ros_msg(String, json.dumps(event_data, ensure_ascii=False))
-                )
+                self.workstation._ros_node.publish_topic(topic, event_data)
         except Exception as e:
             logger.error(f"发布设备状态事件失败: {e}")
 
@@ -174,7 +171,7 @@ class BioyondResourceSynchronizer(ResourceSynchronizer):
                 logger.warning("从Bioyond获取的物料数据为空")
                 return False
 
-            # 转换为UniLab格式
+            # 转换为Uni-Lab-OS格式
             unilab_resources = resource_bioyond_to_plr(
                 all_bioyond_data,
                 type_mapping=self.workstation.bioyond_config["material_type_mappings"],
@@ -705,14 +702,7 @@ class BioyondWorkstation(WorkstationBase):
 
             topic = f"{self._ros_node.namespace}/events/task_status"
 
-            if not hasattr(self, "_task_status_pub"):
-                self._task_status_pub = self._ros_node.create_publisher(
-                    String, topic, 10
-                )
-
-            self._task_status_pub.publish(
-                convert_to_ros_msg(String, json.dumps(event_data, ensure_ascii=False))
-            )
+            self._ros_node.publish_topic(topic, event_data)
         except Exception as e:
             logger.error(f"发布任务状态事件失败: {e}")
 
@@ -799,7 +789,7 @@ class BioyondWorkstation(WorkstationBase):
         except Exception as e:
             logger.error(f"停止 HTTP 服务时发生错误: {e}")
 
-    def post_init(self, ros_node: ROS2WorkstationNode):
+    def post_init(self, ros_node: "DeviceNode"):
         self._ros_node = ros_node
 
         # 启动连接监控
@@ -833,7 +823,7 @@ class BioyondWorkstation(WorkstationBase):
         # 注意：如果有从 Bioyond 同步的物料，它们已经被放置到 warehouse 中了
         # 所以只需要上传 deck，物料会作为 warehouse 的 children 一起上传
         logger.info("正在上传 deck（包括 warehouses 和物料）到云端...")
-        ROS2DeviceNode.run_async_func(self._ros_node.update_resource, True, **{
+        self._ros_node.run_async_func(self._ros_node.update_resource, True, **{
             "resources": [self.deck]
         })
 
@@ -843,7 +833,7 @@ class BioyondWorkstation(WorkstationBase):
             self._synced_resources = []
 
     def transfer_resource_to_another(self, resource: List[ResourceSlot], mount_resource: List[ResourceSlot], sites: List[str], mount_device_id: DeviceSlot):
-        future = ROS2DeviceNode.run_async_func(self._ros_node.transfer_resource_to_another, True, **{
+        future = self._ros_node.run_async_func(self._ros_node.transfer_resource_to_another, True, **{
             "plr_resources": resource,
             "target_device_id": mount_device_id,
             "target_resources": mount_resource,
@@ -896,7 +886,7 @@ class BioyondWorkstation(WorkstationBase):
     def resource_tree_remove(self, resources: List[ResourcePLR]) -> None:
         """处理资源删除时的同步（出库操作）
 
-        当 UniLab 前端删除物料时，需要将删除操作同步到 Bioyond 系统（出库）
+        当 Uni-Lab-OS 前端删除物料时，需要将删除操作同步到 Bioyond 系统（出库）
 
         Args:
             resources: 要删除的资源列表
@@ -1043,7 +1033,7 @@ class BioyondWorkstation(WorkstationBase):
 
             # 调用 Bioyond 出库 API
             logger.info(f"[resource_tree_remove] 📤 调用 Bioyond API 出库物料...")
-            logger.info(f"   UniLab 名称: {resource.name}")
+            logger.info(f"   Uni-Lab-OS 名称: {resource.name}")
             if material_bioyond_name and material_bioyond_name != resource.name:
                 logger.info(f"   Bioyond 名称: {material_bioyond_name}")
             logger.info(f"   物料ID: {material_bioyond_id[:8]}...")
@@ -1102,7 +1092,7 @@ class BioyondWorkstation(WorkstationBase):
     def resource_tree_update(self, resources: List[ResourcePLR]) -> None:
         """处理资源更新时的同步（位置移动、属性修改等）
 
-        当 UniLab 前端更新物料信息时（如修改位置），需要将更新操作同步到 Bioyond 系统
+        当 Uni-Lab-OS 前端更新物料信息时（如修改位置），需要将更新操作同步到 Bioyond 系统
 
         Args:
             resources: 要更新的资源列表
@@ -1598,7 +1588,7 @@ class BioyondWorkstation(WorkstationBase):
 
             logger.info(f"从文件加载Bioyond数据: {file_path}")
 
-            # 转换为UniLab格式
+            # 转换为Uni-Lab-OS格式
             unilab_resources = resource_bioyond_to_plr(
                 bioyond_data,
                 type_mapping=self.bioyond_config["material_type_mappings"],

@@ -1,15 +1,16 @@
 import asyncio
 import logging
 import time as time_module
-from typing import Dict, Any
+from typing import Dict, Any, TYPE_CHECKING
 
 from unilabos.registry.decorators import topic_config
-from unilabos.ros.nodes.base_device_node import BaseROS2DeviceNode
+if TYPE_CHECKING:
+    from unilabos.backend.runtime.node import DeviceNode
 
 class VirtualStirrer:
     """Virtual stirrer device for StirProtocol testing - 功能完整版 🌪️"""
     
-    _ros_node: BaseROS2DeviceNode
+    _ros_node: "DeviceNode"
     
     def __init__(self, device_id: str = None, config: Dict[str, Any] = None, **kwargs):
         # 处理可能的不同调用方式
@@ -39,7 +40,7 @@ class VirtualStirrer:
         print(f"🌪️ === 虚拟搅拌器 {self.device_id} 已创建 === ✨")
         print(f"🔧 速度范围: {self._min_speed} ~ {self._max_speed} RPM | 📱 端口: {self.port}")
     
-    def post_init(self, ros_node: BaseROS2DeviceNode):
+    def post_init(self, ros_node: "DeviceNode"):
         self._ros_node = ros_node
     
     async def initialize(self) -> bool:
@@ -79,7 +80,7 @@ class VirtualStirrer:
     async def stir(self, stir_time: float, stir_speed: float, settling_time: float, **kwargs) -> bool:
         """Execute stir action - 定时搅拌 + 沉降 🌪️"""
         
-        # 🔧 类型转换 - 确保所有参数都是数字类型
+        # 统一数值参数类型。
         try:
             stir_time = float(stir_time)
             stir_speed = float(stir_speed)
@@ -211,7 +212,7 @@ class VirtualStirrer:
     async def start_stir(self, vessel: str, stir_speed: float, purpose: str = "") -> bool:
         """Start stir action - 开始持续搅拌 🔄"""
         
-        # 🔧 类型转换
+        # 统一数值参数类型。
         try:
             stir_speed = float(stir_speed)
             vessel = str(vessel)
@@ -256,7 +257,7 @@ class VirtualStirrer:
     async def stop_stir(self, vessel: str) -> bool:
         """Stop stir action - 停止搅拌 🛑"""
         
-        # 🔧 类型转换
+        # 统一数值参数类型。
         try:
             vessel = str(vessel)
         except (ValueError, TypeError) as e:

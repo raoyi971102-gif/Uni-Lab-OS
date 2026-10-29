@@ -7,7 +7,7 @@ import logging
 import time
 import types
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from typing_extensions import TypedDict
 
@@ -21,8 +21,10 @@ from unilabos.registry.decorators import (
     topic_config,
 )
 from unilabos.registry.placeholder_type import DeviceSlot, ResourceSlot
-from unilabos.resources.resource_tracker import ResourceDict, ResourceTreeSet
-from unilabos.ros.nodes.base_device_node import BaseROS2DeviceNode
+from unilabos.resources.objects.resource import ResourceDict
+from unilabos.resources.resource_tracker import ResourceTreeSet
+if TYPE_CHECKING:
+    from unilabos.backend.runtime.node import DeviceNode
 
 
 class ResourceSummary(TypedDict):
@@ -63,14 +65,14 @@ class TestResourceActionReturn(TypedDict):
 
 @device(
     id="test_action",
-    displayname="测试动作设备",
+    display_name="测试动作设备",
     category=["virtual"],
     description="用于测试动作调用、资源参数、设备参数、返回值和 workflow handle 链路的虚拟设备",
 )
 class TestActionDevice:
     """集中放置测试用动作的虚拟设备。"""
 
-    _ros_node: BaseROS2DeviceNode
+    _ros_node: "DeviceNode"
 
     def __init__(self, device_id: Optional[str] = None, **kwargs):
         """
@@ -93,8 +95,8 @@ class TestActionDevice:
         }
 
     @not_action
-    def post_init(self, ros_node: BaseROS2DeviceNode) -> None:
-        """保存 ROS 节点引用，供后续扩展跨设备调用使用。"""
+    def post_init(self, ros_node: "DeviceNode") -> None:
+        """保存运行节点引用，供后续扩展跨设备调用使用。"""
         self._ros_node = ros_node
 
     @property
@@ -180,6 +182,7 @@ class TestActionDevice:
         return {"name": name, "passed": passed, "message": message}
 
     @action(
+        display_name="测试液体写入",
         always_free=True,
         description="测试液体写入：向资源中追加或替换液体信息，并输出更新后的资源",
         goal_default={
@@ -292,7 +295,7 @@ class TestActionDevice:
         ]
 
         resource_tree = (
-            ResourceTreeSet.from_plr_resources(selected_resources, known_newly_created=True).dump()
+            ResourceTreeSet.from_plr_resources(selected_resources).dump()
             if selected_resources
             else []
         )
@@ -338,6 +341,7 @@ class TestActionDevice:
         }
 
     @action(
+        display_name="测试资源检查",
         always_free=True,
         description="测试资源检查：检查资源数量、液体信息和总体积，可接收上游 test_liquid 的输出资源",
         goal_default={
@@ -389,7 +393,7 @@ class TestActionDevice:
             min_total_volume[最小总体积]: 所有资源液体总体积必须大于等于该值。
             fail_on_check_failed[检查失败时动作失败]: 为 true 时，检查不通过会抛异常。
             resources[资源列表]: 前端选择或上游 handle 传入的多个资源，可不填。
-            devices[设备列表]: 前端选择或上游 handle 传入的多个设备，可不填。
+            devices[设备引用（多选）]: 前端选择或上游 handle 传入的多个设备，可不填。
         """
         start_time = time.time()
         run_id = str(uuid.uuid4())[:8]
@@ -462,7 +466,7 @@ class TestActionDevice:
             raise ValueError(f"资源检查失败: {failed}")
 
         resource_tree = (
-            ResourceTreeSet.from_plr_resources(selected_resources, known_newly_created=True).dump()
+            ResourceTreeSet.from_plr_resources(selected_resources).dump()
             if selected_resources
             else []
         )

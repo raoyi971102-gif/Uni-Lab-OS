@@ -21,11 +21,15 @@ import ast
 import hashlib
 import json
 import re
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
+
+from unilabos.registry.utils.backend_metadata import normalize_supported_backends
+from unilabos.registry.material_locks import normalize_material_parameter_names
+from unilabos.registry.utils.tools import resolve_registry_display_name
+from unilabos.resources.objects.site import normalize_available_sites
 
 
 # ---------------------------------------------------------------------------
@@ -34,11 +38,15 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 MAX_SCAN_DEPTH = 10      # 最大目录递归深度
 MAX_SCAN_FILES = 1000    # 最大扫描文件数量
-_CACHE_VERSION = 4       # 缓存格式版本号，格式变更时递增
-_DEVICE_ID_RE = re.compile(r"^[A-Za-z0-9_]+$")
+_CACHE_VERSION = 16      # 缓存/entry 构建格式版本号，格式变更时递增（16：跳过 action_context）
+# 允许点号分段（如 liquid_handler.prcxi），与内置 YAML 注册表的命名先例一致；
+# 点号只用于注册表模板名，设备实例 id（图节点）另有约束。
+_DEVICE_ID_RE = re.compile(r"^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*$")
 
 # 合法的装饰器来源模块
 _REGISTRY_DECORATOR_MODULE = "unilabos.registry.decorators"
+# @workflow 装饰器来源模块（模块级函数声明默认子工作流）
+_REGISTRY_WORKFLOW_MODULE = "unilabos.registry.workflows"
 # @subscribe 订阅装饰器来源模块（区分于注册表，这是运行时，订阅回调不应被当作 action）
 _SUBSCRIBE_DECORATOR_MODULE = "unilabos.utils.decorator"
 # placeholder_keys 常量来源模块（如 PLACEHOLDER_DEDUCT_RESOURCE），值需解析成字符串字面量
@@ -75,7 +83,7 @@ def _validate_device_ids(device_ids: List[str]) -> None:
     invalid_ids = [device_id for device_id in device_ids if not _DEVICE_ID_RE.fullmatch(device_id)]
     if invalid_ids:
         raise ValueError(
-            "@device id 只能包含英文、数字、下划线: "
+            "@device id 只能包含英文、数字、下划线（可用点号分段）: "
             + ", ".join(repr(device_id) for device_id in invalid_ids)
         )
 
@@ -104,19 +112,6 @@ def load_scan_cache(cache_path: Optional[Path]) -> Dict[str, Any]:
         return data
     except Exception:
         return {"version": _CACHE_VERSION, "files": {}}
-
-
-def save_scan_cache(cache_path: Optional[Path], cache: Dict[str, Any]) -> None:
-    """Persist *cache* to *cache_path* (atomic-ish via temp file)."""
-    if cache_path is None:
-        return
-    try:
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = cache_path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(cache, ensure_ascii=False, indent=1), encoding="utf-8")
-        tmp.replace(cache_path)
-    except Exception:
-        pass
 
 
 def _is_cache_hit(entry: Dict[str, Any], fp: Dict[str, Any]) -> bool:
@@ -192,7 +187,8 @@ def scan_directory(
     changed since the last scan are served from cache without re-parsing.
 
     Returns:
-        {"devices": {device_id: meta, ...}, "resources": {resource_id: meta, ...}}
+        {"devices": {device_id: meta, ...}, "resources": {resource_id: meta, ...},
+         "workflows": {"module:function": meta, ...}}
 
     Args:
         root_dir: Directory to scan (e.g. "unilabos/devices").
@@ -229,25 +225,37 @@ def scan_directory(
     # --- Parallel scan (with cache fast-path) ---
     devices: Dict[str, dict] = {}
     resources: Dict[str, dict] = {}
+    workflows: Dict[str, dict] = {}
     cache_hits = 0
     cache_misses = 0
 
-    def _parse_one_cached(py_file: Path) -> Tuple[List[dict], List[dict], bool]:
-        """Returns (devices, resources, was_cache_hit)."""
+    def _parse_one_cached(py_file: Path) -> Tuple[List[dict], List[dict], List[dict], bool]:
+        """Returns (devices, resources, workflows, was_cache_hit)."""
         key = str(py_file)
         try:
             fp = _file_fingerprint(py_file)
         except OSError:
-            return [], [], False
+            return [], [], [], False
 
         cached_entry = cache_files.get(key)
         if cached_entry and _is_cache_hit(cached_entry, fp):
-            return cached_entry.get("devices", []), cached_entry.get("resources", []), True
+            return (
+                cached_entry.get("devices", []),
+                cached_entry.get("resources", []),
+                cached_entry.get("workflows", []),
+                True,
+            )
 
         try:
-            devs, ress = _parse_file(py_file, python_path)
-        except (SyntaxError, Exception):
-            devs, ress = [], []
+            devs, ress, flows = _parse_file(py_file, python_path)
+        except Exception as exc:
+            # 解析失败的文件不能静默丢弃：装饰器写错时用户需要看到原因。
+            import logging
+
+            logging.getLogger("unilabos.registry.ast_scan").warning(
+                "AST 扫描文件失败，已跳过 %s: %s", py_file, exc
+            )
+            devs, ress, flows = [], [], []
 
         cache_files[key] = {
             "md5": fp["md5"],
@@ -255,13 +263,14 @@ def scan_directory(
             "mtime": fp["mtime"],
             "devices": devs,
             "resources": ress,
+            "workflows": flows,
         }
-        return devs, ress, False
+        return devs, ress, flows, False
 
     def _collect_results(futures_dict: Dict):
         nonlocal cache_hits, cache_misses
         for future in as_completed(futures_dict):
-            devs, ress, hit = future.result()
+            devs, ress, flows, hit = future.result()
             if hit:
                 cache_hits += 1
             else:
@@ -286,6 +295,9 @@ def scan_directory(
                             f"@resource id 重复: '{resource_id}' 同时出现在 {existing} 和 {new_file}"
                         )
                     resources[resource_id] = res
+            for flow in flows:
+                flow_key = f"{flow.get('module')}:{flow.get('function')}"
+                workflows[flow_key] = flow
 
     futures = {executor.submit(_parse_one_cached, f): f for f in py_files}
     _collect_results(futures)
@@ -296,6 +308,7 @@ def scan_directory(
     return {
         "devices": devices,
         "resources": resources,
+        "workflows": workflows,
         "_cache_stats": {"hits": cache_hits, "misses": cache_misses, "total": len(py_files)},
     }
 
@@ -348,15 +361,16 @@ def _detect_class_type(cls_node: ast.ClassDef, import_map: Dict[str, str]) -> st
 def _parse_file(
     filepath: Path,
     python_path: Path,
-) -> Tuple[List[dict], List[dict]]:
+) -> Tuple[List[dict], List[dict], List[dict]]:
     """
-    Parse a single .py file using ast and extract all @device-decorated classes
-    and @resource-decorated functions/classes.
+    Parse a single .py file using ast and extract all @device-decorated classes,
+    @resource-decorated functions/classes and module-level @workflow functions.
 
     Returns:
-        (devices, resources) -- two lists of metadata dicts.
+        (devices, resources, workflows) -- three lists of metadata dicts.
     """
-    source = filepath.read_text(encoding="utf-8", errors="replace")
+    # utf-8-sig：Windows 工具链写入的 BOM 不应让文件被跳过。
+    source = filepath.read_text(encoding="utf-8-sig", errors="replace")
     tree = ast.parse(source, filename=str(filepath))
 
     # Derive module path from file path
@@ -364,9 +378,11 @@ def _parse_file(
 
     # Build import map from the file (includes same-file class defs)
     import_map = _collect_imports(tree, module_path)
+    literal_constants = _collect_literal_constants(tree, import_map)
 
     devices: List[dict] = []
     resources: List[dict] = []
+    workflows: List[dict] = []
 
     for node in ast.iter_child_nodes(tree):
         # --- @device on classes ---
@@ -374,6 +390,14 @@ def _parse_file(
             device_decorator = _find_decorator(node, "device")
             if device_decorator is not None and _is_registry_decorator("device", import_map):
                 device_args = _extract_decorator_args(device_decorator, import_map)
+                # Site 数组通常较长，允许装饰器引用本文件中的静态字面量常量。
+                # AST 扫描仍不执行用户代码，也不解析导入模块里的动态对象。
+                for key in ("available_sites", "id_meta"):
+                    value = device_args.get(key)
+                    if isinstance(value, str):
+                        constant_name = value.rsplit(":", 1)[-1]
+                        if constant_name in literal_constants:
+                            device_args[key] = literal_constants[constant_name]
                 class_body = _extract_class_body(node, import_map)
 
                 # Support ids + id_meta (multi-device) or id (single device)
@@ -386,7 +410,10 @@ def _parse_file(
 
                 _validate_device_ids(device_ids)
                 id_meta = device_args.get("id_meta") or {}
-                display_name = device_args.get("displayname") or device_args.get("display_name", "")
+                display_name = device_args.get("display_name", "")
+                device_type = device_args.get("device_type") or _detect_class_type(
+                    node, import_map
+                )
                 base_meta = {
                     "class_name": node.name,
                     "module": f"{module_path}:{node.name}",
@@ -396,8 +423,15 @@ def _parse_file(
                     "display_name": display_name,
                     "icon": device_args.get("icon", ""),
                     "version": device_args.get("version", "1.0.0"),
-                    "device_type": _detect_class_type(node, import_map),
+                    "device_type": device_type,
+                    "supported_backends": normalize_supported_backends(
+                        device_args.get("supported_backends"),
+                        device_type=device_type,
+                    ),
                     "handles": device_args.get("handles", []),
+                    "available_sites": normalize_available_sites(
+                        device_args.get("available_sites")
+                    ),
                     "model": device_args.get("model"),
                     "hardware_interface": device_args.get("hardware_interface"),
                     "actions": class_body.get("actions", {}),
@@ -411,12 +445,28 @@ def _parse_file(
                     meta = dict(base_meta)
                     meta["device_id"] = did
                     overrides = id_meta.get(did, {})
-                    for key in ("handles", "description", "display_name", "displayname", "icon", "model", "hardware_interface"):
+                    for key in (
+                        "handles",
+                        "available_sites",
+                        "description",
+                        "display_name",
+                        "icon",
+                        "model",
+                        "hardware_interface",
+                        "supported_backends",
+                    ):
                         if key in overrides:
-                            if key == "displayname":
-                                meta["display_name"] = overrides[key]
-                            else:
-                                meta[key] = overrides[key]
+                            meta[key] = (
+                                normalize_available_sites(overrides[key])
+                                if key == "available_sites"
+                                else normalize_supported_backends(
+                                    overrides[key],
+                                    device_type=device_type,
+                                )
+                                if key == "supported_backends"
+                                else overrides[key]
+                            )
+                    meta["display_name"] = resolve_registry_display_name(meta.get("display_name"), did)
                     devices.append(meta)
 
             # --- @resource on classes ---
@@ -429,7 +479,7 @@ def _parse_file(
                 )
                 resources.append(res_meta)
 
-        # --- @resource on module-level functions ---
+        # --- @resource / @workflow on module-level functions ---
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             resource_decorator = _find_method_decorator(node, "resource")
             if resource_decorator is not None and _is_registry_decorator("resource", import_map):
@@ -439,8 +489,82 @@ def _parse_file(
                     func_node=node,
                 )
                 resources.append(res_meta)
+                continue
 
-    return devices, resources
+            workflow_decorator = _find_method_decorator(node, "workflow")
+            if workflow_decorator is not None and _is_workflow_decorator("workflow", import_map):
+                workflow_args = _extract_decorator_args(workflow_decorator, import_map)
+                workflows.append(
+                    {
+                        "module": module_path,
+                        "function": node.name,
+                        "display_name": str(workflow_args.get("display_name") or ""),
+                        "description": str(workflow_args.get("description") or ""),
+                        "tags": workflow_args.get("tags") or [],
+                        "file_path": str(filepath).replace("\\", "/"),
+                    }
+                )
+
+    return devices, resources, workflows
+
+
+_STATIC_MODEL_CALLS = frozenset(
+    {
+        "unilabos.resources.objects.site:SiteDefinition",
+        "unilabos.resources.objects.pose:ResourceDictPosition",
+        "unilabos.resources.objects.pose:ResourceDictPositionObject",
+        "unilabos.resources.objects.pose:ResourceDictPositionSize",
+    }
+)
+
+
+def _decode_static_model_calls(value: Any) -> Any:
+    """将受支持的 Pydantic 构造表达式还原成纯字典，不执行用户代码。"""
+
+    if isinstance(value, list):
+        return [_decode_static_model_calls(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+
+    call_name = value.get("_call")
+    if call_name is not None and call_name not in _STATIC_MODEL_CALLS:
+        raise ValueError(f"不支持的静态模型构造: {call_name}")
+    return {
+        key: _decode_static_model_calls(item)
+        for key, item in value.items()
+        if key != "_call"
+    }
+
+
+def _collect_literal_constants(
+    tree: ast.Module,
+    import_map: Dict[str, str],
+) -> Dict[str, Any]:
+    """收集模块根级的安全字面量或受支持模型常量，不执行用户代码。"""
+
+    result: Dict[str, Any] = {}
+    for statement in tree.body:
+        target: Optional[ast.Name] = None
+        value: Optional[ast.expr] = None
+        if isinstance(statement, ast.Assign) and len(statement.targets) == 1:
+            if isinstance(statement.targets[0], ast.Name):
+                target = statement.targets[0]
+                value = statement.value
+        elif isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name):
+            target = statement.target
+            value = statement.value
+        if target is None or value is None:
+            continue
+        try:
+            result[target.id] = ast.literal_eval(value)
+        except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+            try:
+                result[target.id] = _decode_static_model_calls(
+                    _ast_node_to_value(value, import_map)
+                )
+            except (TypeError, ValueError):
+                continue
+    return result
 
 
 def _find_init_in_class(cls_node: ast.ClassDef) -> Optional[ast.FunctionDef]:
@@ -485,6 +609,7 @@ def _extract_resource_meta(
         "is_function": is_function,
         "category": res_args.get("category", []),
         "description": res_args.get("description", ""),
+        "display_name": resolve_registry_display_name(res_args.get("display_name"), resource_id),
         "icon": res_args.get("icon", ""),
         "version": res_args.get("version", "1.0.0"),
         "class_type": res_args.get("class_type", "pylabrobot"),
@@ -602,6 +727,12 @@ def _is_registry_decorator(name: str, import_map: Dict[str, str]) -> bool:
     """Check that *name* was imported from ``unilabos.registry.decorators``."""
     source = import_map.get(name, "")
     return _REGISTRY_DECORATOR_MODULE in source
+
+
+def _is_workflow_decorator(name: str, import_map: Dict[str, str]) -> bool:
+    """Check that *name* was imported from ``unilabos.registry.workflows``."""
+    source = import_map.get(name, "")
+    return _REGISTRY_WORKFLOW_MODULE in source
 
 
 def _is_subscribe_decorator(name: str, import_map: Dict[str, str]) -> bool:
@@ -864,6 +995,15 @@ def _extract_class_body(
             topic_dec = _find_method_decorator(item, "topic_config")
             if topic_dec is not None:
                 topic_args = _extract_decorator_args(topic_dec, import_map)
+                topic_args.setdefault("status_policy", {})
+                if topic_args["status_policy"]:
+                    from unilabos.registry.status_policy import (
+                        normalize_status_policy,
+                    )
+
+                    topic_args["status_policy"] = (
+                        normalize_status_policy(topic_args["status_policy"]) or {}
+                    )
 
             return_type = _get_annotation_str(item.returns, import_map)
             # 非 @property 的 @topic_config 方法，用去掉 get_ 前缀的名称
@@ -893,9 +1033,39 @@ def _extract_class_body(
             action_args.setdefault("is_protocol", False)
             action_args.setdefault("feedback_interval", 1.0)
             action_args.setdefault("description", "")
+            action_args.setdefault("display_name", "")
             action_args.setdefault("auto_prefix", False)
             action_args.setdefault("parent", False)
+            action_args.setdefault("error_policy", {})
+            if action_args["error_policy"]:
+                from unilabos.registry.action_policy import normalize_error_policy
+
+                action_args["error_policy"] = (
+                    normalize_error_policy(action_args["error_policy"]) or {}
+                )
             method_params = _extract_method_params(item, import_map)
+            action_args["materials_need_lock"] = normalize_material_parameter_names(
+                action_args.get("materials_need_lock"),
+                action_parameter_names=(
+                    param["name"] for param in method_params
+                ),
+                action_name=method_name,
+            )
+            # 超时字段与装饰器同一套校验：硬超时必须是正数秒；软超时可以是秒或只引用
+            # 动作入参的四则运算表达式（归一化为规范字符串写入注册表）。
+            from unilabos.registry.action_timeout import (
+                normalize_action_timeout,
+                normalize_execution_timeout,
+            )
+
+            action_args["timeout"] = normalize_action_timeout(
+                action_args.get("timeout"), action_name=method_name
+            )
+            action_args["execution_timeout"] = normalize_execution_timeout(
+                action_args.get("execution_timeout"),
+                action_parameter_names=(param["name"] for param in method_params),
+                action_name=method_name,
+            )
             return_type = _get_annotation_str(item.returns, import_map)
             is_async = isinstance(item, ast.AsyncFunctionDef)
             method_doc = ast.get_docstring(item)
@@ -955,7 +1125,9 @@ def _extract_class_body(
 # ---------------------------------------------------------------------------
 
 
-_PARAM_SKIP_NAMES = frozenset({"sample_uuids"})
+#: 由运行时注入、不属于动作契约的参数：``sample_uuids``（样品映射）与
+#: ``action_context``（反馈/取消上下文，HostLink 执行器按签名注入）。
+_PARAM_SKIP_NAMES = frozenset({"sample_uuids", "action_context"})
 
 
 def _extract_method_params(

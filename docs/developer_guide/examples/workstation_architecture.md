@@ -4,6 +4,13 @@
 > **适用场景**：大型工作站接入、子设备管理、物料系统集成  
 > **前置知识**：{doc}`../add_device` | {doc}`../add_registry`
 
+> **Backend 边界**：Workstation 不是 ROS2 专属设备。选择 `hostlink` 时，运行时会
+> 初始化对应的 HostLink node，并以 HostLink 初始化其 sub-device；普通 Python 驱动的
+> Action、Service 和状态上报均可使用。文中的 `ROS2WorkstationNode` 指 ROS2
+> 具体实现，不代表 HostLink 与 ROS2 100% 等价。依赖 MoveIt、RViz、
+> ROS graph/TF 或 ROS2 专用高频图像/消息图的工作站仍必须使用 `ros2` backend。
+> backend 选择与启动方式见 {doc}`../../user_guide/launch`。
+
 ## 0. 问题简介
 
 我们可以从以下几类例子，来理解对接大型工作站需要哪些设计。本文档之后的实战案例也将由这些组成。
@@ -42,7 +49,7 @@
 
 ### 1.1 工作站核心架构
 
-```{mermaid}
+```mermaid
 graph TB
     subgraph "工作站模板组成"
         WB[WorkstationBase<br/>工作流状态管理]
@@ -77,7 +84,7 @@ graph TB
 
 ### 1.2 外部系统对接关系
 
-```{mermaid}
+```mermaid
 graph LR
     subgraph "Uni-Lab-OS工作站"
         WS[WorkstationBase + ROS2WorkstationNode]
@@ -99,7 +106,7 @@ graph LR
     end
 
     subgraph "云端系统"
-        CLOUD[UniLab云端<br/>资源管理]
+        CLOUD[Uni-Lab-OS云端<br/>资源管理]
         MONITOR[监控与调度]
     end
 
@@ -118,7 +125,7 @@ graph LR
 
 ### 1.3 具体实现示例
 
-```{mermaid}
+```mermaid
 graph TB
     subgraph "工作站基类"
         BASE[WorkstationBase<br/>抽象基类]
@@ -164,7 +171,7 @@ graph TB
 
 ## 2. 类关系图
 
-```{mermaid}
+```mermaid
 classDiagram
     class WorkstationBase {
         <<abstract>>
@@ -307,7 +314,7 @@ classDiagram
 
 ## 3. 工作站启动时序图
 
-```{mermaid}
+```mermaid
 sequenceDiagram
     participant APP as Application
     participant WS as WorkstationBase
@@ -360,7 +367,7 @@ sequenceDiagram
 
 ## 4. 工作流执行时序图（Protocol 模式）
 
-```{mermaid}
+```mermaid
 sequenceDiagram
     participant CLIENT as 客户端
     participant ROS as ROS2WorkstationNode
@@ -412,7 +419,7 @@ sequenceDiagram
 
 ## 5. HTTP 报送处理时序图
 
-```{mermaid}
+```mermaid
 sequenceDiagram
     participant EXT as 外部工作站/LIMS
     participant HTTP as HTTPService
@@ -455,7 +462,7 @@ sequenceDiagram
 
 ## 6. 错误处理时序图
 
-```{mermaid}
+```mermaid
 sequenceDiagram
     participant DEV as 子设备/外部系统
     participant ROS as ROS2WorkstationNode

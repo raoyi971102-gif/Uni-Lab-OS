@@ -15,7 +15,7 @@ Usage:
         id="solenoid_valve_mock",
         category=["pump_and_valve"],
         description="模拟电磁阀设备",
-        displayname="模拟电磁阀",
+        display_name="模拟电磁阀",
         handles=[
             InputHandle(key="in", data_type="fluid", label="in", side=Side.NORTH),
             OutputHandle(key="out", data_type="fluid", label="out", side=Side.SOUTH),
@@ -48,12 +48,19 @@ Usage:
 from enum import Enum
 from functools import wraps
 import re
-from typing import Any, Callable, Dict, List, Optional, TypeVar
+from typing import Any, Callable, Dict, List, Optional, Sequence, TypeVar, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from unilabos.registry.utils.backend_metadata import normalize_supported_backends
+from unilabos.resources.objects.site import (
+    SiteDefinitionInput,
+    normalize_available_sites,
+)
+
 F = TypeVar("F", bound=Callable[..., Any])
-_DEVICE_ID_RE = re.compile(r"^[A-Za-z0-9_]+$")
+# 允许点号分段（如 liquid_handler.prcxi），与内置 YAML 注册表命名先例一致。
+_DEVICE_ID_RE = re.compile(r"^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*$")
 
 # ---------------------------------------------------------------------------
 # 枚举
@@ -251,18 +258,19 @@ def device(
     category: Optional[List[str]] = None,
     description: str = "",
     display_name: str = "",
-    displayname: str = "",
     icon: str = "",
     version: str = "1.0.0",
     handles: Optional[List[_DeviceHandleBase]] = None,
+    available_sites: Optional[Sequence[SiteDefinitionInput]] = None,
     model: Optional[Dict[str, Any]] = None,
     device_type: str = "python",
+    supported_backends: Optional[List[str]] = None,
     hardware_interface: Optional[HardwareInterface] = None,
 ):
     """
     设备类装饰器
 
-    将类标记为一个 UniLab-OS 设备，并附加注册表元数据。
+    将类标记为一个 Uni-Lab-OS 设备，并附加注册表元数据。
 
     支持两种模式:
       1. 单设备: id="xxx", category=[...]
@@ -274,13 +282,14 @@ def device(
         id_meta: 每个 device_id 的覆盖元数据 (handles/description/icon/model)
         category: 设备分类标签列表 (必填)
         description: 设备描述
-        displayname: 人类可读的设备显示名称，缺失时默认使用 id
-        display_name: 兼容旧代码的显示名称参数；新代码优先使用 displayname
+        display_name: 人类可读的设备显示名称，缺失时默认使用 id
         icon: 图标路径
         version: 版本号
         handles: 设备端口列表 (单设备或 id_meta 未覆盖时使用)
+        available_sites: 设备可用 Site 的初始化定义，不包含实例 UUID/占用关系
         model: 可选的 3D 模型配置
         device_type: 设备实现类型 ("python" / "ros2")
+        supported_backends: 可运行该驱动的 backend 名称列表
         hardware_interface: 硬件通信接口 (HardwareInterface)
     """
     # Resolve device ids
@@ -289,6 +298,27 @@ def device(
         if not device_ids:
             raise ValueError("@device ids 不能为空")
         id_meta = id_meta or {}
+        id_meta = {
+            device_id: {
+                **meta,
+                **(
+                    {"available_sites": normalize_available_sites(meta.get("available_sites"))}
+                    if "available_sites" in meta
+                    else {}
+                ),
+                **(
+                    {
+                        "supported_backends": normalize_supported_backends(
+                            meta.get("supported_backends"),
+                            device_type=device_type,
+                        )
+                    }
+                    if "supported_backends" in meta
+                    else {}
+                ),
+            }
+            for device_id, meta in id_meta.items()
+        }
     elif id is not None:
         device_ids = [id]
         id_meta = {}
@@ -298,23 +328,27 @@ def device(
     invalid_ids = [did for did in device_ids if not _DEVICE_ID_RE.fullmatch(did)]
     if invalid_ids:
         raise ValueError(
-            "@device id 只能包含英文、数字、下划线: "
+            "@device id 只能包含英文、数字、下划线（可用点号分段）: "
             + ", ".join(repr(did) for did in invalid_ids)
         )
 
     if category is None:
         raise ValueError("@device category 必填")
 
-    resolved_display_name = displayname or display_name
     base_meta = {
         "category": category,
         "description": description,
-        "display_name": resolved_display_name,
+        "display_name": display_name,
         "icon": icon,
         "version": version,
         "handles": _device_handles_to_list(handles),
+        "available_sites": normalize_available_sites(available_sites),
         "model": model,
         "device_type": device_type,
+        "supported_backends": normalize_supported_backends(
+            supported_backends,
+            device_type=device_type,
+        ),
         "hardware_interface": (hardware_interface.model_dump(exclude_none=True) if hardware_interface else None),
     }
 
@@ -353,10 +387,15 @@ def action(
     always_free: bool = False,
     is_protocol: bool = False,
     description: str = "",
+    display_name: str = "",
     auto_prefix: bool = False,
     parent: bool = False,
     node_type: Optional["NodeType"] = None,
     feedback_interval: Optional[float] = None,
+    error_policy: Optional[Dict[str, Any]] = None,
+    materials_need_lock: Optional[List[str]] = None,
+    timeout: Optional[float] = None,
+    execution_timeout: Optional[Union[float, str]] = None,
 ):
     """
     动作方法装饰器
@@ -385,14 +424,27 @@ def action(
         always_free: 是否为永久闲置动作 (不受排队限制)
         is_protocol: 是否为工作站协议 (protocol)。True 时运行时走 protocol generator 路径。
         description: 动作描述
+        display_name: 动作显示名（前端/工作流模板展示；缺省用方法名）
         auto_prefix: 若为 True，动作名使用 auto-{method_name} 形式（与无 @action 时一致）
         parent: 若为 True，当方法参数为空 (*args, **kwargs) 时，通过 MRO 从父类获取真实方法参数
         node_type: 动作的节点类型 (NodeType.ILAB / NodeType.MANUAL_CONFIRM)。
                    不填写时不写入注册表。
+        error_policy: 按异常类名匹配审批选项的策略。结构见
+                      unilabos.registry.action_policy.ErrorPolicy。
+        materials_need_lock: 本动作执行期间需要独占的物料参数名列表。参数值
+                             必须能解析出由物料权威分配的 UUID。
+        timeout: 硬超时（秒，正数）。到期后执行面协作式取消动作，并以
+                 TimeoutException 进入错误决策链；None 表示不限时。
+        execution_timeout: 业务软超时。秒数，或引用动作入参的四则运算表达式
+                           （如 "duration * 1.5 + 30"，支持 + - * /、括号、一元负号）。
+                           到期后动作继续执行，执行面以 ExecutionTimeoutException 打开
+                           一条带 wait 选项的决策；表达式在下发时按真实 action_args
+                           （叠加 goal_default）求值。详见 unilabos.registry.action_timeout。
     """
 
     def decorator(func: F) -> F:
         import asyncio as _asyncio
+        import inspect as _inspect
 
         if _asyncio.iscoroutinefunction(func):
             @wraps(func)
@@ -417,6 +469,7 @@ def action(
             "always_free": always_free,
             "is_protocol": is_protocol,
             "description": description,
+            "display_name": display_name,
             "auto_prefix": auto_prefix,
             "parent": parent,
         }
@@ -424,7 +477,40 @@ def action(
             meta["feedback_interval"] = feedback_interval
         if node_type is not None:
             meta["node_type"] = node_type.value if isinstance(node_type, NodeType) else str(node_type)
+        normalized_error_policy: Dict[str, Any] = {}
+        if error_policy:
+            from unilabos.registry.action_policy import normalize_error_policy
+
+            normalized_error_policy = normalize_error_policy(error_policy) or {}
+        meta["error_policy"] = normalized_error_policy
+        from unilabos.registry.material_locks import (
+            normalize_material_parameter_names,
+        )
+
+        signature_parameters = _inspect.signature(func).parameters
+        meta["materials_need_lock"] = normalize_material_parameter_names(
+            materials_need_lock,
+            action_parameter_names=signature_parameters,
+            action_name=func.__qualname__,
+        )
+        from unilabos.registry.action_timeout import (
+            normalize_action_timeout,
+            normalize_execution_timeout,
+        )
+
+        # 与 feedback_interval / node_type 一样：只在声明了才写入 meta，避免注册表 YAML 全量抖动
+        normalized_timeout = normalize_action_timeout(timeout, action_name=func.__qualname__)
+        if normalized_timeout is not None:
+            meta["timeout"] = normalized_timeout
+        normalized_execution_timeout = normalize_execution_timeout(
+            execution_timeout,
+            action_parameter_names=signature_parameters,
+            action_name=func.__qualname__,
+        )
+        if normalized_execution_timeout is not None:
+            meta["execution_timeout"] = normalized_execution_timeout
         wrapper._action_registry_meta = meta  # type: ignore[attr-defined]
+        wrapper._action_error_policy = normalized_error_policy  # type: ignore[attr-defined]
 
         # 设置 _is_always_free 保持与旧 @always_free 装饰器兼容
         if always_free:
@@ -454,6 +540,7 @@ def resource(
     id: str,
     category: List[str],
     description: str = "",
+    display_name: str = "",
     icon: str = "",
     version: str = "1.0.0",
     handles: Optional[List[_DeviceHandleBase]] = None,
@@ -463,12 +550,13 @@ def resource(
     """
     资源类/函数装饰器
 
-    将类或工厂函数标记为一个 UniLab-OS 资源，附加注册表元数据。
+    将类或工厂函数标记为一个 Uni-Lab-OS 资源，附加注册表元数据。
 
     Args:
         id: 注册表唯一标识 (必填, 不可重复)
         category: 资源分类标签列表 (必填)
         description: 资源描述
+        display_name: 人类可读的资源显示名称，缺失时默认使用 id
         icon: 图标路径
         version: 版本号
         handles: 端口列表 (InputHandle / OutputHandle)
@@ -481,6 +569,7 @@ def resource(
             "resource_id": id,
             "category": category,
             "description": description,
+            "display_name": display_name,
             "icon": icon,
             "version": version,
             "handles": _device_handles_to_list(handles),
@@ -518,14 +607,27 @@ def get_device_meta(cls, device_id: Optional[str] = None) -> Optional[Dict[str, 
     overrides = id_meta[device_id]
     result = dict(base)
     result["device_id"] = device_id
-    for key in ["handles", "description", "display_name", "displayname", "icon", "model"]:
+    for key in [
+        "handles",
+        "available_sites",
+        "description",
+        "display_name",
+        "icon",
+        "model",
+        "supported_backends",
+    ]:
         if key in overrides:
             val = overrides[key]
             if key == "handles" and isinstance(val, list):
                 # handles 必须是 Handle 对象列表
                 result[key] = [h.to_registry_dict() for h in val]
-            elif key == "displayname":
-                result["display_name"] = val
+            elif key == "available_sites":
+                result[key] = normalize_available_sites(val)
+            elif key == "supported_backends":
+                result[key] = normalize_supported_backends(
+                    val,
+                    device_type=result.get("device_type"),
+                )
             else:
                 result[key] = val
     return result
@@ -544,12 +646,6 @@ def get_all_registered_devices() -> Dict[str, type]:
 def get_all_registered_resources() -> Dict[str, Any]:
     """获取所有已注册的资源"""
     return _registered_resources.copy()
-
-
-def clear_registry():
-    """清空全局注册表 (用于测试)"""
-    _registered_devices.clear()
-    _registered_resources.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -594,6 +690,7 @@ def topic_config(
     print_publish: Optional[bool] = None,
     qos: Optional[int] = None,
     name: Optional[str] = None,
+    status_policy: Optional[Dict[str, Any]] = None,
 ) -> Callable[[F], F]:
     """
     Topic发布配置装饰器
@@ -605,11 +702,19 @@ def topic_config(
         print_publish: 是否打印发布日志。None 表示使用节点默认配置
         qos: QoS深度配置。None 表示使用默认值 10
         name: 自定义发布名称。None 表示使用方法名（去掉 get_ 前缀）
+        status_policy: 标量状态的 incident/联锁策略。注册时会校验并归一化，
+            运行时由微后端根据设备状态生成 incident。
 
     Note:
         与 @property 连用时，@topic_config 必须放在 @property 下面，
         这样装饰器执行顺序为：先 topic_config 添加配置，再 property 包装。
     """
+
+    normalized_status_policy: Dict[str, Any] = {}
+    if status_policy:
+        from unilabos.registry.status_policy import normalize_status_policy
+
+        normalized_status_policy = normalize_status_policy(status_policy) or {}
 
     def decorator(func: F) -> F:
         @wraps(func)
@@ -620,6 +725,7 @@ def topic_config(
         wrapper._topic_print_publish = print_publish  # type: ignore[attr-defined]
         wrapper._topic_qos = qos  # type: ignore[attr-defined]
         wrapper._topic_name = name  # type: ignore[attr-defined]
+        wrapper._topic_status_policy = normalized_status_policy  # type: ignore[attr-defined]
         wrapper._has_topic_config = True  # type: ignore[attr-defined]
 
         return wrapper  # type: ignore[return-value]
@@ -628,13 +734,14 @@ def topic_config(
 
 
 def get_topic_config(func) -> dict:
-    """获取函数上的 topic 配置 (period, print_publish, qos, name)"""
+    """获取函数上的 topic 配置及已归一化的状态策略。"""
     if hasattr(func, "_has_topic_config") and getattr(func, "_has_topic_config", False):
         return {
             "period": getattr(func, "_topic_period", None),
             "print_publish": getattr(func, "_topic_print_publish", None),
             "qos": getattr(func, "_topic_qos", None),
             "name": getattr(func, "_topic_name", None),
+            "status_policy": getattr(func, "_topic_status_policy", {}),
         }
     return {}
 

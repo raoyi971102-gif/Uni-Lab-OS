@@ -17,9 +17,8 @@ from unilabos.devices.workstation.bioyond_studio.station import BioyondWorkstati
 # ⚠️ config.py 已废弃 - 所有配置现在从 JSON 文件加载
 # from unilabos.devices.workstation.bioyond_studio.config import API_CONFIG, ...
 from unilabos.devices.workstation.workstation_http_service import WorkstationHTTPService
-from unilabos.resources.bioyond.decks import BIOYOND_YB_Deck
+from unilabos.resources.presets.bioyond.decks import BIOYOND_YB_Deck
 from unilabos.utils.log import logger
-from unilabos.registry.registry import lab_registry
 
 def _iso_local_now_ms() -> str:
     # 文档要求：到毫秒 + Z，例如 2025-08-15T05:43:22.814Z
@@ -1946,7 +1945,7 @@ class BioyondCellWorkstation(BioyondWorkstation):
             "inbound_result": inbound_result,
         }
     def resource_tree_transfer(self, old_parent: ResourcePLR, plr_resource: ResourcePLR, parent_resource: ResourcePLR):
-        # ROS2DeviceNode.run_async_func(self._ros_node.resource_tree_transfer, True, **{
+        # self._ros_node.run_async_func(self._ros_node.resource_tree_transfer, True, **{
         #     "old_parent": old_parent,
         #     "plr_resource": plr_resource,
         #     "parent_resource": parent_resource,
@@ -2051,6 +2050,8 @@ class BioyondCellWorkstation(BioyondWorkstation):
 
 
 if __name__ == "__main__":
+    from unilabos.registry.registry import lab_registry
+
     lab_registry.setup()
     deck = BIOYOND_YB_Deck(setup=True)
     ws = BioyondCellWorkstation(deck=deck)

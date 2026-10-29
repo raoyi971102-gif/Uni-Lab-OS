@@ -6,21 +6,26 @@ import threading
 import time
 import types
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 from functools import wraps
 from pylabrobot.resources import Deck, Resource as PLRResource
-from unilabos_msgs.msg import Resource
 from unilabos.device_comms.modbus_plc.client import ModbusTcpClient
 from unilabos.devices.workstation.workstation_base import WorkstationBase
 from unilabos.device_comms.modbus_plc.client import TCPClient, ModbusNode, PLCWorkflow, ModbusWorkflow, WorkflowAction, BaseClient
 from unilabos.device_comms.modbus_plc.modbus import DeviceType, Base as ModbusNodeBase, DataType, WorderOrder
 from unilabos.devices.workstation.coin_cell_assembly.YB_YH_materials import *
-from unilabos.ros.nodes.base_device_node import ROS2DeviceNode, BaseROS2DeviceNode
-from unilabos.ros.nodes.presets.workstation import ROS2WorkstationNode
 from unilabos.devices.workstation.coin_cell_assembly.YB_YH_materials import CoincellDeck
-from unilabos.resources.graphio import convert_resources_to_type
 from unilabos.utils.log import logger
 import struct
+
+if TYPE_CHECKING:
+    from unilabos.backend.runtime.node import DeviceNode
+
+
+def convert_resources_to_type(*args, **kwargs):
+    from unilabos.resources.graphio import convert_resources_to_type as convert
+
+    return convert(*args, **kwargs)
 
 
 def _decode_float32_correct(registers):
@@ -191,10 +196,10 @@ class CoinCellAssemblyWorkstation(WorkstationBase):
         self.csv_export_file = None
         self.coin_num_N = 0  #已组装电池数量
 
-    def post_init(self, ros_node: ROS2WorkstationNode):
+    def post_init(self, ros_node: "DeviceNode"):
         self._ros_node = ros_node
         #self.deck = create_a_coin_cell_deck()
-        ROS2DeviceNode.run_async_func(self._ros_node.update_resource, True, **{
+        self._ros_node.run_async_func(self._ros_node.update_resource, True, **{
             "resources": [self.deck]
         })
 
@@ -414,7 +419,7 @@ class CoinCellAssemblyWorkstation(WorkstationBase):
             return cmd_feedback[0]
         
     def _unilab_send_finished_cmd(self, num=None):
-        """Unilab发送已知一组组装完成信号"""
+        """Uni-Lab-OS发送已知一组组装完成信号"""
         if num is not None:
             self.success = False
             self.client.use_node('UNILAB_SEND_FINISHED_CMD').write(num)
@@ -425,7 +430,7 @@ class CoinCellAssemblyWorkstation(WorkstationBase):
             return cmd_feedback[0]
 
     def _unilab_rece_finished_cmd(self, num=None):
-        """Unilab接收已知一组组装完成信号"""
+        """Uni-Lab-OS接收已知一组组装完成信号"""
         if num is not None:
             self.success = False
             self.client.use_node('UNILAB_RECE_FINISHED_CMD').write(num)
@@ -1403,7 +1408,7 @@ class CoinCellAssemblyWorkstation(WorkstationBase):
             raise
         
         #print(jipian2.parent)
-        ROS2DeviceNode.run_async_func(self._ros_node.update_resource, True, **{
+        self._ros_node.run_async_func(self._ros_node.update_resource, True, **{
             "resources": [self.deck]
         })
 
@@ -1934,7 +1939,7 @@ class CoinCellAssemblyWorkstation(WorkstationBase):
                                 }
             liaopan3.children[i].assign_child_resource(battery, location=None)
             
-            ROS2DeviceNode.run_async_func(self._ros_node.update_resource, True, **{
+            self._ros_node.run_async_func(self._ros_node.update_resource, True, **{
                 "resources": [self.deck]
             })
             # for i in range(40):
@@ -2149,4 +2154,3 @@ if __name__ == "__main__":
     workstation.func_pack_device_start()
     workstation.func_pack_send_bottle_num(16)
     workstation.func_allpack_cmd(elec_num=16, elec_use_num=16, elec_vol=50, assembly_type=7, assembly_pressure=4200, file_path="/Users/calvincao/Desktop/work/Uni-Lab-OS-hhm")
-    

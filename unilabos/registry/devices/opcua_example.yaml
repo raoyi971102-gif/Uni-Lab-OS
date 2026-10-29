@@ -1,13 +1,16 @@
 opcua_example:
+  available_sites: []
   category:
   - opcua_example
   class:
     action_value_mappings:
       auto-disconnect:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -25,11 +28,13 @@ opcua_example:
           type: object
         type: UniLabJsonCommand
       auto-load_config:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
           config_path: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -50,10 +55,12 @@ opcua_example:
           type: object
         type: UniLabJsonCommand
       auto-refresh_node_values:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -71,12 +78,14 @@ opcua_example:
           type: object
         type: UniLabJsonCommand
       auto-set_node_value:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default:
           name: null
           value: null
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -100,10 +109,12 @@ opcua_example:
           type: object
         type: UniLabJsonCommand
       auto-start_node_refresh:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -121,10 +132,12 @@ opcua_example:
           type: object
         type: UniLabJsonCommand
       auto-stop_node_refresh:
+        error_policy: {}
         feedback: {}
         goal: {}
         goal_default: {}
         handles: {}
+        materials_need_lock: []
         placeholder_keys: {}
         result: {}
         schema:
@@ -142,12 +155,18 @@ opcua_example:
           type: object
         type: UniLabJsonCommand
     module: unilabos.device_comms.opcua_client.client:OpcUaClient
+    status_policies: {}
     status_types: {}
+    supported_backends:
+    - hostlink
+    - ros2
     type: python
   config_info: []
   description: null
+  display_name: OPC UA 示例设备
   handles: []
   icon: ''
+  init_param_enforce: {}
   init_param_schema:
     config:
       properties:

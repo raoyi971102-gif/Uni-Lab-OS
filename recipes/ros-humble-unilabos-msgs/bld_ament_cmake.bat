@@ -8,9 +8,11 @@ set "PYTHONPATH=%LIBRARY_PREFIX%\lib\site-packages;%SP_DIR%"
 set CC=cl.exe
 set CXX=cl.exe
 
-rd /s /q build
-mkdir build
-pushd build
+:: Humble generates long rosidl header names. Keep the build directory short
+:: enough for Win32 tools when the conda/rattler work prefix is already long.
+rd /s /q b
+mkdir b
+pushd b
 
 :: set "CMAKE_GENERATOR=Ninja"
 
@@ -37,5 +39,5 @@ cmake ^
     %SRC_DIR%\%PKG_NAME%\src\work
 if errorlevel 1 exit 1
 
-cmake --build . --config Release --target install
+cmake --build . --config Release --target install -j1
 if errorlevel 1 exit 1
