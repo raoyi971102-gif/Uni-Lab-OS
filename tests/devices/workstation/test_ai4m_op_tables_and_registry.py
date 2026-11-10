@@ -301,6 +301,15 @@ def test_op20_axis_action_uses_new_unified_handshake() -> None:
     ]
 
 
+def test_bts_protect_state_is_not_treated_as_running() -> None:
+    interpret = AI4M002Device._interpret_bts_wait
+    assert interpret({0: 2}, [0], elapsed_sec=2, duration_sec=180, seen_active=True) == "fault"
+    assert interpret({0: 0}, [0], elapsed_sec=2, duration_sec=180, seen_active=False) == "waiting"
+    assert interpret({0: 0}, [0], elapsed_sec=2, duration_sec=180, seen_active=True) == "early_stop"
+    assert interpret({0: 0}, [0], elapsed_sec=170, duration_sec=180, seen_active=True) == "done"
+    assert interpret({0: 1}, [0], elapsed_sec=30, duration_sec=180, seen_active=True) == "waiting"
+
+
 def test_bts_start_failure_is_propagated_to_action_layer() -> None:
     device = object.__new__(AI4M002Device)
     writes = []

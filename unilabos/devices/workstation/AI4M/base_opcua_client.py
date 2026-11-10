@@ -25,6 +25,47 @@ from unilabos.device_comms.universal_driver import UniversalDriver
 from unilabos.utils.log import logger
 
 
+def install_security_token_clock_guard() -> None:
+    """放行「上一枚安全令牌因时钟偏差被判过期」这一种协议错误。
+
+    python-opcua 用本机 UTC 对比服务器写入的 CreatedAt。PLC 时钟曾经停在 2022
+    时，续约重叠期内服务器仍用旧令牌发报文，客户端会直接拆掉通道，后续序号全部错位。
+    这里只接受连接对象自己保存的上一枚令牌，其它令牌错误仍按原逻辑拒绝。
+    """
+    from opcua.common.connection import SecureConnection
+
+    original = SecureConnection._check_sym_header
+    if getattr(original, "_unilab_token_clock_guard", False):
+        return
+
+    def _check_sym_header(self, security_header):
+        try:
+            return original(self, security_header)
+        except ua.UaError as exc:
+            message = str(exc)
+            prev = self.prev_security_token
+            if (
+                "has timed out" in message
+                and prev is not None
+                and security_header.TokenId == prev.TokenId
+            ):
+                if not getattr(self, "_unilab_token_clock_warned", False):
+                    self._unilab_token_clock_warned = True
+                    logger.warning(
+                        "安全令牌 %s 的签发时钟与本机不一致，继续接受该重叠期报文。请核对 PLC 时间并保持对时。详情: %s",
+                        security_header.TokenId,
+                        message,
+                    )
+                return
+            raise
+
+    _check_sym_header._unilab_token_clock_guard = True
+    SecureConnection._check_sym_header = _check_sym_header
+
+
+install_security_token_clock_guard()
+
+
 class OpcUaNode(BaseModel):
     """OPC UA 节点定义"""
     name: str

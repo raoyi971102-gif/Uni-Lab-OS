@@ -471,7 +471,7 @@ class AI4M002Device(OpcUaClientWithSubscription):
         nitrogen_time: int,
         place_code: int,
         sample_uuids: SampleUUIDsType = None,
-        peristaltic_pump_valve_number: int = 0,
+        peristaltic_pump_valve_number: int = 1,
     ) -> dict:
         if electrolytic_cell_id not in (1, 2):
             raise ValueError(f"电解池编号必须为 1 或 2: {electrolytic_cell_id}")
@@ -567,7 +567,7 @@ class AI4M002Device(OpcUaClientWithSubscription):
         nitrogen_time: int,
         place_code: int,
         sample_uuids: SampleUUIDsType = None,
-        peristaltic_pump_valve_number: int = 0,
+        peristaltic_pump_valve_number: int = 1,
     ) -> dict:
         if pick_code not in range(1, 16) or place_code not in range(1, 16):
             raise ValueError("原始电极和完成电极位置必须在 1-15 范围内")
@@ -700,6 +700,8 @@ class AI4M002Device(OpcUaClientWithSubscription):
         duration_sec: int = 20,
         current: float = 50.0,
         simulate_bts: bool = False,
+        voltage_lower: float = -10.0,
+        voltage_upper: float = 10.0,
     ) -> dict:
         if electrolytic_cell_id not in (1, 2):
             raise ValueError(f"电解池编号必须为 1 或 2: {electrolytic_cell_id}")
@@ -731,6 +733,8 @@ class AI4M002Device(OpcUaClientWithSubscription):
                         chl_list=[electrolytic_cell_id - 1],
                         duration_sec=duration_sec,
                         current=current,
+                        voltage_lower=voltage_lower,
+                        voltage_upper=voltage_upper,
                     )
                 except Exception as exc:
                     raise RuntimeError(f"BTS 执行失败: {exc}") from exc
@@ -787,6 +791,31 @@ class AI4M002Device(OpcUaClientWithSubscription):
             "response": response.text,
         }
 
+    @staticmethod
+    def _interpret_bts_wait(
+        states: dict,
+        chl_list: List[int],
+        elapsed_sec: float,
+        duration_sec: int,
+        seen_active: bool,
+    ) -> str:
+        """把通道状态收成 waiting / done / fault / early_stop。
+
+        IEST 通道：0 为空闲；保护停机（如欠压）后停留在 2，调用 stop 也不会回到 0。
+        """
+        if not states or any(chl not in states for chl in chl_list):
+            return "waiting"
+        if any(states.get(chl) == 2 for chl in chl_list):
+            return "fault"
+        if all(states.get(chl) == 0 for chl in chl_list):
+            if not seen_active:
+                return "waiting"
+            finish_after = max(0.0, duration_sec - max(5.0, duration_sec * 0.1))
+            if elapsed_sec >= finish_after:
+                return "done"
+            return "early_stop"
+        return "waiting"
+
     @not_action
     def bts_start_cp_test(
         self,
@@ -794,6 +823,8 @@ class AI4M002Device(OpcUaClientWithSubscription):
         duration_sec: int = 20,
         current: float = 50.0,
         dev_uuid: Optional[str] = None,
+        voltage_lower: float = -10.0,
+        voltage_upper: float = 10.0,
     ) -> dict:
         validation = self._bts_validate()
         if not validation["success"]:
@@ -821,6 +852,8 @@ class AI4M002Device(OpcUaClientWithSubscription):
                 }
             dev_uuid = devices[0]["dev-uuid"]
 
+        # 上次欠压/保护会把通道锁在状态 2，先清故障再启动。
+        self.bts_clear_error(dev_uuid, chl_list)
         self.bts_stop_test(dev_uuid, chl_list)
         start_url = f"{self._bts_base_url}/api/bts/test/start"
         test_id = f"test-cp-{int(time.time())}"
@@ -833,8 +866,8 @@ class AI4M002Device(OpcUaClientWithSubscription):
                 "chl-list": chl_list,
                 "globalProtect": {
                     "voltageProtect": {
-                        "underVoltage": -5,
-                        "overVoltage": 5,
+                        "underVoltage": voltage_lower,
+                        "overVoltage": voltage_upper,
                         "enableUnderVoltage": True,
                         "enableOverVoltage": True,
                         "enableRangeProtect": False,
@@ -862,8 +895,8 @@ class AI4M002Device(OpcUaClientWithSubscription):
                     "weight": 100,
                     "batteryBatchNum": "",
                     "currentUpperLimit": 100,
-                    "voltageUpperLimit": 5,
-                    "voltageLowerLimit": -5,
+                    "voltageUpperLimit": voltage_upper,
+                    "voltageLowerLimit": voltage_lower,
                 },
                 "stepList": [
                     {
@@ -914,8 +947,11 @@ class AI4M002Device(OpcUaClientWithSubscription):
                 "response": response.text,
             }
 
-        deadline = time.monotonic() + duration_sec + 15
-        time.sleep(min(5.0, max(1.0, duration_sec / 2)))
+        started_at = time.monotonic()
+        deadline = started_at + duration_sec + 15
+        seen_active = False
+        last_states: dict = {}
+        time.sleep(1.0)
         while time.monotonic() < deadline:
             state = self.bts_get_channel_state(chl_list, dev_uuid)
             if not state.get("success"):
@@ -925,7 +961,19 @@ class AI4M002Device(OpcUaClientWithSubscription):
                     "message": state.get("message", "查询BTS状态失败"),
                     "response": state.get("response"),
                 }
-            if state.get("all_idle"):
+            last_states = state.get("states") or {}
+            if any(
+                last_states.get(chl) not in (0, None) for chl in chl_list
+            ):
+                seen_active = True
+            verdict = self._interpret_bts_wait(
+                last_states,
+                chl_list,
+                time.monotonic() - started_at,
+                duration_sec,
+                seen_active,
+            )
+            if verdict == "done":
                 stop = self.bts_stop_test(dev_uuid, chl_list)
                 if not stop.get("success"):
                     return {**stop, "test_id": test_id}
@@ -935,13 +983,35 @@ class AI4M002Device(OpcUaClientWithSubscription):
                     "message": "BTS CP测试完成",
                     "response": response.text,
                 }
+            if verdict in ("fault", "early_stop"):
+                self.bts_stop_test(dev_uuid, chl_list)
+                self.bts_clear_error(dev_uuid, chl_list)
+                if verdict == "fault":
+                    message = (
+                        f"BTS通道保护停机，状态={last_states}。"
+                        f"电压超出保护范围 {voltage_lower}~{voltage_upper} V"
+                        "（通道日志中的欠压/过压）。请检查电解池接线、溶液和电流。"
+                    )
+                else:
+                    message = (
+                        f"BTS通道提前回到空闲，状态={last_states}，"
+                        "测试未达到设定时长，按保护停机处理。"
+                    )
+                return {
+                    "success": False,
+                    "test_id": test_id,
+                    "message": message,
+                    "states": last_states,
+                }
             time.sleep(2.0)
 
         self.bts_stop_test(dev_uuid, chl_list)
+        self.bts_clear_error(dev_uuid, chl_list)
         return {
             "success": False,
             "test_id": test_id,
-            "message": "BTS故障：等待通道空闲超时",
+            "message": f"BTS故障：等待通道结束超时，最后状态={last_states}",
+            "states": last_states,
         }
 
     @not_action
@@ -1017,6 +1087,32 @@ class AI4M002Device(OpcUaClientWithSubscription):
         return {
             "success": success,
             "message": "停止BTS测试成功" if success else "停止BTS测试失败",
+            "response": response.text,
+        }
+
+    @not_action
+    def bts_clear_error(self, dev_uuid: str, chl_list: List[int]) -> dict:
+        """清除通道保护锁存。欠压停机后状态会停在 2，不清除则下次启动仍被挡住。"""
+        if not self._bts_validated:
+            validation = self._bts_validate()
+            if not validation["success"]:
+                return validation
+        clear_url = f"{self._bts_base_url}/api/bts/test/clear-error"
+        payload = {
+            "cmd-type": 6,
+            "request-id": f"clear-error-{int(time.time())}",
+            "data": {"dev-ip": dev_uuid, "chl-list": chl_list},
+        }
+        response = self._bts_session.post(
+            clear_url,
+            json=payload,
+            timeout=self._bts_request_timeout,
+        )
+        success = response.status_code == 200
+        logger.info(f"BTS 清除通道故障: 状态码={response.status_code}, 响应={response.text}")
+        return {
+            "success": success,
+            "message": "清除BTS通道故障成功" if success else "清除BTS通道故障失败",
             "response": response.text,
         }
 

@@ -68,6 +68,12 @@ class RobotAction(IntEnum):
 class AI4MDevice(OpcUaClientWithSubscription):
     """OP10 工作站；使用独立 OPC UA 客户端和 OP10 变量表。"""
 
+    @staticmethod
+    def _convert_syringe_volume_to_plc_position(volume: float) -> int:
+        """将 Uni-Lab 的加液量（0-5000）换算为 PLC 位置（0-6000）。"""
+        converted = round(float(volume) / 5000 * 6000)
+        return int(converted)
+
     def __init__(
         self,
         url: str,
@@ -524,7 +530,10 @@ class AI4MDevice(OpcUaClientWithSubscription):
         self._write_node(f"{prefix}_speed", mag_stir_stir_speed)
         self._write_node(f"{prefix}_temperature", mag_stir_heat_temp)
         self._write_node(f"{prefix}_time", mag_stir_time_set)
-        self._write_node(f"{prefix}_syringe_position", syringe_pump_abs_position_set)
+        plc_syringe_position = self._convert_syringe_volume_to_plc_position(
+            syringe_pump_abs_position_set
+        )
+        self._write_node(f"{prefix}_syringe_position", plc_syringe_position)
         self._write_node(f"{prefix}_params_downloaded", True)
         self._wait_until(f"{prefix}_params_executed", True, f"检测站{station_id}参数执行")
         self._write_node(f"{prefix}_params_downloaded", False)
@@ -546,6 +555,7 @@ class AI4MDevice(OpcUaClientWithSubscription):
             "mag_stir_heat_temp": mag_stir_heat_temp,
             "mag_stir_time_set": mag_stir_time_set,
             "syringe_pump_abs_position_set": syringe_pump_abs_position_set,
+            "plc_syringe_position": plc_syringe_position,
         }
         return {
             "station_id": station_id,
@@ -642,7 +652,10 @@ class AI4MDevice(OpcUaClientWithSubscription):
             self._write_node(f"{prefix}_speed", mag_stir_stir_speed)
             self._write_node(f"{prefix}_temperature", mag_stir_heat_temp)
             self._write_node(f"{prefix}_time", mag_stir_time_set)
-            self._write_node(f"{prefix}_syringe_position", syringe_pump_abs_position_set)
+            plc_syringe_position = self._convert_syringe_volume_to_plc_position(
+                syringe_pump_abs_position_set
+            )
+            self._write_node(f"{prefix}_syringe_position", plc_syringe_position)
             self._write_node(f"{prefix}_params_downloaded", True)
 
         for station_id in (1, 2, 3):

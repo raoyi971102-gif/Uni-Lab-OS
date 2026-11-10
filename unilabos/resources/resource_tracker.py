@@ -108,25 +108,74 @@ def _augment_states_with_liquid_history(
     _walk(resource)
 
 
-def _normalize_states_for_plr(states: Dict[str, Any]) -> None:
-    """兼容缺少 ``pending_liquids`` 的旧版物料状态。
+def _liquid_history_loadable_by_plr(history: Any) -> bool:
+    """pylabrobot ``VolumeTracker.load_state`` 会执行 ``set(liquid_history)``。
 
-    部分旧版 Edge/前端同步的液体状态包含 ``liquids``，但缺少
-    ``pending_liquids``。当前 pylabrobot 的 ``VolumeTracker.load_state``
-    会直接读取 ``pending_liquids``，因此这里在进入 PLR 前补充空列表。
-
-    仅处理看起来属于液体 tracker 的状态，并为补字段的状态创建浅拷贝，
-    不修改 ResourceTree 中原有的状态对象。已有 ``pending_liquids`` 的
-    AI4C、PRCXI 以及其他设备状态保持原样。
+    字符串、枚举名可以放进 set。前端 / Uni-Lab 写入的 ``[名称, 体积]`` 或 dict
+    不可哈希，直接加载会抛 ``TypeError: unhashable type: 'list'``。
     """
+    if not isinstance(history, list):
+        return False
+    try:
+        set(history)
+    except TypeError:
+        return False
+    return True
+
+
+def _normalize_states_for_plr(states: Dict[str, Any]) -> Dict[str, Any]:
+    """把云端/前端液体状态整理成 pylabrobot ``load_state`` 能接受的形态。
+
+    - 缺少 ``pending_liquids`` 时，用 ``liquids`` 的浅拷贝补上，使当前液量与前端一致。
+    - ``liquid_history`` 若是 Uni-Lab 的 ``[名称, 体积]`` / dict 列表，先从状态里拿走，
+      改成空列表交给 PLR（避免 ``set()`` 崩溃），并通过返回值交还给调用方，
+      在 ``load_all_state`` 之后写回 tracker。
+
+    会改 ``states`` 里的条目引用，但为修改过的状态创建浅拷贝，不改 ResourceTree 原对象。
+    """
+    unilab_histories: Dict[str, Any] = {}
     for name, state in list(states.items()):
         if not isinstance(state, dict):
             continue
-        if "pending_liquids" in state:
-            continue
-        if "liquids" not in state:
-            continue
-        states[name] = {**state, "pending_liquids": []}
+        new_state: Optional[Dict[str, Any]] = None
+        if "pending_liquids" not in state and "liquids" in state:
+            liquids = state["liquids"]
+            pending = list(liquids) if isinstance(liquids, list) else []
+            new_state = {**state, "pending_liquids": pending}
+        history = (new_state if new_state is not None else state).get("liquid_history", None)
+        if isinstance(history, list) and not _liquid_history_loadable_by_plr(history):
+            if new_state is None:
+                new_state = dict(state)
+            unilab_histories[name] = history
+            new_state["liquid_history"] = []
+        if new_state is not None:
+            states[name] = new_state
+    return unilab_histories
+
+
+def _restore_unilab_liquid_history(resource: Any, histories: Dict[str, Any]) -> None:
+    """把 ``_normalize_states_for_plr`` 暂存的液体历史写回 tracker。"""
+    if not histories:
+        return
+    from unilabos.devices.liquid_handling.liquid_history import normalize_liquid_history
+
+    def _walk(node: Any) -> None:
+        name = getattr(node, "name", None)
+        if isinstance(name, str) and name in histories:
+            tracker = getattr(node, "tracker", None)
+            if tracker is not None:
+                tracker.liquid_history = normalize_liquid_history(histories[name])
+        for child in getattr(node, "children", ()) or ():
+            _walk(child)
+
+    _walk(resource)
+
+
+def apply_plr_resource_state(resource: Any, states: Dict[str, Any]) -> None:
+    """加载物料状态，并保留前端写入的 Uni-Lab ``liquid_history``。"""
+    histories = _normalize_states_for_plr(states)
+    resource.load_all_state(states)
+    _restore_unilab_liquid_history(resource, histories)
 
 
 class LabSample(TypedDict):
@@ -941,7 +990,6 @@ class ResourceTreeSet(object):
             name_to_extra: Dict[str, dict] = {}
             effective_names = build_plr_name_aliases(tree)
             collect_node_data(tree.root_node, effective_names, name_to_uuid, all_states, name_to_extra)
-            _normalize_states_for_plr(all_states)
             has_model = tree.root_node.res_content.type != "deck"
             plr_dict = node_to_plr_dict(tree.root_node, has_model, effective_names)
             try:
@@ -970,7 +1018,7 @@ class ResourceTreeSet(object):
                 location = cast(Coordinate, deserialize(plr_dict["location"]))
                 plr_resource.location = location
                 try:
-                    plr_resource.load_all_state(all_states)
+                    apply_plr_resource_state(plr_resource, all_states)
                 except Exception:
                     if factory is None:
                         raise

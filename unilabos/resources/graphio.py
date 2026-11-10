@@ -16,6 +16,7 @@ from unilabos.ros.msgs.message_converter import convert_to_ros_msg
 from unilabos.resources.resource_tracker import (
     ResourceDictInstance,
     ResourceTreeSet,
+    apply_plr_resource_state,
 )
 from unilabos.utils import logger
 from unilabos.utils.banner_print import print_status
@@ -617,7 +618,7 @@ def resource_ulab_to_plr(resource: dict, plr_model=False) -> "ResourcePLR":
     if "category" not in spect.parameters:
         d.pop("category")
     resource_plr = sub_cls.deserialize(d, allow_marshal=True)
-    resource_plr.load_all_state(all_states)
+    apply_plr_resource_state(resource_plr, all_states)
     return resource_plr
 
 

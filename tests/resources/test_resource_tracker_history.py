@@ -12,7 +12,9 @@ import pytest
 
 from unilabos.resources.resource_tracker import (
     _augment_states_with_liquid_history,
+    _liquid_history_loadable_by_plr,
     _normalize_states_for_plr,
+    apply_plr_resource_state,
 )
 
 
@@ -169,3 +171,65 @@ class TestNormalizeStatesForPlr:
 
         assert states["electrode"] is state
         assert "pending_liquids" not in states["electrode"]
+
+    def test_missing_pending_liquids_copies_current_liquids(self) -> None:
+        liquids = [["硫酸锌", 1]]
+        original = {"liquids": liquids, "max_volume": 500000}
+        states: Dict[str, Any] = {"flask": original}
+
+        _normalize_states_for_plr(states)
+
+        assert states["flask"] is not original
+        assert states["flask"]["pending_liquids"] == liquids
+        assert states["flask"]["pending_liquids"] is not liquids
+        assert "pending_liquids" not in original
+
+    def test_unhashable_liquid_history_is_stashed_for_plr(self) -> None:
+        history = [["硫酸锌", 1]]
+        original = {"liquids": [["硫酸锌", 1]], "liquid_history": history}
+        states: Dict[str, Any] = {"flask": original}
+
+        stashed = _normalize_states_for_plr(states)
+
+        assert stashed == {"flask": history}
+        assert states["flask"]["liquid_history"] == []
+        assert original["liquid_history"] == [["硫酸锌", 1]]
+        assert _liquid_history_loadable_by_plr(states["flask"]["liquid_history"])
+
+    def test_hashable_liquid_history_is_left_for_plr(self) -> None:
+        state = {"liquids": [], "pending_liquids": [], "liquid_history": ["WATER"]}
+        states: Dict[str, Any] = {"flask": state}
+
+        stashed = _normalize_states_for_plr(states)
+
+        assert stashed == {}
+        assert states["flask"] is state
+        assert states["flask"]["liquid_history"] == ["WATER"]
+
+
+def test_frontend_bottle_state_loads_into_tracker() -> None:
+    """复现前端创建含液烧杯：liquid_history 为 [名称, 体积] 列表时不再崩溃。"""
+    pytest.importorskip("pylabrobot")
+    from unilabos.resources.itemized_carrier import Bottle
+
+    bottle = Bottle(
+        name="Hydrogel_Powder_Containing_1BottleCarrier_flask_1",
+        diameter=70.0,
+        height=120.0,
+        max_volume=500000.0,
+    )
+    original_history = [["硫酸锌", 1]]
+    states: Dict[str, Any] = {
+        bottle.name: {
+            "liquids": [["硫酸锌", 1]],
+            "max_volume": 500000,
+            "liquid_history": original_history,
+        }
+    }
+
+    apply_plr_resource_state(bottle, states)
+
+    assert bottle.tracker.liquids == [("硫酸锌", 1)]
+    assert bottle.tracker.pending_liquids == [("硫酸锌", 1)]
+    assert bottle.tracker.liquid_history == [("硫酸锌", 1.0)]
+    assert original_history == [["硫酸锌", 1]]

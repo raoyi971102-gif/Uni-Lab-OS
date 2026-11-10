@@ -16,6 +16,7 @@ from unilabos.resources.resource_tracker import (
     ResourceDictInstance,
     ResourceTreeInstance,
     ResourceTreeSet,
+    apply_plr_resource_state,
     build_plr_name_to_uuid_map,
 )
 from unilabos.utils import logger
@@ -249,7 +250,7 @@ class PyLabRobotCreator(DeviceClassCreator[T]):
                     for kk, vv in all_states.items():
                         if kk not in v:
                             v[kk] = vv
-                    self.device_instance.load_all_state(v)
+                    apply_plr_resource_state(self.device_instance, v)
                 self.resource_tracker.add_resource(self.device_instance)
                 self.post_create()  # 对应DeviceClassCreator进行调用
                 return self.device_instance  # type: ignore

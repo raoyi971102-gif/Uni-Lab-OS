@@ -1,6 +1,7 @@
 import inspect
 import io
 import json
+import queue
 import threading
 import time
 import traceback
@@ -71,6 +72,7 @@ from unilabos.resources.resource_tracker import (
     ResourceTreeSet,
     ResourceTreeInstance,
     ResourceDictInstance,
+    apply_plr_resource_state,
     EXTRA_SAMPLE_UUID,
     EXTRA_FRONTEND_NAME,
     PARAM_SAMPLE_UUIDS,
@@ -1249,7 +1251,7 @@ class BaseROS2DeviceNode(Node, Generic[T]):
                 original_instance.location = plr_resource.location
                 original_instance.rotation = plr_resource.rotation
                 original_instance.barcode = plr_resource.barcode
-                original_instance.load_all_state(states)
+                apply_plr_resource_state(original_instance, states)
                 child_count = len(original_instance.get_all_children())
                 self.lab_logger().info(
                     f"更新了资源属性 {plr_resource}[{tree.root_node.res_content.uuid}] " f"及其子节点 {child_count} 个"
@@ -2317,6 +2319,57 @@ class BaseROS2DeviceNode(Node, Generic[T]):
 
         return execute_callback
 
+    def _run_sync_action_on_current_worker(
+        self,
+        function,
+        *,
+        function_name: str,
+        task_id: str,
+        job_id: str,
+        function_args: dict,
+        target_loop: asyncio.AbstractEventLoop,
+    ):
+        """在当前 worker 上执行同步动作，并保留异常决策回环。
+
+        决策回环跑在 asyncio 线程上。真正的设备调用通过队列交回当前 worker，
+        避免再向设备线程池申请第二个线程。
+        """
+        call_queue: queue.Queue = queue.Queue()
+
+        async def _run_on_current_worker(**kwargs):
+            loop = asyncio.get_running_loop()
+            done = loop.create_future()
+            call_queue.put((kwargs, done, loop))
+            return await done
+
+        decision_future = asyncio.run_coroutine_threadsafe(
+            self._run_action_with_decision_loop(
+                action_func=_run_on_current_worker,
+                action_name=function_name,
+                task_id=task_id,
+                job_id=job_id,
+                action_kwargs=function_args,
+                error_policy=get_action_error_policy(function),
+            ),
+            target_loop,
+        )
+
+        def _stop_waiting(_fut) -> None:
+            call_queue.put(None)
+
+        decision_future.add_done_callback(_stop_waiting)
+        while True:
+            item = call_queue.get()
+            if item is None:
+                return decision_future.result()
+            kwargs, done, loop = item
+            try:
+                result = function(**kwargs)
+            except Exception as exc:
+                loop.call_soon_threadsafe(done.set_exception, exc)
+            else:
+                loop.call_soon_threadsafe(done.set_result, result)
+
     def _execute_driver_command(self, string: str):
         try:
             target = json.loads(string)
@@ -2426,18 +2479,17 @@ class BaseROS2DeviceNode(Node, Generic[T]):
                 target_loop = ROS2DeviceNode.get_asyncio_loop()
                 if target_loop is None or not target_loop.is_running():
                     raise RuntimeError("设备异常处理 asyncio loop 未运行")
-                decision_future = asyncio.run_coroutine_threadsafe(
-                    self._run_action_with_decision_loop(
-                        action_func=lambda **kwargs: self._invoke_action(function, kwargs),
-                        action_name=function_name,
-                        task_id=task_id,
-                        job_id=job_id,
-                        action_kwargs=function_args,
-                        error_policy=get_action_error_policy(function),
-                    ),
-                    target_loop,
+                # 这次调用已经占用设备线程池的一个 worker。同步动作若再提交回
+                # 同一个线程池，长时间轮询会同时占住两个 worker。AI4M 三个检测站
+                # 加上机械臂就会把线程池占满，后启动的工位要等前一个加工返回才能开始。
+                return self._run_sync_action_on_current_worker(
+                    function,
+                    function_name=function_name,
+                    task_id=task_id,
+                    job_id=job_id,
+                    function_args=function_args,
+                    target_loop=target_loop,
                 )
-                return decision_future.result()
 
             # todo: 默认反报送
             return function(**function_args)
