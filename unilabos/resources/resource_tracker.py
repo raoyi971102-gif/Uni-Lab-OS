@@ -767,6 +767,16 @@ class ResourceTreeSet(object):
             build_uuid_mapping(resource, uuid_list, getattr(resource.parent, "unilabos_uuid", None))
 
             serialized_data = resource.serialize()
+            # PRCXI 板/枪头盒整板 serialize 会把子孔 Y 镜像给前端；运行后只回写
+            # 单个 well / tip_spot 时也必须走同一套坐标，否则用过的孔会被画到板外。
+            parent = getattr(resource, "parent", None)
+            apply_frontend_y = (
+                getattr(parent, "apply_frontend_row_y_to_serialized_child", None)
+                if parent is not None
+                else None
+            )
+            if callable(apply_frontend_y):
+                apply_frontend_y(serialized_data)
             all_states = resource.serialize_all_state()
             # P9 — PLR 原生 serialize_all_state 只输出 {liquids, pending_liquids}，
             # 丢弃 Uni-Lab 在 tracker 上挂的扩展属性 liquid_history。在这里把它并回 state dict
@@ -1271,6 +1281,16 @@ class ResourceTreeSet(object):
         """
         result = []
         for tree in self.trees:
+            # 启动 first_add 走 dump 而不是 PLR serialize；按井名把板内行 Y
+            # 写回前端网格，否则上次跑偏的孔重启后仍会缺一块。
+            try:
+                from unilabos.devices.liquid_handling.prcxi.prcxi import (
+                    rewrite_resourcedict_itemized_frontend_row_y,
+                )
+
+                rewrite_resourcedict_itemized_frontend_row_y(tree.root_node)
+            except Exception:
+                logger.warning("重写板内前端行 Y 失败，沿用原坐标上传", exc_info=True)
             # 获取树的所有节点并序列化
             tree_nodes = [node.res_content.model_dump(by_alias=True) for node in tree.get_all_nodes()]
             result.append(tree_nodes)

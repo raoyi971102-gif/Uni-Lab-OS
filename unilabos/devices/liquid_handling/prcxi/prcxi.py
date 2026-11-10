@@ -1,9 +1,10 @@
 import asyncio
 import collections
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 import contextlib
 import json
 import os
+import re
 import socket
 import time
 import uuid
@@ -312,6 +313,367 @@ class PRCXI9300Deck(Deck):
         return data
 
 
+_PRCXI_ITEMIZED_TREE_TYPES = {"plate", "tip_rack", "tube_rack"}
+_PRCXI_WELL_NAME_RE = re.compile(r"^([A-Z]+)(\d+)$")
+
+
+def _prcxi_itemized_num_items_y(resource) -> int:
+    """板 / TipRack / 管架的 Y 向孔数；单行或缺失时返回 1。"""
+    ny = getattr(resource, "num_items_y", None)
+    try:
+        n = int(ny) if ny is not None else 1
+    except (TypeError, ValueError):
+        n = 1
+    return n if n >= 1 else 1
+
+
+def _prcxi_row_index_from_name(name: str) -> Optional[int]:
+    """从 ``..._well_A1`` / ``B12`` 解析行号，A=0。"""
+    if not name:
+        return None
+    tail = str(name).rsplit("_", 1)[-1]
+    matched = _PRCXI_WELL_NAME_RE.match(tail) or _PRCXI_WELL_NAME_RE.search(str(name))
+    if matched is None:
+        return None
+    idx = 0
+    for ch in matched.group(1):
+        idx = idx * 26 + (ord(ch) - ord("A") + 1)
+    return idx - 1
+
+
+def _prcxi_child_center_y(child) -> Optional[float]:
+    loc = getattr(child, "location", None)
+    if loc is None or getattr(loc, "y", None) is None:
+        return None
+    try:
+        size_y = float(child.get_size_y()) if hasattr(child, "get_size_y") else 0.0
+    except Exception:
+        size_y = 0.0
+    return float(loc.y) + size_y / 2.0
+
+
+def _prcxi_is_plr_row_y(resource) -> bool:
+    """PLR ``create_ordered_items_2d`` 约定：A 行在高 Y（机器人后方）。
+
+    前端画面 Y 向下，高 Y 画在格子下边，所以 A 会看起来在「最后一行」。
+    本函数只根据第一列 A / 末行的中心 Y 判断，不改内存坐标。
+    """
+    ny = _prcxi_itemized_num_items_y(resource)
+    children = list(getattr(resource, "children", None) or [])
+    if ny <= 1 or len(children) < ny:
+        return True
+    a_y = _prcxi_child_center_y(children[0])
+    last_y = _prcxi_child_center_y(children[ny - 1])
+    if a_y is None or last_y is None:
+        return True
+    return a_y >= last_y - 1e-6
+
+
+def _prcxi_infer_item_dy(
+    samples: List[Tuple[int, float, float, Optional[float]]],
+    ny: int,
+    parent_sy: float,
+    child_sy: float,
+) -> float:
+    xs = sorted({x for *_, x in samples if x is not None})
+    if len(xs) >= 2:
+        item_dx = xs[1] - xs[0]
+        # 96 / 384 孔方形网格：行距≈列距；2×4 试剂架列距远大于行距，不能套用
+        if ny >= 8 and 1.0 < item_dx < 15.0:
+            return item_dx
+    if ny <= 1:
+        return max(child_sy, 1.0)
+    return max((parent_sy - child_sy) / ny, child_sy, 1.0)
+
+
+def _prcxi_row_loc_y_template(
+    *,
+    parent_sy: float,
+    ny: int,
+    samples: List[Tuple[int, float, float, Optional[float]]],
+    frontend: bool,
+) -> Dict[int, float]:
+    """按井名行号给出 location.y。
+
+    samples: ``(row, loc_y, child_sy, loc_x)``。优先用一整列未打乱的间距；
+    运行后部分孔被写成另一套 Y 时，不再对「当前值」做盲目镜像。
+    """
+    if parent_sy <= 0 or ny <= 1 or not samples:
+        return {}
+    cols: Dict[Optional[float], List[Tuple[int, float, float]]] = defaultdict(list)
+    child_sy_ref = samples[0][2]
+    for row, y, sy, x in samples:
+        key = None if x is None else round(float(x), 2)
+        cols[key].append((row, y, sy))
+
+    plr_template: Dict[int, float] = {}
+    for items in cols.values():
+        by_row: Dict[int, Tuple[float, float]] = {}
+        for row, y, sy in items:
+            by_row[row] = (y, sy)
+        if len(by_row) < 2:
+            continue
+        ordered = sorted(by_row.items())
+        ys = [y for _, (y, _) in ordered]
+        monotonic_plr = all(ys[i] > ys[i + 1] + 0.5 for i in range(len(ys) - 1))
+        monotonic_fe = all(ys[i] < ys[i + 1] - 0.5 for i in range(len(ys) - 1))
+        if monotonic_plr:
+            cand = {row: y for row, (y, _) in ordered}
+        elif monotonic_fe:
+            cand = {row: parent_sy - y - sy for row, (y, sy) in ordered}
+        else:
+            continue
+        if len(cand) > len(plr_template):
+            plr_template = cand
+            child_sy_ref = ordered[0][1][1]
+        if len(plr_template) >= ny:
+            break
+
+    if len(plr_template) < 2:
+        item_dy = _prcxi_infer_item_dy(samples, ny, parent_sy, child_sy_ref)
+        y_fe_0 = (parent_sy - child_sy_ref - (ny - 1) * item_dy) / 2.0
+        if y_fe_0 < 0:
+            y_fe_0 = 0.0
+        y_plr_0 = parent_sy - y_fe_0 - child_sy_ref
+        plr_template = {row: y_plr_0 - row * item_dy for row in range(ny)}
+
+    if 0 in plr_template and (ny - 1) in plr_template and ny > 1:
+        step = (plr_template[ny - 1] - plr_template[0]) / (ny - 1)
+        for row in range(ny):
+            plr_template.setdefault(row, plr_template[0] + row * step)
+    elif len(plr_template) >= 2:
+        known = sorted(plr_template)
+        step = (plr_template[known[-1]] - plr_template[known[0]]) / (known[-1] - known[0])
+        for row in range(ny):
+            plr_template.setdefault(row, plr_template[known[0]] + (row - known[0]) * step)
+
+    if frontend:
+        return {row: parent_sy - y - child_sy_ref for row, y in plr_template.items()}
+    return plr_template
+
+
+def _prcxi_samples_from_plr_children(children) -> List[Tuple[int, float, float, Optional[float]]]:
+    samples: List[Tuple[int, float, float, Optional[float]]] = []
+    for child in children:
+        row = _prcxi_row_index_from_name(getattr(child, "name", "") or "")
+        loc = getattr(child, "location", None)
+        if row is None or loc is None or getattr(loc, "y", None) is None:
+            continue
+        try:
+            child_sy = float(child.get_size_y()) if hasattr(child, "get_size_y") else 0.0
+        except Exception:
+            child_sy = 0.0
+        x = float(loc.x) if getattr(loc, "x", None) is not None else None
+        samples.append((row, float(loc.y), child_sy, x))
+    return samples
+
+
+def _prcxi_samples_from_serialized_children(
+    children: List[dict],
+) -> List[Tuple[int, float, float, Optional[float]]]:
+    samples: List[Tuple[int, float, float, Optional[float]]] = []
+    for node in children:
+        if not isinstance(node, dict):
+            continue
+        row = _prcxi_row_index_from_name(str(node.get("name") or ""))
+        loc = node.get("location")
+        if row is None or not isinstance(loc, dict) or loc.get("y") is None:
+            continue
+        try:
+            child_sy = float(node.get("size_y") or 0)
+            x = float(loc["x"]) if loc.get("x") is not None else None
+            samples.append((row, float(loc["y"]), child_sy, x))
+        except (TypeError, ValueError):
+            continue
+    return samples
+
+
+def _prcxi_infer_ny_from_samples(samples: List[Tuple[int, float, float, Optional[float]]], fallback: int = 1) -> int:
+    if not samples:
+        return fallback if fallback >= 1 else 1
+    return max(max(row for row, *_ in samples) + 1, fallback, 1)
+
+
+def _prcxi_flip_child_y(parent_size_y: float, child) -> None:
+    loc = getattr(child, "location", None)
+    if loc is None or getattr(loc, "y", None) is None:
+        return
+    try:
+        child_sy = float(child.get_size_y()) if hasattr(child, "get_size_y") else 0.0
+    except Exception:
+        child_sy = 0.0
+    child.location = Coordinate(float(loc.x), float(parent_size_y) - float(loc.y) - child_sy, float(loc.z))
+
+
+def _prcxi_restore_plr_row_y(resource) -> None:
+    """按井名把内存行 Y 重建为 PLR（A 在高 Y），兼容云端混入的前端 / 半翻坐标。"""
+    children = list(getattr(resource, "children", None) or [])
+    ny = _prcxi_infer_ny_from_samples(
+        _prcxi_samples_from_plr_children(children),
+        _prcxi_itemized_num_items_y(resource),
+    )
+    if ny <= 1:
+        return
+    try:
+        parent_sy = float(resource.get_size_y())
+    except Exception:
+        return
+    template = _prcxi_row_loc_y_template(
+        parent_sy=parent_sy,
+        ny=ny,
+        samples=_prcxi_samples_from_plr_children(children),
+        frontend=False,
+    )
+    if not template:
+        return
+    for child in children:
+        row = _prcxi_row_index_from_name(getattr(child, "name", "") or "")
+        loc = getattr(child, "location", None)
+        if row is None or row not in template or loc is None:
+            continue
+        child.location = Coordinate(float(loc.x), float(template[row]), float(getattr(loc, "z", 0) or 0))
+
+
+def _prcxi_assign_serialized_frontend_row_y(parent_sy: float, ny: int, children: List[dict]) -> None:
+    """把 serialize / dump 里的子孔 Y 写成前端行序（A 在画面上方）。"""
+    if parent_sy <= 0 or ny <= 1 or not children:
+        return
+    samples = _prcxi_samples_from_serialized_children(children)
+    ny = _prcxi_infer_ny_from_samples(samples, ny)
+    template = _prcxi_row_loc_y_template(
+        parent_sy=parent_sy,
+        ny=ny,
+        samples=samples,
+        frontend=True,
+    )
+    if not template:
+        return
+    for node in children:
+        if not isinstance(node, dict):
+            continue
+        loc = node.get("location")
+        row = _prcxi_row_index_from_name(str(node.get("name") or ""))
+        if row is None or row not in template or not isinstance(loc, dict):
+            continue
+        loc["y"] = float(template[row])
+
+
+def _prcxi_flip_serialized_itemized_children(data: dict) -> None:
+    """把 serialize 输出里的子孔 Y 写成前端 Y 向下（A 在画面上方），不改内存对象。"""
+    children = data.get("children")
+    if not isinstance(children, list) or not children:
+        return
+    try:
+        parent_sy = float(data.get("size_y") or 0)
+        ny = int(data.get("num_items_y") or 0)
+    except (TypeError, ValueError):
+        return
+    if ny <= 1:
+        ny = _prcxi_infer_ny_from_samples(_prcxi_samples_from_serialized_children(children), 1)
+    _prcxi_assign_serialized_frontend_row_y(parent_sy, ny, children)
+
+
+def rewrite_resourcedict_itemized_frontend_row_y(node) -> None:
+    """启动 dump / 云端回写：按井名把板内子孔 Y 拉回画面网格，避免重启后仍缺孔。"""
+    children = list(getattr(node, "children", None) or [])
+    res = getattr(node, "res_content", None)
+    res_type = str(getattr(res, "type", "") or "")
+    if res is not None and res_type in _PRCXI_ITEMIZED_TREE_TYPES and children:
+        config = getattr(res, "config", None) or {}
+        try:
+            ny = int(config.get("num_items_y") or 0)
+        except (TypeError, ValueError, AttributeError):
+            ny = 0
+        samples: List[Tuple[int, float, float, Optional[float]]] = []
+        for child in children:
+            content = getattr(child, "res_content", None)
+            if content is None:
+                continue
+            row = _prcxi_row_index_from_name(getattr(content, "name", "") or "")
+            pose = getattr(content, "pose", None)
+            if row is None or pose is None:
+                continue
+            try:
+                samples.append(
+                    (
+                        row,
+                        float(pose.position.y),
+                        float(pose.size.height or 0),
+                        float(pose.position.x),
+                    )
+                )
+            except Exception:
+                continue
+        ny = _prcxi_infer_ny_from_samples(samples, ny)
+        try:
+            parent_sy = float(res.pose.size.height)
+        except Exception:
+            parent_sy = 0.0
+        template = _prcxi_row_loc_y_template(
+            parent_sy=parent_sy,
+            ny=ny,
+            samples=samples,
+            frontend=True,
+        )
+        if template:
+            for child in children:
+                content = getattr(child, "res_content", None)
+                if content is None:
+                    continue
+                row = _prcxi_row_index_from_name(getattr(content, "name", "") or "")
+                pose = getattr(content, "pose", None)
+                if row is None or row not in template or pose is None:
+                    continue
+                pose.position.y = float(template[row])
+                if getattr(pose, "position3d", None) is not None:
+                    pose.position3d.y = float(template[row])
+    for child in children:
+        rewrite_resourcedict_itemized_frontend_row_y(child)
+
+
+class _PRCXIFrontendRowYMixin:
+    """前端 Y 向下：上传时把 A 行镜像到画面上方；内存 / 设备仍用 PLR 高 Y = A。"""
+
+    def serialize(self) -> dict:
+        data = super().serialize()
+        _prcxi_flip_serialized_itemized_children(data)
+        return data
+
+    def apply_frontend_row_y_to_serialized_child(self, data: dict) -> None:
+        """单孔 / 枪头增量上传时与整板 serialize 使用同一套前端行 Y。
+
+        运行后 ``update_resource(wells/tip_spots)`` 只序列化子节点，不走父级
+        ``serialize``；若按内存当前 Y 盲目镜像，用过的孔会被画到板外。
+        """
+        loc = data.get("location") if isinstance(data, dict) else None
+        if not isinstance(loc, dict):
+            return
+        row = _prcxi_row_index_from_name(str(data.get("name") or getattr(self, "name", "") or ""))
+        children = list(getattr(self, "children", None) or [])
+        samples = _prcxi_samples_from_plr_children(children)
+        ny = _prcxi_infer_ny_from_samples(samples, _prcxi_itemized_num_items_y(self))
+        if ny <= 1 or row is None:
+            return
+        try:
+            parent_sy = float(self.get_size_y())
+        except Exception:
+            return
+        template = _prcxi_row_loc_y_template(
+            parent_sy=parent_sy,
+            ny=ny,
+            samples=samples,
+            frontend=True,
+        )
+        if row in template:
+            loc["y"] = float(template[row])
+
+    @classmethod
+    def deserialize(cls, *args, **kwargs):
+        obj = super().deserialize(*args, **kwargs)
+        _prcxi_restore_plr_row_y(obj)
+        return obj
+
+
 class PRCXI9300Container(Container):
     """PRCXI 9300 的专用 Container 类，继承自 Plate，用于槽位定位和未知模块。
 
@@ -342,7 +704,7 @@ class PRCXI9300Container(Container):
         return data
 
 
-class PRCXI9300Plate(Plate):
+class PRCXI9300Plate(_PRCXIFrontendRowYMixin, Plate):
     """
     专用孔板类：
     1. 继承自 PLR 原生 Plate，保留所有物理特性。
@@ -403,6 +765,7 @@ class PRCXI9300Plate(Plate):
         self._unilabos_state = {}
         if material_info:
             self._unilabos_state["Material"] = material_info
+        _prcxi_restore_plr_row_y(self)
 
     def load_state(self, state: Dict[str, Any]) -> None:
         super().load_state(state)
@@ -436,7 +799,7 @@ class PRCXI9300Plate(Plate):
         return data  # 其他顶层属性也进行类型检查
 
 
-class PRCXI9300TipRack(TipRack):
+class PRCXI9300TipRack(_PRCXIFrontendRowYMixin, TipRack):
     """专用吸头盒类"""
 
     def __init__(
@@ -489,6 +852,7 @@ class PRCXI9300TipRack(TipRack):
         self._unilabos_state = {}
         if material_info:
             self._unilabos_state["Material"] = material_info
+        _prcxi_restore_plr_row_y(self)
 
     def load_state(self, state: Dict[str, Any]) -> None:
         super().load_state(state)
@@ -580,7 +944,7 @@ class PRCXI9300Trash(Trash):
         return data
 
 
-class PRCXI9300TubeRack(TubeRack):
+class PRCXI9300TubeRack(_PRCXIFrontendRowYMixin, TubeRack):
     """
     专用管架类：用于 EP 管架、试管架等。
     继承自 PLR 的 TubeRack，并支持注入 material_info (UUID)。
@@ -653,6 +1017,8 @@ class PRCXI9300TubeRack(TubeRack):
         self._unilabos_state = {}
         if material_info:
             self._unilabos_state["Material"] = material_info
+        # 工厂几何偶发已是前端行序时，先还原成 PLR，再由 serialize 镜像给前端
+        _prcxi_restore_plr_row_y(self)
 
     def serialize_state(self) -> Dict[str, Dict[str, Any]]:
         try:
@@ -2378,28 +2744,32 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
 
     @staticmethod
     def _normalize_reuse_tip_vols(
-        vols: Union[List[float], float, None], n_rounds: int, action_name: str, round_label: str
+        vols: Union[List[float], float, None],
+        n_rounds: int,
+        action_name: str,
+        round_label: str,
+        field_name: str = "vols",
     ) -> List[float]:
-        """把 ``vols`` 归一化为长度 ``n_rounds`` 的逐轮体积。
+        """把体积入参归一化为长度 ``n_rounds`` 的逐轮体积。
 
         标量或长度 1 → 广播到所有轮次；长度 == ``n_rounds`` → 逐轮取值；其余长度报错。
         """
         if vols is None:
-            raise ValueError(f"{action_name} 必须提供 vols")
+            raise ValueError(f"{action_name} 必须提供 {field_name}")
         vol_list = list(vols) if isinstance(vols, (list, tuple)) else [vols]
         if len(vol_list) == 0:
-            raise ValueError(f"{action_name} 的 vols 不能为空")
+            raise ValueError(f"{action_name} 的 {field_name} 不能为空")
         try:
             vol_list = [float(v) for v in vol_list]
         except (TypeError, ValueError) as exc:
-            raise ValueError(f"{action_name} 的 vols 必须是数字，实际 {vols!r}") from exc
+            raise ValueError(f"{action_name} 的 {field_name} 必须是数字，实际 {vols!r}") from exc
         if any(v <= 0 for v in vol_list):
-            raise ValueError(f"{action_name} 的 vols 必须为正数，实际 {vol_list}")
+            raise ValueError(f"{action_name} 的 {field_name} 必须为正数，实际 {vol_list}")
         if len(vol_list) == 1:
             return vol_list * n_rounds
         if len(vol_list) != n_rounds:
             raise ValueError(
-                f"{action_name} 的 vols 长度必须是 1（所有{round_label}共用）或 {n_rounds}"
+                f"{action_name} 的 {field_name} 长度必须是 1（所有{round_label}共用）或 {n_rounds}"
                 f"（逐{round_label}指定），实际 {len(vol_list)}"
             )
         return vol_list
@@ -2495,9 +2865,12 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         source: Container,
         target_groups: List[List[Container]],
         vols: List[float],
+        dis_vols: List[float],
         tip_racks: List[TipRack],
         use_channels: List[int],
         blow_out_air_volume: Optional[List[Optional[float]]],
+        dispense_blow_out_air_volume: Optional[List[Optional[float]]],
+        aspirate_hover_seconds: Optional[float],
         spread: Literal["wide", "tight", "custom"],
         tip_disposal: str,
     ) -> None:
@@ -2517,14 +2890,18 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         n_channels = len(use_channels)
         n_rounds = len(target_groups)
         self.set_tiprack(tip_racks)
-        for idx, (group, vol) in enumerate(zip(target_groups, vols)):
+        for idx, (group, asp_vol, dis_vol) in enumerate(zip(target_groups, vols, dis_vols)):
+            # PLR 枪头液量追踪只认吸入的液体；排液大于吸液时（典型：100 + 反向 10 → 排 110）
+            # 用 min 避免 TooLittleVolumeError，真正的 Tapping 体积走 prcxi_dispense_volume。
+            plr_dis = min(dis_vol, asp_vol)
             kwargs: Dict[str, Any] = {
                 "sources": [source] * n_channels,
                 "targets": list(group),
                 "tip_racks": tip_racks,
                 "use_channels": use_channels,
-                "asp_vols": [vol] * n_channels,
-                "dis_vols": [vol] * n_channels,
+                "asp_vols": [asp_vol] * n_channels,
+                "dis_vols": [plr_dis] * n_channels,
+                "prcxi_dispense_volume": dis_vol,
                 "pick_up": idx == 0,
                 "drop": idx == n_rounds - 1,
                 "tip_disposal": tip_disposal,
@@ -2532,8 +2909,16 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
                 "dis_flow_rates": [self._REUSE_TIP_FLOW_RATE] * n_channels,
                 "spread": spread,
             }
-            if blow_out_air_volume:
-                kwargs["blow_out_air_volume"] = list(blow_out_air_volume)
+            asp_air = _coerce_optional_vol_list(blow_out_air_volume)
+            if asp_air:
+                kwargs["blow_out_air_volume"] = asp_air
+            # 显式传入（含 None），避免 _transfer_base_method 把反向吸液拷到吹样。
+            kwargs["dispense_blow_out_air_volume"] = _coerce_optional_vol_list(
+                dispense_blow_out_air_volume
+            )
+            hover_s = _coerce_optional_hover_seconds(aspirate_hover_seconds)
+            if hover_s is not None:
+                kwargs["prcxi_aspirate_hover_s"] = hover_s
             await self._transfer_base_method(**kwargs)
 
     async def one_channel_reuse_tip(
@@ -2543,7 +2928,10 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         tip_racks: Sequence[TipRack],
         *,
         vols: Union[List[float], float],
+        dis_vols: Optional[Union[List[float], float]] = None,
         blow_out_air_volume: Optional[List[Optional[float]]] = None,
+        dispense_blow_out_air_volume: Optional[List[Optional[float]]] = None,
+        aspirate_hover_seconds: Optional[float] = None,
         tip_disposal: str = "trash",
         none_keys: List[str] = [],
     ) -> TransferLiquidReturn:
@@ -2556,8 +2944,11 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
             sources[吸液位置]: 单一吸液容器，只接受 1 个孔；每轮都从这里吸液。
             targets[放液目标]: 放液目标孔列表，按传入顺序逐个放液。
             tip_racks[枪头盒]: 取枪头用的 tip 盒列表；整个动作只取 1 个枪头。
-            vols[单次体积(µL)]: 每轮吸放液体积；只给 1 个值时所有目标孔共用，否则长度须等于目标孔数量。
-            blow_out_air_volume[吹出空气量(µL)]: 可选，每通道吹出空气体积；缺省用设备默认。
+            vols[吸液量(µL)]: 每轮吸液体积；只给 1 个值时所有目标孔共用，否则长度须等于目标孔数量。
+            dis_vols[排液量(µL)]: 可选，每轮排液体积；缺省与吸液量相同。典型用法：吸 100 + 反向吸液 10，排 110，再吹样。
+            blow_out_air_volume[反向吸液(µL)]: 可选，吸液后垫入的空气体积；缺省不反向吸液。
+            dispense_blow_out_air_volume[吹样(µL)]: 可选，排液后额外吹出的空气体积；缺省用设备默认 5µL。
+            aspirate_hover_seconds[悬停(秒)]: 可选，吸液后枪头停在孔内的秒数；缺省不悬停。
             tip_disposal[枪头结束处理]: ``TRASH1`` / ``TRASH2`` 选择同名垃圾桶；
                 ``RETURN`` 放回枪头盒原孔。
             none_keys[空值字段]: 上游标记为"未填写"的字段名列表。
@@ -2566,11 +2957,20 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         source, targets, tip_racks, tip_rack = await self._reuse_tip_prologue(
             action_name, sources, targets, tip_racks
         )
+        if "dis_vols" in (none_keys or []) or dis_vols == []:
+            dis_vols = None
         vol_list = self._normalize_reuse_tip_vols(vols, len(targets), action_name, "目标孔")
-        max_vol = max(vol_list)
+        dis_list = (
+            vol_list
+            if dis_vols is None
+            else self._normalize_reuse_tip_vols(
+                dis_vols, len(targets), action_name, "目标孔", field_name="dis_vols"
+            )
+        )
+        max_vol = max(vol_list + dis_list)
         use_channels = self._select_reuse_tip_channels(1, max_vol, action_name)
         self._check_reuse_tip_capacity(tip_rack, max_vol, action_name)
-        self._check_reuse_target_capacity([[target] for target in targets], vol_list, action_name)
+        self._check_reuse_target_capacity([[target] for target in targets], dis_list, action_name)
         self._sync_pipetting_positions([source], targets, tip_rack)
 
         try:
@@ -2578,9 +2978,12 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
                 source=source,
                 target_groups=[[t] for t in targets],
                 vols=vol_list,
+                dis_vols=dis_list,
                 tip_racks=tip_racks,
                 use_channels=use_channels,
                 blow_out_air_volume=blow_out_air_volume,
+                dispense_blow_out_air_volume=dispense_blow_out_air_volume,
+                aspirate_hover_seconds=aspirate_hover_seconds,
                 spread="wide",
                 tip_disposal=tip_disposal,
             )
@@ -2601,7 +3004,10 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         tip_racks: Sequence[TipRack],
         *,
         vols: Union[List[float], float],
+        dis_vols: Optional[Union[List[float], float]] = None,
         blow_out_air_volume: Optional[List[Optional[float]]] = None,
+        dispense_blow_out_air_volume: Optional[List[Optional[float]]] = None,
+        aspirate_hover_seconds: Optional[float] = None,
         tip_disposal: str = "trash",
         none_keys: List[str] = [],
     ) -> TransferLiquidReturn:
@@ -2615,8 +3021,11 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
             sources[吸液位置]: 单一吸液容器（储液槽），只接受 1 个孔；8 个通道每轮都从这里吸液。
             targets[放液目标]: 放液目标孔列表，长度须为 8 的整数倍，每 8 个为同板同列的 A~H。
             tip_racks[枪头盒]: 取枪头用的 tip 盒列表；整个动作只取一整列 8 个枪头。
-            vols[单列体积(µL)]: 每列每通道的吸放液体积；只给 1 个值时所有列共用，否则长度须等于列数。
-            blow_out_air_volume[吹出空气量(µL)]: 可选，每通道吹出空气体积；缺省用设备默认。
+            vols[吸液量(µL)]: 每列每通道的吸液体积；只给 1 个值时所有列共用，否则长度须等于列数。
+            dis_vols[排液量(µL)]: 可选，每列每通道的排液体积；缺省与吸液量相同。典型用法：吸 100 + 反向吸液 10，排 110，再吹样。
+            blow_out_air_volume[反向吸液(µL)]: 可选，吸液后垫入的空气体积；缺省不反向吸液。
+            dispense_blow_out_air_volume[吹样(µL)]: 可选，排液后额外吹出的空气体积；缺省用设备默认 5µL。
+            aspirate_hover_seconds[悬停(秒)]: 可选，吸液后枪头停在孔内的秒数；缺省不悬停。
             tip_disposal[枪头结束处理]: ``TRASH1`` / ``TRASH2`` 选择同名垃圾桶；
                 ``RETURN`` 放回枪头盒原孔。
             none_keys[空值字段]: 上游标记为"未填写"的字段名列表。
@@ -2626,11 +3035,20 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
             action_name, sources, targets, tip_racks
         )
         target_columns = self._split_target_columns(targets, action_name)
+        if "dis_vols" in (none_keys or []) or dis_vols == []:
+            dis_vols = None
         vol_list = self._normalize_reuse_tip_vols(vols, len(target_columns), action_name, "列")
-        max_vol = max(vol_list)
+        dis_list = (
+            vol_list
+            if dis_vols is None
+            else self._normalize_reuse_tip_vols(
+                dis_vols, len(target_columns), action_name, "列", field_name="dis_vols"
+            )
+        )
+        max_vol = max(vol_list + dis_list)
         use_channels = self._select_reuse_tip_channels(8, max_vol, action_name)
         self._check_reuse_tip_capacity(tip_rack, max_vol, action_name)
-        self._check_reuse_target_capacity(target_columns, vol_list, action_name)
+        self._check_reuse_target_capacity(target_columns, dis_list, action_name)
         self._sync_pipetting_positions([source], targets, tip_rack)
 
         try:
@@ -2638,9 +3056,12 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
                 source=source,
                 target_groups=target_columns,
                 vols=vol_list,
+                dis_vols=dis_list,
                 tip_racks=tip_racks,
                 use_channels=use_channels,
                 blow_out_air_volume=blow_out_air_volume,
+                dispense_blow_out_air_volume=dispense_blow_out_air_volume,
+                aspirate_hover_seconds=aspirate_hover_seconds,
                 # 8 个通道同时插进同一个源孔：PLR 的 wide/tight 会按孔几何算通道间距并可能抛
                 # ChannelsDoNotFitError，而 PRCXI 下发的是槽位 + 整列孔号、完全不用 offsets，
                 # 故用 custom（零偏移）跳过与设备无关的几何校验。
@@ -3042,6 +3463,81 @@ class PRCXI9300Handler(LiquidHandlerAbstract):
         if self.step_mode and step is not None:
             await self.run_protocol()
         return step
+
+
+def _coerce_optional_vol_list(value: Any) -> Optional[List[Optional[float]]]:
+    """表单单值或列表都收；空值视为未填。"""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return [float(value)]
+    if isinstance(value, (list, tuple)):
+        if len(value) == 0:
+            return None
+        return list(value)
+    return None
+
+
+def _prcxi_tapping_assist_fun(
+    op_blow_out: Optional[float],
+    *,
+    override: bool = False,
+    override_ul: Optional[float] = None,
+) -> str:
+    """排液「吹样」辅助功能。
+
+    复用枪头把吹样和反向吸液拆开后，吹样可以大于吸入气垫；此时 ``override=True``，
+    不再读 PLR op 上的配对空气量。未填吹样时用设备默认 5µL。
+    """
+    if override:
+        return _prcxi_format_assist_fun("吹样", 5 if override_ul is None else override_ul)
+    if op_blow_out is not None:
+        return _prcxi_format_assist_fun("吹样", op_blow_out)
+    return _prcxi_format_assist_fun("吹样", 5)
+
+
+def _prcxi_format_assist_fun(name: str, value: float, unit: str = "ul") -> str:
+    """中析电脑软件导出的辅助功能字符串。
+
+    官方协议是 `` 反向吸液(50ul)`` / `` 悬停(10s)``：前导空格、整数、无小数点。
+    写成 ``反向吸液(5.0ul)`` 时 9320 会忽略，看起来像没吸空气。
+    """
+    vol = int(round(float(value)))
+    if vol < 0:
+        vol = 0
+    return f" {name}({vol}{unit})"
+
+
+def _prcxi_imbibing_assist_funs(
+    *,
+    hover_s: Optional[float] = None,
+    reverse_ul: Optional[float] = None,
+) -> Tuple[str, str, str, str, str]:
+    """吸液辅助功能槽位：官方同时开悬停+反向吸液时 AssistA=悬停、AssistB=反向吸液。"""
+    parts: List[str] = []
+    if hover_s is not None and float(hover_s) > 0:
+        parts.append(_prcxi_format_assist_fun("悬停", hover_s, "s"))
+    if reverse_ul is not None:
+        parts.append(_prcxi_format_assist_fun("反向吸液", reverse_ul))
+    parts += [""] * 5
+    return parts[0], parts[1], parts[2], parts[3], parts[4]
+
+
+def _coerce_optional_hover_seconds(value: Any) -> Optional[float]:
+    """表单单值或单元素列表都收；≤0 / 空视为未填。"""
+    if value is None or value == "" or value == []:
+        return None
+    if isinstance(value, (list, tuple)):
+        if not value:
+            return None
+        value = value[0]
+    try:
+        sec = float(value)
+    except (TypeError, ValueError):
+        return None
+    if sec <= 0:
+        return None
+    return sec
 
 
 class PRCXI9300Backend(LiquidHandlerBackend):
@@ -3618,7 +4114,12 @@ class PRCXI9300Backend(LiquidHandlerBackend):
         )
         self.steps_todo_list.append(step)
 
-    async def aspirate(self, ops: List[SingleChannelAspiration], use_channels: List[int] = None):
+    async def aspirate(
+        self,
+        ops: List[SingleChannelAspiration],
+        use_channels: List[int] = None,
+        prcxi_aspirate_hover_s: Optional[float] = None,
+    ):
         """Aspirate liquid from the specified resources."""
         axis = self._axis_from_channels(
             use_channels, volume=getattr(ops[0], "volume", None) if ops else None
@@ -3655,11 +4156,12 @@ class PRCXI9300Backend(LiquidHandlerBackend):
         PlateNo = plate_slots[0]
         hole_col = tip_columns[0] + 1
         hole_row = 1
-        assist_fun1 = ""
         if _eff_nc != 8:
             hole_row = tipspot_index % ny + 1
-        if ops[0].blow_out_air_volume is not None:
-            assist_fun1 = f"反向吸液({float(min(max(ops[0].blow_out_air_volume,0),10))}ul)"
+        assist_fun1, assist_fun2, assist_fun3, assist_fun4, assist_fun5 = _prcxi_imbibing_assist_funs(
+            hover_s=prcxi_aspirate_hover_s,
+            reverse_ul=ops[0].blow_out_air_volume,
+        )
         raw_liquid_height = ops[0].liquid_height
         safe_liquid_height = 0.0 if raw_liquid_height is None else float(raw_liquid_height)
 
@@ -3675,10 +4177,21 @@ class PRCXI9300Backend(LiquidHandlerBackend):
             plate_or_hole=f"H{hole_col}-{ny},T{PlateNo}",
             hole_numbers="1,2,3,4,5,6,7,8",
             assist_fun1=assist_fun1,
+            assist_fun2=assist_fun2,
+            assist_fun3=assist_fun3,
+            assist_fun4=assist_fun4,
+            assist_fun5=assist_fun5,
         )
         self.steps_todo_list.append(step)
 
-    async def dispense(self, ops: List[SingleChannelDispense], use_channels: List[int] = None):
+    async def dispense(
+        self,
+        ops: List[SingleChannelDispense],
+        use_channels: List[int] = None,
+        prcxi_dispense_blow_ul: Optional[float] = None,
+        prcxi_dispense_blow_override: bool = False,
+        prcxi_dispense_volume: Optional[float] = None,
+    ):
         """Dispense liquid into the specified resources."""
         axis = self._axis_from_channels(
             use_channels, volume=getattr(ops[0], "volume", None) if ops else None
@@ -3719,17 +4232,17 @@ class PRCXI9300Backend(LiquidHandlerBackend):
         if _eff_nc != 8:
             hole_row = tipspot_index % ny + 1
 
-        assist_fun1 = ""
-        if ops[0].blow_out_air_volume is not None:
-            assist_fun1 = f"吹样({float(min(max(ops[0].blow_out_air_volume,5),10))}ul)"
-        else :
-            assist_fun1 = f"吹样({5.0}ul)"
+        assist_fun1 = _prcxi_tapping_assist_fun(
+            ops[0].blow_out_air_volume,
+            override=bool(prcxi_dispense_blow_override),
+            override_ul=prcxi_dispense_blow_ul,
+        )
         raw_liquid_height = ops[0].liquid_height
         safe_liquid_height = 0.0 if raw_liquid_height is None else float(raw_liquid_height)
 
         step = self.api_client.Tapping(
             axis=axis,
-            dosage=float(volumes[0]),
+            dosage=float(prcxi_dispense_volume) if prcxi_dispense_volume is not None else float(volumes[0]),
             plate_no=PlateNo,
             is_whole_plate=False,
             hole_row=hole_row,

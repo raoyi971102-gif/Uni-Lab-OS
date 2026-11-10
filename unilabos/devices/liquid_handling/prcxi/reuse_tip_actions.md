@@ -26,18 +26,31 @@ await handler.one_channel_reuse_tip(
     sources,          # 只接受 1 个孔：每轮都从这里吸液
     targets,
     tip_racks,
-    vols=50.0,        # 或 [50.0, 60.0, ...]
-    blow_out_air_volume=None,
+    vols=100.0,       # 吸液量；或 [100.0, 120.0, ...]
+    dis_vols=110.0,   # 排液量；不填则与吸液量相同
+    blow_out_air_volume=None,            # 反向吸液
+    dispense_blow_out_air_volume=None,   # 吹样
+    aspirate_hover_seconds=None,         # 吸液后悬停（秒）
 )
 ```
 
 - `sources` **只接受 1 个孔**（多于 1 个直接报错）。8 通道版同样只给 1 个孔（储液槽/trough），
   内部广播成 8 份，8 个通道同时从这一个孔吸液。
-- `vols` 是唯一的体积入参。`asp_vols` / `dis_vols` / `asp_flow_rates` / `dis_flow_rates`
-  **不对外暴露**：吸放体积相等取自 `vols`，速率固定 30。
+- `vols` 是吸液量；`dis_vols` 是排液量（可选，不填则等于吸液量）。典型用法：吸 100、
+  反向吸液 10、排 110、再吹样。`asp_vols` / `asp_flow_rates` / `dis_flow_rates`
+  **不对外暴露**，速率固定 30。
+  排液量可以大于吸液量（把反向吸液的气垫一并推出）。PLR 液量追踪按吸入液体计算，
+  设备 `Tapping.DosageNum` 用你填的排液量。
 - 也不暴露 `use_channels`（由轴选择推导）、`mix_*`、`liquid_height`、`offsets`、`delays`、
   `touch_tip`。需要这些能力时用 `transfer_liquid`。
-- `blow_out_air_volume` 可选，逐通道透传给 PLR（PRCXI 端映射为「反向吸液 / 吹样」辅助功能）。
+- `blow_out_air_volume` 可选，映射为吸液辅助功能「反向吸液」；不填则不垫空气。
+- `dispense_blow_out_air_volume` 可选，映射为排液辅助功能「吹样」；不填则用设备默认 5µL。
+  两个空气量必须分开填：同一数值只会把气垫吹走，排干后不会再多吹一段。
+  吹样可以大于反向吸液（中析辅助功能彼此独立）。PLR 的气垫配对校验只看反向吸液，
+  吹样由 PRCXI backend 单独写入 `Tapping.AssistFun1`。
+- `aspirate_hover_seconds` 可选，映射为吸液辅助功能「悬停」。官方字符串是
+  `` 悬停(10s)``（前导空格、整数秒）。与反向吸液同时填时，协议槽位是
+  AssistA=悬停、AssistB=反向吸液。这是设备端停在孔内，不是 Uni-Lab 软件 sleep。
 
 ## 轴选择
 
@@ -87,6 +100,6 @@ await handler.one_channel_reuse_tip(
 pytest tests/devices/liquid_handling/test_prcxi_reuse_tip_actions.py
 ```
 
-27 项：轮次编排（首轮取 / 末轮丢）、固定速率与轴选择、`vols` 长度规则、量程报错、
-8 通道整列校验、失败清理，以及注册表暴露校验（动作名、`placeholder_keys`、`handles`、
-未暴露的速率/体积参数）。
+轮次编排（首轮取 / 末轮丢）、固定速率与轴选择、`vols` 长度规则、量程报错、
+8 通道整列校验、失败清理、反向吸液与吹样分开下发，以及注册表暴露校验（动作名、
+`placeholder_keys`、`handles`、未暴露的速率/体积参数）。

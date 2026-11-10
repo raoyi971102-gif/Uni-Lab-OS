@@ -8262,7 +8262,10 @@ liquid_handler.prcxi:
         feedback: {}
         goal: {}
         goal_default:
+          aspirate_hover_seconds: null
           blow_out_air_volume: null
+          dis_vols: null
+          dispense_blow_out_air_volume: null
           none_keys: []
           sources: null
           targets: null
@@ -8310,11 +8313,21 @@ liquid_handler.prcxi:
             feedback: {}
             goal:
               properties:
+                aspirate_hover_seconds:
+                  description: 可选，吸液后枪头停在孔内的秒数；缺省不悬停。
+                  title: 悬停(秒)
+                  type: number
                 blow_out_air_volume:
-                  description: 可选，每通道吹出空气体积；缺省用设备默认。
+                  description: 可选，吸液后垫入的空气体积；缺省不反向吸液。
                   items:
                     type: number
-                  title: 吹出空气量(µL)
+                  title: 反向吸液(µL)
+                  type: array
+                dispense_blow_out_air_volume:
+                  description: 可选，排液后额外吹出的空气体积；缺省用设备默认 5µL。
+                  items:
+                    type: number
+                  title: 吹样(µL)
                   type: array
                 none_keys:
                   default: []
@@ -8350,14 +8363,22 @@ liquid_handler.prcxi:
                     type: object
                   title: 枪头盒
                   type: array
+                dis_vols:
+                  anyOf:
+                  - items:
+                      type: number
+                    type: array
+                  - type: number
+                  description: 可选，每列每通道的排液体积；缺省与吸液量相同。典型：吸 100 + 反向吸液 10，排 110，再吹样。
+                  title: 排液量(µL)
                 vols:
                   anyOf:
                   - items:
                       type: number
                     type: array
                   - type: number
-                  description: 每列每通道的吸放液体积；只给 1 个值时所有列共用，否则长度须等于列数。
-                  title: 单列体积(µL)
+                  description: 每列每通道的吸液体积；只给 1 个值时所有列共用，否则长度须等于列数。
+                  title: 吸液量(µL)
               required:
               - sources
               - targets
@@ -8985,7 +9006,10 @@ liquid_handler.prcxi:
         feedback: {}
         goal: {}
         goal_default:
+          aspirate_hover_seconds: null
           blow_out_air_volume: null
+          dis_vols: null
+          dispense_blow_out_air_volume: null
           none_keys: []
           sources: null
           targets: null
@@ -9033,11 +9057,21 @@ liquid_handler.prcxi:
             feedback: {}
             goal:
               properties:
+                aspirate_hover_seconds:
+                  description: 可选，吸液后枪头停在孔内的秒数；缺省不悬停。
+                  title: 悬停(秒)
+                  type: number
                 blow_out_air_volume:
-                  description: 可选，每通道吹出空气体积；缺省用设备默认。
+                  description: 可选，吸液后垫入的空气体积；缺省不反向吸液。
                   items:
                     type: number
-                  title: 吹出空气量(µL)
+                  title: 反向吸液(µL)
+                  type: array
+                dispense_blow_out_air_volume:
+                  description: 可选，排液后额外吹出的空气体积；缺省用设备默认 5µL。
+                  items:
+                    type: number
+                  title: 吹样(µL)
                   type: array
                 none_keys:
                   default: []
@@ -9073,14 +9107,22 @@ liquid_handler.prcxi:
                     type: object
                   title: 枪头盒
                   type: array
+                dis_vols:
+                  anyOf:
+                  - items:
+                      type: number
+                    type: array
+                  - type: number
+                  description: 可选，每轮排液体积；缺省与吸液量相同。典型：吸 100 + 反向吸液 10，排 110，再吹样。
+                  title: 排液量(µL)
                 vols:
                   anyOf:
                   - items:
                       type: number
                     type: array
                   - type: number
-                  description: 每轮吸放液体积；只给 1 个值时所有目标孔共用，否则长度须等于目标孔数量。
-                  title: 单次体积(µL)
+                  description: 每轮吸液体积；只给 1 个值时所有目标孔共用，否则长度须等于目标孔数量。
+                  title: 吸液量(µL)
               required:
               - sources
               - targets

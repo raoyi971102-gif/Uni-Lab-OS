@@ -2575,6 +2575,9 @@ class LiquidHandlerAbstract(LiquidHandlerMiddleware):
         liquid_height = kwargs.get('liquid_height')
         blow_out_air_volume = kwargs.get('blow_out_air_volume')
         blow_out_air_volume_before = kwargs.get('blow_out_air_volume_before')
+        # 复用枪头等路径可单独传排液吹样；缺这个键时保持旧行为（吹样=反向吸液+预吸空气）。
+        has_dispense_blow = "dispense_blow_out_air_volume" in kwargs
+        dispense_blow_out_air_volume = kwargs.get("dispense_blow_out_air_volume")
         spread = kwargs.get('spread', 'wide')
         mix_stage = kwargs.get('mix_stage')
         mix_times = kwargs.get('mix_times')
@@ -2679,6 +2682,9 @@ class LiquidHandlerAbstract(LiquidHandlerMiddleware):
                 if source_tracker is not None:
                     source_tracker.enable()
 
+        aspirate_kwargs: Dict[str, Any] = {}
+        if kwargs.get("prcxi_aspirate_hover_s") is not None:
+            aspirate_kwargs["prcxi_aspirate_hover_s"] = kwargs["prcxi_aspirate_hover_s"]
         await self.aspirate(
             resources=asp_resources,
             vols=asp_vols_arg,
@@ -2691,11 +2697,36 @@ class LiquidHandlerAbstract(LiquidHandlerMiddleware):
                 else ([blow_out_air_volume_vol] if blow_out_air_volume_vol > 0 else None)
             ),
             spread=spread,
+            **aspirate_kwargs,
         )
         if delays is not None and len(delays) > 0:
             await self.custom_delay(seconds=delays[0])
         # 合并 before/after 空气体积逐通道；dispense 时一次性吐回。
-        if multi_channel:
+        # 若调用方显式传入 dispense_blow_out_air_volume（含 None），则不再把反向吸液体积拷到吹样。
+        # PLR 会校验「排出空气 ≤ 吸入空气」，吹样大于反向吸液时会 BlowOutVolumeError；
+        # 因此 PLR 只带反向吸液气垫，真正的吹样走 PRCXI backend 的独立参数。
+        dispense_kwargs: Dict[str, Any] = {}
+        if kwargs.get("prcxi_dispense_volume") is not None:
+            dispense_kwargs["prcxi_dispense_volume"] = float(kwargs["prcxi_dispense_volume"])
+        if has_dispense_blow:
+            blow_dispense_list = (
+                _pad_to_n(dispense_blow_out_air_volume, n_ch) if dispense_blow_out_air_volume else None
+            )
+            if blow_dispense_list and any((v or 0) > 0 for v in blow_dispense_list):
+                assist_ul: Optional[float] = float(blow_dispense_list[0] or 0)
+            else:
+                assist_ul = None
+            if blow_after_list and any((v or 0) > 0 for v in blow_after_list):
+                blow_for_dispense = (
+                    [float(v or 0) for v in blow_after_list]
+                    if multi_channel
+                    else [blow_out_air_volume_vol]
+                )
+            else:
+                blow_for_dispense = None
+            dispense_kwargs["prcxi_dispense_blow_override"] = True
+            dispense_kwargs["prcxi_dispense_blow_ul"] = assist_ul
+        elif multi_channel:
             blow_for_dispense = [
                 float(((blow_after_list[k] if blow_after_list else 0) or 0)
                       + ((blow_before_list[k] if blow_before_list else 0) or 0))
@@ -2712,6 +2743,7 @@ class LiquidHandlerAbstract(LiquidHandlerMiddleware):
             blow_out_air_volume=blow_for_dispense,
             liquid_height=dis_liquid_h,
             spread=spread,
+            **dispense_kwargs,
         )
         if delays is not None and len(delays) > 1:
             await self.custom_delay(seconds=delays[1])

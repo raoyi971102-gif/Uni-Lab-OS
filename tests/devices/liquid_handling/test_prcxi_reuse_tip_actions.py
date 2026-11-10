@@ -293,6 +293,30 @@ class TestOneChannelReuseTip:
 
         assert [r["asp_vols"] for r in cap.rounds] == [[25.0]] * 3
         assert [r["dis_vols"] for r in cap.rounds] == [[25.0]] * 3
+        assert [r["prcxi_dispense_volume"] for r in cap.rounds] == [25.0] * 3
+
+    def test_dis_vols_can_exceed_aspirate_to_push_air_cushion(self) -> None:
+        """吸 100、排 110：PLR 只排 100 液体，设备 Tapping 用 110 把气垫一并推出。"""
+        prcxi = _make_fake_prcxi()
+        cap = _install_capture(prcxi)
+        plate = _DummyPlate("p_tgt")
+        source = _DummyWell("S0", parent=_DummyPlate("p_src"))
+
+        _run(
+            prcxi.one_channel_reuse_tip(
+                [source],
+                plate.children[:1],
+                [_tip_rack()],
+                vols=100.0,
+                dis_vols=110.0,
+                blow_out_air_volume=[10],
+            )
+        )
+
+        assert cap.rounds[0]["asp_vols"] == [100.0]
+        assert cap.rounds[0]["dis_vols"] == [100.0]
+        assert cap.rounds[0]["prcxi_dispense_volume"] == 110.0
+        assert cap.rounds[0]["blow_out_air_volume"] == [10]
 
     def test_per_target_vols(self) -> None:
         """vols 长度 == 目标孔数量 → 逐孔体积。"""
@@ -630,10 +654,159 @@ class TestRegistryExposure:
         "action_name", ["one_channel_reuse_tip", "eight_channels_reuse_tips"]
     )
     def test_rate_params_not_exposed(self, action_name: str) -> None:
-        """asp_rates / dis_rates / asp_vols / dis_vols 不对外暴露（速率固定 30、体积走 vols）。"""
+        """asp_rates / asp_vols / use_channels 不对外暴露（速率固定 30、吸液体积走 vols）。"""
         goal_props = self._prcxi_actions()[action_name]["schema"]["properties"]["goal"]["properties"]
-        for hidden in ("asp_flow_rates", "dis_flow_rates", "asp_vols", "dis_vols", "use_channels"):
+        for hidden in ("asp_flow_rates", "dis_flow_rates", "asp_vols", "use_channels"):
             assert hidden not in goal_props
+        assert goal_props["vols"]["title"] == "吸液量(µL)"
+        assert goal_props["dis_vols"]["title"] == "排液量(µL)"
+
+    @pytest.mark.parametrize(
+        "action_name", ["one_channel_reuse_tip", "eight_channels_reuse_tips"]
+    )
+    def test_reverse_aspirate_and_blowout_are_separate_fields(self, action_name: str) -> None:
+        """反向吸液 / 吹样拆成两个独立表单字段，不再共用「吹出空气量」。"""
+        goal_props = self._prcxi_actions()[action_name]["schema"]["properties"]["goal"]["properties"]
+        assert goal_props["blow_out_air_volume"]["title"] == "反向吸液(µL)"
+        assert goal_props["dispense_blow_out_air_volume"]["title"] == "吹样(µL)"
+        assert goal_props["aspirate_hover_seconds"]["title"] == "悬停(秒)"
+
+
+@_skip_if_no_plr
+class TestSplitReverseAspirateAndBlowout:
+    def test_reuse_tip_passes_independent_air_volumes(self) -> None:
+        prcxi = _make_fake_prcxi()
+        cap = _install_capture(prcxi)
+        plate = _DummyPlate("p_tgt")
+        source = _DummyWell("S0", parent=_DummyPlate("p_src"))
+
+        _run(
+            prcxi.one_channel_reuse_tip(
+                [source],
+                plate.children[:1],
+                [_tip_rack()],
+                vols=20.0,
+                blow_out_air_volume=[10],
+                dispense_blow_out_air_volume=[25],
+            )
+        )
+
+        assert len(cap.rounds) == 1
+        assert cap.rounds[0]["blow_out_air_volume"] == [10]
+        assert cap.rounds[0]["dispense_blow_out_air_volume"] == [25]
+
+    def test_reuse_tip_does_not_copy_reverse_aspirate_to_blowout(self) -> None:
+        """只填反向吸液时，吹样保持未填，由设备默认 5µL，不会被拷成同一个值。"""
+        prcxi = _make_fake_prcxi()
+        cap = _install_capture(prcxi)
+        plate = _DummyPlate("p_tgt")
+        source = _DummyWell("S0", parent=_DummyPlate("p_src"))
+
+        _run(
+            prcxi.one_channel_reuse_tip(
+                [source],
+                plate.children[:1],
+                [_tip_rack()],
+                vols=20.0,
+                blow_out_air_volume=[10],
+            )
+        )
+
+        assert cap.rounds[0]["blow_out_air_volume"] == [10]
+        assert cap.rounds[0]["dispense_blow_out_air_volume"] is None
+
+    def test_scalar_air_volumes_are_accepted(self) -> None:
+        prcxi = _make_fake_prcxi()
+        cap = _install_capture(prcxi)
+        plate = _DummyPlate("p_tgt")
+        source = _DummyWell("S0", parent=_DummyPlate("p_src"))
+
+        _run(
+            prcxi.one_channel_reuse_tip(
+                [source],
+                plate.children[:1],
+                [_tip_rack()],
+                vols=20.0,
+                blow_out_air_volume=10,
+                dispense_blow_out_air_volume=15,
+            )
+        )
+
+        assert cap.rounds[0]["blow_out_air_volume"] == [10.0]
+        assert cap.rounds[0]["dispense_blow_out_air_volume"] == [15.0]
+
+    def test_reuse_tip_forwards_aspirate_hover_seconds(self) -> None:
+        prcxi = _make_fake_prcxi()
+        cap = _install_capture(prcxi)
+        plate = _DummyPlate("p_tgt")
+        source = _DummyWell("S0", parent=_DummyPlate("p_src"))
+
+        _run(
+            prcxi.one_channel_reuse_tip(
+                [source],
+                plate.children[:1],
+                [_tip_rack()],
+                vols=20.0,
+                aspirate_hover_seconds=10,
+            )
+        )
+
+        assert cap.rounds[0]["prcxi_aspirate_hover_s"] == 10.0
+
+    def test_transfer_base_sends_independent_air_to_aspirate_and_dispense(self) -> None:
+        """拆开后 aspirate 只带反向吸液，dispense 只带吹样。"""
+        observed: Dict[str, Any] = {}
+
+        async def _fake_aspirate(*args: Any, **kwargs: Any) -> None:
+            observed["aspirate"] = kwargs.get("blow_out_air_volume")
+            observed["prcxi_aspirate_hover_s"] = kwargs.get("prcxi_aspirate_hover_s")
+
+        async def _fake_dispense(*args: Any, **kwargs: Any) -> None:
+            observed["dispense"] = kwargs.get("blow_out_air_volume")
+            observed["dispense_vols"] = args[1] if len(args) > 1 else kwargs.get("vols")
+            observed["prcxi_dispense_blow_ul"] = kwargs.get("prcxi_dispense_blow_ul")
+            observed["prcxi_dispense_blow_override"] = kwargs.get("prcxi_dispense_blow_override")
+            observed["prcxi_dispense_volume"] = kwargs.get("prcxi_dispense_volume")
+
+        async def _noop(*args: Any, **kwargs: Any) -> None:
+            return None
+
+        handler: Any = LiquidHandlerAbstract.__new__(LiquidHandlerAbstract)
+        handler._simulator = False
+        handler._ros_node = None
+        handler.aspirate = _fake_aspirate
+        handler.dispense = _fake_dispense
+        handler.touch_tip = _noop
+        handler.custom_delay = _noop
+
+        source = _DummyWell("A1", parent=_DummyPlate("p_src", num_columns=1))
+        target = _DummyWell("A1", parent=_DummyPlate("p_tgt", num_columns=1))
+
+        _run(
+            handler._transfer_base_method(
+                sources=[source],
+                targets=[target],
+                tip_racks=[],
+                use_channels=[0],
+                asp_vols=[100.0],
+                dis_vols=[100.0],
+                pick_up=False,
+                drop=False,
+                tip_disposal="trash",
+                blow_out_air_volume=[10],
+                dispense_blow_out_air_volume=[25],
+                prcxi_aspirate_hover_s=10,
+                prcxi_dispense_volume=110,
+            )
+        )
+
+        assert observed["aspirate"] == [10.0]
+        assert observed["prcxi_aspirate_hover_s"] == 10
+        # PLR 只带反向吸液气垫，避免 BlowOutVolumeError；吹样走独立参数。
+        assert observed["dispense"] == [10.0]
+        assert observed["prcxi_dispense_blow_override"] is True
+        assert observed["prcxi_dispense_blow_ul"] == 25.0
+        assert observed["prcxi_dispense_volume"] == 110.0
 
 
 @_skip_if_no_plr
